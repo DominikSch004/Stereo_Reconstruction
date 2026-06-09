@@ -1,0 +1,13 @@
+.vscode/
+.DS_Store
+build/
+
+*.d
+*.o
+*.obj
+*.so
+*.a
+
+data/
+!data/.placeholder
+docs/papers/*.pdf
