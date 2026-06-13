@@ -3,7 +3,7 @@
 #include <string>
 #include <FreeImageHelper.h>
 
-/* Assumes path is saved as /data/dtu/Rectified/scan%id%/%image%, loads an image pair to memory from
+/* Assumes path is saved as %datasetDir%/Rectified/scan%id%/%image%, loads an image pair to memory from
 three ids, scan_id, rightImageId and viewIdRight + an optional illumination */
 
 struct StereoPair
@@ -23,6 +23,19 @@ public:
 
         std::string pathLeft = buildImagePath(scanId, viewIdLeft, illumination);
         std::string pathRight = buildImagePath(scanId, viewIdRight, illumination);
+
+        std::cout << "Loading left image: " << pathLeft << "\n";
+        pair.imageLeft = loadToFreeImage(pathLeft);
+
+        std::cout << "Loading right image: " << pathRight << "\n";
+        pair.imageRight = loadToFreeImage(pathRight);
+
+        return pair;
+    }
+
+    StereoPair loadPair(const std::string &pathLeft, const std::string &pathRight)
+    {
+        StereoPair pair;
 
         std::cout << "Loading left image: " << pathLeft << "\n";
         pair.imageLeft = loadToFreeImage(pathLeft);
