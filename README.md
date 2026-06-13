@@ -20,6 +20,7 @@ Classical stereo reconstruction pipeline with two contributions:
 
 ## Dataset
 [DTU MVS 2014](https://roboimagedata.compute.dtu.dk/?page_id=36) — place scenes under `data/dtu/`
+Run ./scripts/download_dtu.sh to download automatically
 
 ## Dependencies
 - OpenCV
