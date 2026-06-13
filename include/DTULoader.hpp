@@ -10,12 +10,12 @@ struct StereoPair
 {
     FreeImageB imageLeft;
     FreeImageB imageRight;
-}
+};
 
 class DTULoader
 {
 public:
-    DTULoader(const std::string &datasetDir) : m_baseDir {}
+    DTULoader(const std::string &datasetDir) : m_baseDir(datasetDir) {}
 
     StereoPair loadPair(int scanId, int viewIdLeft, int viewIdRight, int illumination = 3)
     {
@@ -28,7 +28,7 @@ public:
         pair.imageLeft = loadToFreeImage(pathLeft);
 
         std::cout << "Loading right image: " << pathRight << "\n";
-        pair.imageRight = loadToFreeimage(pathRight);
+        pair.imageRight = loadToFreeImage(pathRight);
 
         return pair;
     }
@@ -39,7 +39,7 @@ private:
     std::string buildImagePath(int scanId, int viewId, int illumination)
     {
         char viewStr[10];
-        snprintf(viewStr, sizeof(viewStr), "%03d", viewId + 1);
+        snprintf(viewStr, sizeof(viewStr), "%03d", viewId);
         return m_baseDir + "/Rectified/scan" + std::to_string(scanId) +
                "/rect_" + std::string(viewStr) + "_" + std::to_string(illumination) + "_r5000.png";
     }
@@ -53,4 +53,4 @@ private:
         }
         return fi;
     }
-}
+};
