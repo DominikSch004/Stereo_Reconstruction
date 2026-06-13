@@ -53,7 +53,7 @@ private:
     {
         char viewStr[10];
         snprintf(viewStr, sizeof(viewStr), "%03d", viewId);
-        return m_baseDir + "/Rectified/scan" + std::to_string(scanId) +
+        return m_baseDir + "/SampleSet/MVS Data/Rectified/scan" + std::to_string(scanId) +
                "/rect_" + std::string(viewStr) + "_" + std::to_string(illumination) + "_r5000.png";
     }
 
