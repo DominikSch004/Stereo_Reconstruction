@@ -8,14 +8,20 @@ int main() {
     std::string rightPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png");
 
     PipelineResult res;
+    // Calibrated rectification using the DTU ground-truth poses.
     if (!runPipeline(leftPath, rightPath, res)) return -1;
 
-    // Compute disparity map
+    // Dense disparity over the geometry-derived search range.
+    const int block = 5;
     auto stereo = cv::StereoSGBM::create(
-        0,    // minDisparity
-        64,   // numDisparities (must be divisible by 16)
-        11     // blockSize
-    );
+        res.minDisp, res.numDisp, block,
+        8  * block * block,      // P1
+        32 * block * block,      // P2
+        1,                       // disp12MaxDiff
+        0,                       // preFilterCap
+        10,                      // uniquenessRatio
+        100,                     // speckleWindowSize
+        2);                      // speckleRange
 
     cv::Mat disparity16;
     stereo->compute(res.rectLeft, res.rectRight, disparity16);
@@ -23,14 +29,8 @@ int main() {
     cv::Mat disparity;
     disparity16.convertTo(disparity, CV_32F, 1.0 / 16.0);
 
-    // Normalize for visualization
-    cv::Mat disp8;
-    cv::normalize(disparity, disp8, 0, 255, cv::NORM_MINMAX, CV_8U);
-    cv::imshow("Disparity", disp8);
-    cv::waitKey(0);
+    buildAndSavePLY(disparity, res, res.numDisp, "pointcloud_opencv.ply");
 
-    const int maxDisp = 64;
-    buildAndSavePLY(disparity, res, maxDisp, "pointcloud_opencv.ply");
-
-    return 0;   
+    std::cout << "Open pointcloud_opencv.ply in MeshLab/CloudCompare to view it.\n";
+    return 0;
 }

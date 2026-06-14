@@ -152,7 +152,7 @@ struct Cloud
 
 static Cloud buildCloud(const PipelineResult& res, const cv::Mat& disp, int numDisp)
 {
-    cv::Mat Q = buildQ(res);
+    cv::Mat Q;
     cv::Mat pts3D;
     cv::reprojectImageTo3D(disp, pts3D, Q, true);
 
