@@ -7,14 +7,11 @@
 
 int main(int argc, char** argv)
 {
-    if (argc != 3)
-    {
-        std::cerr << "Usage: " << argv[0] << " <left_image> <right_image>\n";
-        return -1;
-    }
+    std::string leftPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png");
+    std::string rightPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png");
 
     DTULoader loader("");
-    StereoPair pair = loader.loadPair(std::string(argv[1]), std::string(argv[2]));
+    StereoPair pair = loader.loadPair(leftPath, rightPath);
 
     if (!pair.imageLeft.data || !pair.imageRight.data)
     {

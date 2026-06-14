@@ -3,10 +3,11 @@
 
 int main(int argc, char** argv)
 {
-    if (argc != 3) { std::cerr << "Usage: " << argv[0] << " <left> <right>\n"; return -1; }
+    std::string leftPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png");
+    std::string rightPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png");
 
     PipelineResult res;
-    if (!runPipeline(argv[1], argv[2], res)) return -1;
+    if (!runPipeline(leftPath, rightPath, res)) return -1;
 
     const int numDisp = 128, blockSz = 9;
     std::cout << "SGBM disparity (numDisp=" << numDisp << ", block=" << blockSz << ")...\n";
