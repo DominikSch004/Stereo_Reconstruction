@@ -38,6 +38,11 @@ inline void savePLY(const std::string& path,
                     const std::vector<cv::Vec3b>& colors)
 {
     std::ofstream f(path);
+    if (!f.is_open())
+    {
+        std::cerr << "ERROR: Failed to open " << path << " for writing\n";
+        return;
+    }
     f << "ply\nformat ascii 1.0\n"
       << "element vertex " << pts.size() << "\n"
       << "property float x\nproperty float y\nproperty float z\n"
@@ -108,8 +113,12 @@ inline bool runPipeline(const std::string& pathLeft, const std::string& pathRigh
     std::cout << "Inliers: " << res.inPtsL.size() << "\n";
 
     // Loop & Zhang rectification
-    cv::stereoRectifyUncalibrated(res.inPtsL, res.inPtsR, toCvMat(F), res.imgSize,
-                                  res.H1, res.H2);
+    if (!cv::stereoRectifyUncalibrated(res.inPtsL, res.inPtsR, toCvMat(F), res.imgSize,
+                                       res.H1, res.H2))
+    {
+        std::cerr << "ERROR: stereoRectifyUncalibrated failed\n";
+        return false;
+    }
 
     cv::warpPerspective(grayLeft,  res.rectLeft,  res.H1, res.imgSize);
     cv::warpPerspective(grayRight, res.rectRight, res.H2, res.imgSize);
@@ -134,9 +143,17 @@ inline cv::Mat buildQ(const PipelineResult& res)
 inline void buildAndSavePLY(const cv::Mat& dispFloat, const PipelineResult& res,
                              int numDisp, const std::string& plyPath)
 {
+    cv::Mat disp32f;
+    if (dispFloat.type() == CV_32F)
+        disp32f = dispFloat;
+    else if (dispFloat.type() == CV_16S)
+        dispFloat.convertTo(disp32f, CV_32F, 1.0 / 16.0);
+    else
+        dispFloat.convertTo(disp32f, CV_32F);
+
     cv::Mat Q = buildQ(res);
     cv::Mat points3D;
-    cv::reprojectImageTo3D(dispFloat, points3D, Q, true);
+    cv::reprojectImageTo3D(disp32f, points3D, Q, true);
 
     std::vector<cv::Vec3f> pts;
     std::vector<cv::Vec3b> colors;
@@ -145,7 +162,7 @@ inline void buildAndSavePLY(const cv::Mat& dispFloat, const PipelineResult& res,
     for (int y = 0; y < points3D.rows; ++y)
         for (int x = 0; x < points3D.cols; ++x)
         {
-            if (dispFloat.at<float>(y, x) <= 0.f) continue;
+            if (disp32f.at<float>(y, x) <= 0.f) continue;
             cv::Vec3f p = points3D.at<cv::Vec3f>(y, x);
             if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) continue;
             if (std::abs(p[2]) > maxZ) continue;
@@ -158,7 +175,7 @@ inline void buildAndSavePLY(const cv::Mat& dispFloat, const PipelineResult& res,
 
     // Show disparity map
     cv::Mat dispViz;
-    dispFloat.convertTo(dispViz, CV_8U, 255.0 / numDisp);
+    disp32f.convertTo(dispViz, CV_8U, 255.0 / numDisp);
     cv::applyColorMap(dispViz, dispViz, cv::COLORMAP_TURBO);
     cv::imshow("Disparity", dispViz);
     std::cout << "Press any key to exit...\n";
