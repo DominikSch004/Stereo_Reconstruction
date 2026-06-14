@@ -26,8 +26,8 @@ set_target_properties(FreeImage::FreeImage PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${FREEIMAGE_INCLUDE_DIR}"
 )
 
-add_executable(${PROJECT_NAME} 
-    src/main.cpp 
+add_executable(${PROJECT_NAME}
+    src/main.cpp
     src/FreeImageHelper.cpp
 )
 
@@ -39,6 +39,122 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    ${OpenCV_LIBS}
+    Eigen3::Eigen
+    Ceres::ceres
+    FreeImage::FreeImage
+)
+
+
+
+add_executable(SiftFlann
+    src/sift_flann.cpp
+    src/FreeImageHelper.cpp
+)
+
+target_include_directories(SiftFlann PRIVATE
+    include
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIRS}
+    ${CERES_INCLUDE_DIRS}
+)
+
+target_link_libraries(SiftFlann PRIVATE
+    ${OpenCV_LIBS}
+    Eigen3::Eigen
+    Ceres::ceres
+    FreeImage::FreeImage
+)
+
+add_executable(EightPointRansac
+    src/8point_ransac.cpp
+    src/FreeImageHelper.cpp
+)
+
+target_include_directories(EightPointRansac PRIVATE
+    include
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIRS}
+    ${CERES_INCLUDE_DIRS}
+)
+
+target_link_libraries(EightPointRansac PRIVATE
+    ${OpenCV_LIBS}
+    Eigen3::Eigen
+    Ceres::ceres
+    FreeImage::FreeImage
+)
+
+add_executable(Rectification
+    src/rectification.cpp
+    src/FreeImageHelper.cpp
+)
+
+target_include_directories(Rectification PRIVATE
+    include
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIRS}
+    ${CERES_INCLUDE_DIRS}
+)
+
+target_link_libraries(Rectification PRIVATE
+    ${OpenCV_LIBS}
+    Eigen3::Eigen
+    Ceres::ceres
+    FreeImage::FreeImage
+)
+
+add_executable(DisparityOpenCV
+    src/disparity_opencv.cpp
+    src/FreeImageHelper.cpp
+)
+
+target_include_directories(DisparityOpenCV PRIVATE
+    include
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIRS}
+    ${CERES_INCLUDE_DIRS}
+)
+
+target_link_libraries(DisparityOpenCV PRIVATE
+    ${OpenCV_LIBS}
+    Eigen3::Eigen
+    Ceres::ceres
+    FreeImage::FreeImage
+)
+
+foreach(METHOD ssd sad ncc sgbm)
+    add_executable(Disparity_${METHOD}
+        src/disparity_${METHOD}.cpp
+        src/FreeImageHelper.cpp
+    )
+    target_include_directories(Disparity_${METHOD} PRIVATE
+        include
+        ${OpenCV_INCLUDE_DIRS}
+        ${EIGEN3_INCLUDE_DIRS}
+        ${CERES_INCLUDE_DIRS}
+    )
+    target_link_libraries(Disparity_${METHOD} PRIVATE
+        ${OpenCV_LIBS}
+        Eigen3::Eigen
+        Ceres::ceres
+        FreeImage::FreeImage
+    )
+endforeach()
+
+add_executable(IcpFusion
+    src/icp_fusion.cpp
+    src/FreeImageHelper.cpp
+)
+
+target_include_directories(IcpFusion PRIVATE
+    include
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIRS}
+    ${CERES_INCLUDE_DIRS}
+)
+
+target_link_libraries(IcpFusion PRIVATE
     ${OpenCV_LIBS}
     Eigen3::Eigen
     Ceres::ceres
