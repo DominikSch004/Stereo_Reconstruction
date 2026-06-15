@@ -2,6 +2,7 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <eigen3/Eigen/Dense>
 #include "FreeImageHelper.h"
 
 // Convert Eigen 3x3 to cv::Mat (CV_64F)

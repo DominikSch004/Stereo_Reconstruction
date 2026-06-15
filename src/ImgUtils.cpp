@@ -1,6 +1,7 @@
 #include "ImgUtils.hpp"
 
-cv::Mat Rectification::toCvMat(const Eigen::Matrix3d& M)
+
+cv::Mat toCvMat(const Eigen::Matrix3d& M)
 {
     cv::Mat out(3, 3, CV_64F);
     for (int i = 0; i < 3; ++i)

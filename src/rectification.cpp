@@ -48,7 +48,7 @@ int main()
     // Rectification (Loop & Zhang via stereoRectifyUncalibrated)
     cv::Mat H1, H2;
     if (!Rectification::computeUncalibrated(inL, inR, grayLeft.size(),
-                                             Rectification::toCvMat(F), H1, H2)) {
+                                             toCvMat(F), H1, H2)) {
         std::cerr << "Rectification failed\n";
         return -1;
     }
