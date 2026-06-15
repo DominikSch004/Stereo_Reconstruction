@@ -69,7 +69,7 @@ inline cv::Mat toCvMat(const Eigen::Matrix3d& M)
 
 inline cv::Point2f applyH(const cv::Mat& H, cv::Point2f p)
 {
-    cv::Mat pt = (cv::Mat_<double>(3,1) << p.x, p.y, 1.0);
+    cv::Vec3d pt(p.x, p.y, 1.0);
     cv::Mat r  = H * pt;
     return { float(r.at<double>(0) / r.at<double>(2)),
              float(r.at<double>(1) / r.at<double>(2)) };

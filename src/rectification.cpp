@@ -2,21 +2,19 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include "DTULoader.hpp"
+#include "SiftFlannMatcher.hpp"
 #include "FundamentalMatrix.hpp"
-#include "MatchSerializer.hpp"
-#include "ImgUtils.hpp"
 #include "Rectification.hpp"
+#include "ImgUtils.hpp"
 
-int main(int argc, char** argv)
+int main()
 {
-    std::string leftPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png";
-    std::string rightPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png";
+    const std::string leftPath  = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png";
+    const std::string rightPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png";
 
     DTULoader loader("");
     StereoPair pair = loader.loadPair(leftPath, rightPath);
-
-    if (!pair.imageLeft.data || !pair.imageRight.data)
-    {
+    if (!pair.imageLeft.data || !pair.imageRight.data) {
         std::cerr << "ERROR: Failed to load images\n";
         return -1;
     }
@@ -24,16 +22,14 @@ int main(int argc, char** argv)
     cv::Mat grayLeft  = toGray(pair.imageLeft);
     cv::Mat grayRight = toGray(pair.imageRight);
 
+    // Match
+    SiftFlannMatcher matcher(0.75f);
+    MatchResult result = matcher.match(grayLeft, grayRight);
     std::vector<cv::Point2f> ptsL, ptsR;
-    if (!deserializeMatchPoints("matches.bin", ptsL, ptsR)) {
-        std::cerr << "ERROR: Failed to deserialize matches. Run sift_flann first.\n";
-        return -1;
-    }
+    SiftFlannMatcher::extractPoints(result, ptsL, ptsR);
 
-    std::cout << "Loaded correspondences: " << ptsL.size() << "\n";
-
-    if ((int)ptsL.size() < 8)
-    {
+    std::cout << "Correspondences: " << ptsL.size() << "\n";
+    if ((int)ptsL.size() < 8) {
         std::cerr << "Not enough correspondences\n";
         return -1;
     }
@@ -47,20 +43,16 @@ int main(int argc, char** argv)
 
     std::vector<cv::Point2f> inL, inR;
     for (size_t i = 0; i < ptsL.size(); ++i)
-        if (mask[i]) { inL.push_back(ptsL[i]); inR.push_back(ptsR[i]);
-    }
+        if (mask[i]) { inL.push_back(ptsL[i]); inR.push_back(ptsR[i]); }
 
-    // Loop & Zhang rectification (stereoRectifyUncalibrated implements Loop & Zhang 1999)
+    // Rectification (Loop & Zhang via stereoRectifyUncalibrated)
     cv::Mat H1, H2;
-    if (!Rectification::computeUncalibrated(inL, inR, grayLeft.size(), Rectification::toCvMat(F), H1, H2))
-    {
+    if (!Rectification::computeUncalibrated(inL, inR, grayLeft.size(),
+                                             Rectification::toCvMat(F), H1, H2)) {
         std::cerr << "Rectification failed\n";
         return -1;
     }
 
-    std::cout << "H1:\n" << H1 << "\nH2:\n" << H2 << "\n";
-
-    // Warp images
     cv::Mat rectL, rectR;
     Rectification::warp(grayLeft, grayRight, H1, H2, rectL, rectR);
 
@@ -68,18 +60,14 @@ int main(int argc, char** argv)
     cv::Mat vizL, vizR;
     cv::cvtColor(rectL, vizL, cv::COLOR_GRAY2BGR);
     cv::cvtColor(rectR, vizR, cv::COLOR_GRAY2BGR);
-
-    for (int y = 0; y < vizL.rows; y += 40)
-    {
+    for (int y = 0; y < vizL.rows; y += 40) {
         cv::line(vizL, {0, y}, {vizL.cols, y}, {0, 255, 0});
         cv::line(vizR, {0, y}, {vizR.cols, y}, {0, 255, 0});
     }
 
     cv::Mat combined;
     cv::hconcat(vizL, vizR, combined);
-
     cv::imshow("Rectification", combined);
     cv::waitKey(0);
-
     return 0;
 }

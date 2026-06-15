@@ -4,7 +4,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 
-static cv::Mat Disparity::computeSSD(const cv::Mat& left, const cv::Mat& right,
+cv::Mat Disparity::computeSSD(const cv::Mat& left, const cv::Mat& right,
                           int maxDisp, int blockSize)
 {
     cv::Mat leftF, rightF;
@@ -40,7 +40,7 @@ static cv::Mat Disparity::computeSSD(const cv::Mat& left, const cv::Mat& right,
     return disp;
 }
 
-static cv::Mat Disparity::computeSAD(const cv::Mat& left, const cv::Mat& right,
+cv::Mat Disparity::computeSAD(const cv::Mat& left, const cv::Mat& right,
                           int maxDisp, int blockSize)
 {
     cv::Mat leftF, rightF;
@@ -80,7 +80,7 @@ static cv::Mat Disparity::computeSAD(const cv::Mat& left, const cv::Mat& right,
 
 // NCC = (n*sumLR - sumL*sumR) / sqrt((n*sumLL - sumL^2) * (n*sumRR - sumR^2))
 // Computed efficiently with box filters. We MAXIMISE NCC (best match → 1).
-static cv::Mat Disparity::computeNCC(const cv::Mat& left, const cv::Mat& right,
+cv::Mat Disparity::computeNCC(const cv::Mat& left, const cv::Mat& right,
                           int maxDisp, int blockSize)
 {
     cv::Mat leftF, rightF;
