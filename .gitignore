@@ -9,6 +9,6 @@ build/
 .DS_Store
 data/
 !data/.placeholder
-docs/papers/*.pdf
+docs/papers/*.md
 .idea/
 cmake-build-*/
