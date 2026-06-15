@@ -4,7 +4,7 @@
 #include <string>
 #include <Eigen/Dense>
 #include <opencv2/core.hpp>
-#include "PairPipeline.hpp"
+#include "Pipeline.hpp"
 
 struct Cloud {
     std::vector<Eigen::Vector3f> pts;

@@ -4,9 +4,16 @@
 
 Cloud CloudUtils::build(const PipelineResult& res, const cv::Mat& disp)
 {
-    cv::Mat Q;
+    // Safety Check: Verify Q is a valid 4x4 matrix
+    if (res.Q.empty() || res.Q.rows != 4 || res.Q.cols != 4) {
+        std::cerr << "ERROR: PipelineResult::Q is invalid (size: " 
+                  << res.Q.rows << "x" << res.Q.cols << "). Cannot build cloud.\n";
+        return Cloud(); // Return empty cloud
+    }
+
     cv::Mat pts3D;
-    cv::reprojectImageTo3D(disp, pts3D, Q, true);
+    // Pass res.Q instead of a local uninitialized variable
+    cv::reprojectImageTo3D(disp, pts3D, res.Q, true);
     
     Cloud cloud;
     const float maxZ = 1e4f;

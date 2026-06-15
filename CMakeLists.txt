@@ -33,6 +33,8 @@ add_library(stereo_core
     src/sift_flann_matcher.cpp
     src/ImgUtils.cpp
     src/FreeImageHelper.cpp
+    src/Disparity.cpp
+    src/Pipeline.cpp
 )
 
 target_include_directories(stereo_core PUBLIC
@@ -50,72 +52,31 @@ target_link_libraries(stereo_core PUBLIC
 add_executable(${PROJECT_NAME}
     src/main.cpp
 )
+target_include_directories(${PROJECT_NAME} PRIVATE include ${CERES_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} PRIVATE stereo_core Ceres::ceres)
 
-target_include_directories(${PROJECT_NAME} PRIVATE
-    include
-    ${CERES_INCLUDE_DIRS}
-)
-
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    stereo_core
-    Ceres::ceres
-)
-
-add_executable(SiftFlann
-    src/sift_flann.cpp
-)
-
+add_executable(SiftFlann src/sift_flann.cpp)
 target_include_directories(SiftFlann PRIVATE include)
-
 target_link_libraries(SiftFlann PRIVATE stereo_core)
 
-add_executable(EightPointRansac
-    src/8point_ransac.cpp
-)
-
+add_executable(EightPointRansac src/8point_ransac.cpp)
 target_include_directories(EightPointRansac PRIVATE include)
-
 target_link_libraries(EightPointRansac PRIVATE stereo_core)
 
-add_executable(Rectification
-    src/rectification.cpp
-)
-
+add_executable(Rectification src/rectification.cpp)
 target_include_directories(Rectification PRIVATE include)
-
 target_link_libraries(Rectification PRIVATE stereo_core)
 
-add_executable(DisparityOpenCV
-    src/disparity_opencv.cpp
-    src/Disparity.cpp
+add_executable(Disparity
+    src/disparity.cpp
 )
-
-target_include_directories(DisparityOpenCV PRIVATE include)
-
-target_link_libraries(DisparityOpenCV PRIVATE stereo_core)
-
-foreach(METHOD ssd sad ncc sgbm)
-    add_executable(Disparity_${METHOD}
-        src/disparity_${METHOD}.cpp
-        src/Disparity.cpp
-    )
-    target_include_directories(Disparity_${METHOD} PRIVATE include)
-    target_link_libraries(Disparity_${METHOD} PRIVATE stereo_core)
-endforeach()
+target_include_directories(Disparity PRIVATE include)
+target_link_libraries(Disparity PRIVATE stereo_core)
 
 add_executable(IcpFusion
     src/icp_fusion.cpp
     src/ICP.cpp
     src/Cloud.cpp
-    src/Disparity.cpp
 )
-
-target_include_directories(IcpFusion PRIVATE
-    include
-    ${CERES_INCLUDE_DIRS}
-)
-
-target_link_libraries(IcpFusion PRIVATE
-    stereo_core
-    Ceres::ceres
-)
+target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
+target_link_libraries(IcpFusion PRIVATE stereo_core Ceres::ceres)
