@@ -7,9 +7,6 @@
 class Rectification
 {
 public:
-    static cv::Mat toCvMat(const Eigen::Matrix3d& M);
-
-
     static bool computeUncalibrated(
         const std::vector<cv::Point2f>& ptsL,
         const std::vector<cv::Point2f>& ptsR,

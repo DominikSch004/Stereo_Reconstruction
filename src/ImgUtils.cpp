@@ -1,5 +1,14 @@
 #include "ImgUtils.hpp"
 
+cv::Mat Rectification::toCvMat(const Eigen::Matrix3d& M)
+{
+    cv::Mat out(3, 3, CV_64F);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            out.at<double>(i, j) = M(i, j);
+    return out;
+}
+
 cv::Mat toGray(const FreeImageB& fi)
 {
     cv::Mat rgba(fi.h, fi.w, CV_8UC4, fi.data);

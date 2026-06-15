@@ -2,16 +2,6 @@
 #include <eigen3/Eigen/Dense>
 #include "Rectification.hpp"
 
-// Convert Eigen 3x3 to cv::Mat (CV_64F)
-cv::Mat Rectification::toCvMat(const Eigen::Matrix3d& M)
-{
-    cv::Mat out(3, 3, CV_64F);
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j)
-            out.at<double>(i, j) = M(i, j);
-    return out;
-}
-
 bool Rectification::computeUncalibrated(
     const std::vector<cv::Point2f>& ptsL,
     const std::vector<cv::Point2f>& ptsR,
