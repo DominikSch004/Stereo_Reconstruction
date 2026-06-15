@@ -1,21 +1,11 @@
 #include <iostream>
-#include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
-#include <opencv2/calib3d.hpp>
+#include <opencv2/imgproc.hpp>
 #include "DTULoader.hpp"
 #include "FundamentalMatrix.hpp"
 #include "MatchSerializer.hpp"
 #include "ImgUtils.hpp"
-
-// Convert Eigen 3x3 to cv::Mat (CV_64F)
-static cv::Mat toCvMat(const Eigen::Matrix3d& M)
-{
-    cv::Mat out(3, 3, CV_64F);
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j)
-            out.at<double>(i, j) = M(i, j);
-    return out;
-}
+#include "Rectification.hpp"
 
 int main(int argc, char** argv)
 {
@@ -49,42 +39,46 @@ int main(int argc, char** argv)
     }
 
     // RANSAC + 8-point → F
-    std::vector<bool> inlierMask;
-    Eigen::Matrix3d F = ransacFundamental(ptsL, ptsR, inlierMask);
+    std::vector<bool> mask;
+    Eigen::Matrix3d F = FundamentalMatrix::ransac(ptsL, ptsR, mask);
 
-    int nInliers = std::count(inlierMask.begin(), inlierMask.end(), true);
+    int nInliers = std::count(mask.begin(), mask.end(), true);
     std::cout << "Inliers: " << nInliers << " / " << ptsL.size() << "\n";
 
-    std::vector<cv::Point2f> inPtsL, inPtsR;
+    std::vector<cv::Point2f> inL, inR;
     for (size_t i = 0; i < ptsL.size(); ++i)
-        if (inlierMask[i]) { inPtsL.push_back(ptsL[i]); inPtsR.push_back(ptsR[i]); }
+        if (mask[i]) { inL.push_back(ptsL[i]); inR.push_back(ptsR[i]);
+    }
 
     // Loop & Zhang rectification (stereoRectifyUncalibrated implements Loop & Zhang 1999)
     cv::Mat H1, H2;
-    cv::stereoRectifyUncalibrated(inPtsL, inPtsR, toCvMat(F), grayLeft.size(), H1, H2);
+    if (!Rectification::computeUncalibrated(inL, inR, grayLeft.size(), Rectification::toCvMat(F), H1, H2))
+    {
+        std::cerr << "Rectification failed\n";
+        return -1;
+    }
 
     std::cout << "H1:\n" << H1 << "\nH2:\n" << H2 << "\n";
 
     // Warp images
-    cv::Mat rectLeft, rectRight;
-    cv::warpPerspective(grayLeft,  rectLeft,  H1, grayLeft.size());
-    cv::warpPerspective(grayRight, rectRight, H2, grayRight.size());
+    cv::Mat rectL, rectR;
+    Rectification::warp(grayLeft, grayRight, H1, H2, rectL, rectR);
 
     // Draw horizontal scan lines to verify row-alignment
-    cv::Mat vizLeft, vizRight;
-    cv::cvtColor(rectLeft,  vizLeft,  cv::COLOR_GRAY2BGR);
-    cv::cvtColor(rectRight, vizRight, cv::COLOR_GRAY2BGR);
-    for (int y = 0; y < vizLeft.rows; y += 40)
+    cv::Mat vizL, vizR;
+    cv::cvtColor(rectL, vizL, cv::COLOR_GRAY2BGR);
+    cv::cvtColor(rectR, vizR, cv::COLOR_GRAY2BGR);
+
+    for (int y = 0; y < vizL.rows; y += 40)
     {
-        cv::line(vizLeft,  {0, y}, {vizLeft.cols,  y}, cv::Scalar(0, 200, 0), 1);
-        cv::line(vizRight, {0, y}, {vizRight.cols, y}, cv::Scalar(0, 200, 0), 1);
+        cv::line(vizL, {0, y}, {vizL.cols, y}, {0, 255, 0});
+        cv::line(vizR, {0, y}, {vizR.cols, y}, {0, 255, 0});
     }
 
     cv::Mat combined;
-    cv::hconcat(vizLeft, vizRight, combined);
-    cv::namedWindow("Rectified — Loop & Zhang 1999", cv::WINDOW_AUTOSIZE);
-    cv::imshow("Rectified — Loop & Zhang 1999", combined);
-    std::cout << "Press any key to exit...\n";
+    cv::hconcat(vizL, vizR, combined);
+
+    cv::imshow("Rectification", combined);
     cv::waitKey(0);
 
     return 0;
