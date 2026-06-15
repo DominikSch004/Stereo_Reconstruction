@@ -49,7 +49,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 add_executable(SiftFlann
     src/sift_flann.cpp
+    src/sift_flann_matcher.cpp
+    src/match_serializer.cpp
     src/FreeImageHelper.cpp
+    src/ImgUtils.cpp
 )
 
 target_include_directories(SiftFlann PRIVATE
@@ -68,7 +71,11 @@ target_link_libraries(SiftFlann PRIVATE
 
 add_executable(EightPointRansac
     src/8point_ransac.cpp
+    src/8point_algorithm.cpp
+    src/fundamental_matrix.cpp
     src/FreeImageHelper.cpp
+    src/match_serializer.cpp
+    src/ImgUtils.cpp
 )
 
 target_include_directories(EightPointRansac PRIVATE
@@ -87,7 +94,11 @@ target_link_libraries(EightPointRansac PRIVATE
 
 add_executable(Rectification
     src/rectification.cpp
+    src/match_serializer.cpp
     src/FreeImageHelper.cpp
+    src/ImgUtils.cpp
+    src/fundamental_matrix.cpp
+    src/8point_algorithm.cpp
 )
 
 target_include_directories(Rectification PRIVATE
@@ -145,6 +156,8 @@ endforeach()
 add_executable(IcpFusion
     src/icp_fusion.cpp
     src/FreeImageHelper.cpp
+    src/fundamental_matrix.cpp
+    src/8point_algorithm.cpp
 )
 
 target_include_directories(IcpFusion PRIVATE

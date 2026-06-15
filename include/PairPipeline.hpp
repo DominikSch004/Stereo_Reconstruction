@@ -46,7 +46,7 @@ inline bool runPipeline(const StereoPair& pair, PipelineResult& res)
     if ((int)ptsL.size() < 8) { std::cerr << "Not enough correspondences\n"; return false; }
 
     std::vector<bool> mask;
-    Eigen::Matrix3d F = ransacFundamental(ptsL, ptsR, mask);
+    Eigen::Matrix3d F = FundamentalMatrix::ransac(ptsL, ptsR, mask);
 
     for (size_t i = 0; i < ptsL.size(); ++i)
         if (mask[i]) { res.inPtsL.push_back(ptsL[i]); res.inPtsR.push_back(ptsR[i]); }
