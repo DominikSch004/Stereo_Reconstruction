@@ -3,14 +3,8 @@
 #include <opencv2/highgui.hpp>
 #include "DTULoader.hpp"
 #include "SiftFlannMatcher.hpp"
-
-static cv::Mat toGray(const FreeImageB& fi)
-{
-    cv::Mat rgba(fi.h, fi.w, CV_8UC4, fi.data);
-    cv::Mat gray;
-    cv::cvtColor(rgba, gray, cv::COLOR_RGBA2GRAY);
-    return gray;
-}
+#include "MatchSerializer.hpp"
+#include "ImgUtils.hpp"
 
 int main(int argc, char** argv)
 {
@@ -33,6 +27,10 @@ int main(int argc, char** argv)
     std::cout << "Keypoints  — left: " << result.keypointsLeft.size()
               << ", right: "           << result.keypointsRight.size() << "\n"
               << "Matches passed ratio test: " << result.matches.size() << "\n";
+
+    std::vector<cv::Point2f> ptsLeft, ptsRight;
+    SiftFlannMatcher::extractPoints(result, ptsLeft, ptsRight);
+    serializeMatchPoints("matches.bin", ptsLeft, ptsRight);
 
     cv::Mat vis;
     cv::drawMatches(grayLeft,  result.keypointsLeft,

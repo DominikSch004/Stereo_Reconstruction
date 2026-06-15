@@ -1,10 +1,11 @@
 #include <iostream>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
-#include <opencv2/features2d.hpp>
 #include <opencv2/calib3d.hpp>
 #include "DTULoader.hpp"
 #include "FundamentalMatrix.hpp"
+#include "MatchSerializer.hpp"
+#include "ImgUtils.hpp"
 
 // Convert Eigen 3x3 to cv::Mat (CV_64F)
 static cv::Mat toCvMat(const Eigen::Matrix3d& M)
@@ -18,8 +19,8 @@ static cv::Mat toCvMat(const Eigen::Matrix3d& M)
 
 int main(int argc, char** argv)
 {
-    std::string leftPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png");
-    std::string rightPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png");
+    std::string leftPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png";
+    std::string rightPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png";
 
     DTULoader loader("");
     StereoPair pair = loader.loadPair(leftPath, rightPath);
@@ -30,37 +31,16 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    auto toGray = [](const FreeImageB& fi) {
-        cv::Mat rgba(fi.h, fi.w, CV_8UC4, fi.data);
-        cv::Mat gray;
-        cv::cvtColor(rgba, gray, cv::COLOR_RGBA2GRAY);
-        return gray;
-    };
-
     cv::Mat grayLeft  = toGray(pair.imageLeft);
     cv::Mat grayRight = toGray(pair.imageRight);
 
-    // SIFT + FLANN
-    auto sift = cv::SIFT::create();
-    std::vector<cv::KeyPoint> kpLeft, kpRight;
-    cv::Mat descLeft, descRight;
-    sift->detectAndCompute(grayLeft,  cv::noArray(), kpLeft,  descLeft);
-    sift->detectAndCompute(grayRight, cv::noArray(), kpRight, descRight);
-
-    cv::FlannBasedMatcher flann;
-    std::vector<std::vector<cv::DMatch>> knnMatches;
-    flann.knnMatch(descLeft, descRight, knnMatches, 2);
-
-    const float ratioThresh = 0.75f;
     std::vector<cv::Point2f> ptsL, ptsR;
-    for (const auto& m : knnMatches)
-        if (m[0].distance < ratioThresh * m[1].distance)
-        {
-            ptsL.push_back(kpLeft[m[0].queryIdx].pt);
-            ptsR.push_back(kpRight[m[0].trainIdx].pt);
-        }
+    if (!deserializeMatchPoints("matches.bin", ptsL, ptsR)) {
+        std::cerr << "ERROR: Failed to deserialize matches. Run sift_flann first.\n";
+        return -1;
+    }
 
-    std::cout << "Correspondences after ratio test: " << ptsL.size() << "\n";
+    std::cout << "Loaded correspondences: " << ptsL.size() << "\n";
 
     if ((int)ptsL.size() < 8)
     {
