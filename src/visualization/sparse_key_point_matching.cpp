@@ -2,7 +2,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include "DTULoader.hpp"
-#include "SiftFlannMatcher.hpp"
+#include "SparseKeyPointMatcher.hpp"
 #include "ImgUtils.hpp"
 
 int main()
@@ -20,7 +20,7 @@ int main()
     cv::Mat grayLeft  = toGray(pair.imageLeft);
     cv::Mat grayRight = toGray(pair.imageRight);
 
-    SiftFlannMatcher matcher(0.75f);
+    SparseKeyPointMatcher matcher(0.75f);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
     std::cout << "Keypoints — left: " << result.keypointsLeft.size()
@@ -34,7 +34,7 @@ int main()
                     cv::Scalar::all(-1), cv::Scalar::all(-1), {},
                     cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 
-    cv::imshow("SIFT + FLANN correspondences", vis);
+    cv::imshow("Sparse Key Point Matching correspondences", vis);
     cv::waitKey(0);
     return 0;
 }

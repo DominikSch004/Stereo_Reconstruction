@@ -10,15 +10,14 @@ struct MatchResult {
     std::vector<cv::DMatch>   matches;
 };
 
-class SiftFlannMatcher {
+class SparseKeyPointMatcher {
 public:
-    explicit SiftFlannMatcher(float ratioThreshold = 0.75f);
+    explicit SparseKeyPointMatcher(float ratioThreshold = 0.75f);
 
-    // Detect keypoints, compute descriptors, run ratio-test filtered matching.
+    // Detect keypoints, compute descriptors, run ratio-test filtered matching via OpenCV (SIFT + FLANN)
     MatchResult match(const cv::Mat& grayLeft, const cv::Mat& grayRight) const;
 
     // Extract matched point coordinates as parallel float vectors.
-    // Output is ready to pass directly to next stage in pipeline
     static void extractPoints(const MatchResult& result,
                               std::vector<cv::Point2f>& ptsLeft,
                               std::vector<cv::Point2f>& ptsRight);
