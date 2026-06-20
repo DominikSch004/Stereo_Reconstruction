@@ -30,7 +30,7 @@ add_library(stereo_core
     src/components/fundamental_matrix.cpp
     src/components/8point_algorithm.cpp
     src/components/Rectification_compute.cpp
-    src/components/SparseKeyPointMatcher.cpp
+    src/components/sift_flann_matcher.cpp
     src/Utils/ImgUtils.cpp
     src/Utils/FreeImageHelper.cpp
     src/Utils/PlyUtils.cpp
@@ -57,9 +57,9 @@ add_executable(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE include ${CERES_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} PRIVATE stereo_core Ceres::ceres)
 
-add_executable(SparseKeyPointMatching src/visualization/sparse_key_point_matching.cpp)
-target_include_directories(SparseKeyPointMatching PRIVATE include)
-target_link_libraries(SparseKeyPointMatching PRIVATE stereo_core)
+add_executable(SiftFlann src/visualization/sift_flann.cpp)
+target_include_directories(SiftFlann PRIVATE include)
+target_link_libraries(SiftFlann PRIVATE stereo_core)
 
 add_executable(EightPointRansac src/visualization/8point_ransac.cpp)
 target_include_directories(EightPointRansac PRIVATE include)
