@@ -1,7 +1,9 @@
 #include <random>
 #include <algorithm>
+#include <opencv2/calib3d.hpp>
 #include "FundamentalMatrix.hpp"
 #include "8PointAlgorithm.hpp"
+#include "ImgUtils.hpp"
 
 double FundamentalMatrix::sampsonError(
     const Eigen::Matrix3d& F,
@@ -104,4 +106,51 @@ Eigen::Matrix3d FundamentalMatrix::ransac(
     }
 
     return bestF;
+}
+
+// Manual backend: hand-rolled RANSAC + normalized 8-point.
+static cv::Mat computeManual(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    std::vector<uchar>& inlierMask,
+    double threshold,
+    int maxIter)
+{
+    std::vector<bool> mask;
+    Eigen::Matrix3d F = FundamentalMatrix::ransac(ptsL, ptsR, mask, threshold, maxIter);
+
+    inlierMask.assign(mask.size(), 0);
+    for (size_t i = 0; i < mask.size(); ++i)
+        inlierMask[i] = mask[i] ? 1 : 0;
+
+    return toCvMat(F);
+}
+
+// OpenCV backend: cv::findFundamentalMat with FM_RANSAC (8-point).
+static cv::Mat computeOpenCV(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    std::vector<uchar>& inlierMask,
+    double threshold,
+    double confidence)
+{
+    return cv::findFundamentalMat(ptsL, ptsR, cv::FM_RANSAC, threshold, confidence, inlierMask);
+}
+
+cv::Mat FundamentalMatrix::compute(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    std::vector<uchar>& inlierMask,
+    FundamentalMethod method,
+    double threshold,
+    double confidence,
+    int maxIter)
+{
+    switch (method) {
+        case FundamentalMethod::Manual:
+            return computeManual(ptsL, ptsR, inlierMask, threshold, maxIter);
+        case FundamentalMethod::OpenCV:
+        default:
+            return computeOpenCV(ptsL, ptsR, inlierMask, threshold, confidence);
+    }
 }
