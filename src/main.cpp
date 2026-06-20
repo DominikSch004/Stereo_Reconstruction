@@ -1,36 +1,50 @@
+#include "Pipeline.hpp"
+#include "Disparity.hpp"
 #include <iostream>
-#include <opencv2/core.hpp>
-#include "DTULoader.hpp"
-#include <opencv2/imgproc.hpp>
-#include <opencv2/highgui.hpp>
 
 int main()
 {
-    std::string datasetPath = "../data/dtu";
+    std::string leftPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png");
+    std::string rightPath("../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png");
 
-    DTULoader loader(datasetPath);
-    StereoPair pair = loader.loadPair(1, 1, 2);
-
-    if (pair.imageLeft.data == nullptr || pair.imageRight.data == nullptr)
+    std::cout << "=== Running Stereo Pipeline Setup ===\n";
+    PipelineResult res;
+    if (!runPipeline(leftPath, rightPath, res))
     {
-        std::cerr << "\nERROR: Failed to load images\n";
+        std::cerr << "ERROR: Pipeline execution failed.\n";
         return -1;
     }
 
-    cv::Mat cvLeft(pair.imageLeft.h, pair.imageLeft.w, CV_8UC4, pair.imageLeft.data);
-    cv::Mat bgrLeft;
-    cv::cvtColor(cvLeft, bgrLeft, cv::COLOR_RGBA2BGR);
+    // Block configuration assignments
+    const int blockSzCustom = 11;
+    const int blockSzSgbm   = 9;
+    const int blockSzOpenCV = 5;
 
-    cv::Mat cvRight(pair.imageRight.h, pair.imageRight.w, CV_8UC4, pair.imageRight.data);
-    cv::Mat bgrRight;
-    cv::cvtColor(cvRight, bgrRight, cv::COLOR_RGBA2BGR);
+    // NCC
+    std::cout << "\n--- Computing Custom NCC Disparity ---\n";
+    cv::Mat dispNCC = Disparity::computeNCC(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSzCustom);
+    buildAndSavePLY(dispNCC, res, res.numDisp, "pointcloud_ncc.ply");
 
-    cv::namedWindow("Left", cv::WINDOW_AUTOSIZE);
-    cv::namedWindow("Right", cv::WINDOW_AUTOSIZE);
-    cv::imshow("Left", bgrLeft);
-    cv::imshow("Right", bgrRight);
-    std::cout << "Press any key in an image window to exit...\n";
-    cv::waitKey(0);
+    // SAD
+    std::cout << "\n--- Computing Custom SAD Disparity ---\n";
+    cv::Mat dispSAD = Disparity::computeSAD(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSzCustom);
+    buildAndSavePLY(dispSAD, res, res.numDisp, "pointcloud_sad.ply");
 
+    // SSD
+    std::cout << "\n--- Computing Custom SSD Disparity ---\n";
+    cv::Mat dispSSD = Disparity::computeSSD(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSzCustom);
+    buildAndSavePLY(dispSSD, res, res.numDisp, "pointcloud_ssd.ply");
+
+    // SGBM Custom Configuration
+    std::cout << "\n--- Computing Custom SGBM Disparity ---\n";
+    cv::Mat dispSGBM = Disparity::computeSGBM(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSzSgbm);
+    buildAndSavePLY(dispSGBM, res, res.numDisp, "pointcloud_sgbm.ply");
+
+    // OpenCV Calibration-Driven SGBM
+    std::cout << "\n--- Computing OpenCV SGBM Disparity ---\n";
+    cv::Mat dispOpenCV = Disparity::computeOpenCVSGBM(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSzOpenCV);
+    buildAndSavePLY(dispOpenCV, res, res.numDisp, "pointcloud_opencv.ply");
+
+    std::cout << "\n=== All disparity evaluations completed successfully ===\n";
     return 0;
 }

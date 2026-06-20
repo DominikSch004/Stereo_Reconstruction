@@ -128,8 +128,14 @@ bool runPipeline(const std::string& pathLeft, const std::string& pathRight, Pipe
         return false;
     }
 
-    std::vector<bool> RansacMask;
-    Eigen::Matrix3d F_eigen = FundamentalMatrix::ransac(ptsL, ptsR, RansacMask);
+    //std::vector<bool> RansacMask;
+    //Eigen::Matrix3d F_eigen = FundamentalMatrix::ransac(ptsL, ptsR, RansacMask);
+
+    // Use the opencv implementation of RANSAC + 8-point to get the fundamental matrix and inlier mask
+    std::vector<uchar> RansacMask;
+    cv::Mat F_cv = cv::findFundamentalMat(ptsL, ptsR, cv::FM_RANSAC, 1.0, 0.99, RansacMask);
+    //Eigen::Matrix3d F_eigen;
+    //cv::cv2eigen(F_cv, F_eigen);
 
     // Filter down to active fundamental geometry inliers
     std::vector<cv::Point2f> inL, inR;
@@ -146,7 +152,7 @@ bool runPipeline(const std::string& pathLeft, const std::string& pathRight, Pipe
     }
 
     // E = K^T * F * K
-    cv::Mat F_cv = toCvMat(F_eigen);
+    //cv::Mat F_cv = toCvMat(F_eigen);
     cv::Mat E = K.t() * F_cv * K;
     
     // Recover relative transformations R and t from your computed Essential Matrix

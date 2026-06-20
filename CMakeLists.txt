@@ -27,13 +27,13 @@ set_target_properties(FreeImage::FreeImage PROPERTIES
 )
 
 add_library(stereo_core
-    src/fundamental_matrix.cpp
-    src/8point_algorithm.cpp
-    src/Rectification_compute.cpp
-    src/sift_flann_matcher.cpp
-    src/ImgUtils.cpp
-    src/FreeImageHelper.cpp
-    src/Disparity.cpp
+    src/components/fundamental_matrix.cpp
+    src/components/8point_algorithm.cpp
+    src/components/Rectification_compute.cpp
+    src/components/sift_flann_matcher.cpp
+    src/Utils/ImgUtils.cpp
+    src/Utils/FreeImageHelper.cpp
+    src/components/Disparity.cpp
     src/Pipeline.cpp
 )
 
@@ -55,23 +55,17 @@ add_executable(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE include ${CERES_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} PRIVATE stereo_core Ceres::ceres)
 
-add_executable(SiftFlann src/sift_flann.cpp)
+add_executable(SiftFlann src/visualization/sift_flann.cpp)
 target_include_directories(SiftFlann PRIVATE include)
 target_link_libraries(SiftFlann PRIVATE stereo_core)
 
-add_executable(EightPointRansac src/8point_ransac.cpp)
+add_executable(EightPointRansac src/visualization/8point_ransac.cpp)
 target_include_directories(EightPointRansac PRIVATE include)
 target_link_libraries(EightPointRansac PRIVATE stereo_core)
 
-add_executable(Rectification src/rectification.cpp)
+add_executable(Rectification src/visualization/rectification.cpp)
 target_include_directories(Rectification PRIVATE include)
 target_link_libraries(Rectification PRIVATE stereo_core)
-
-add_executable(Disparity
-    src/disparity.cpp
-)
-target_include_directories(Disparity PRIVATE include)
-target_link_libraries(Disparity PRIVATE stereo_core)
 
 add_executable(IcpFusion
     src/icp_fusion.cpp
