@@ -65,8 +65,12 @@ target_include_directories(EightPointRansac PRIVATE include)
 target_link_libraries(EightPointRansac PRIVATE stereo_core)
 
 add_executable(StereoRectification src/visualization/stereo_rectification.cpp)
-target_include_directories(Rectification PRIVATE include)
-target_link_libraries(Rectification PRIVATE stereo_core)
+target_include_directories(StereoRectification PRIVATE include)
+target_link_libraries(StereoRectification PRIVATE stereo_core)
+
+add_executable(StereoMatching src/visualization/stereo_matching.cpp)
+target_include_directories(StereoMatching PRIVATE include)
+target_link_libraries(StereoMatching PRIVATE stereo_core)
 
 add_executable(IcpFusion
     src/icp_fusion.cpp
