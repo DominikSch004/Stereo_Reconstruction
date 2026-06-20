@@ -27,8 +27,7 @@ set_target_properties(FreeImage::FreeImage PROPERTIES
 )
 
 add_library(stereo_core
-    src/components/fundamental_matrix.cpp
-    src/components/8point_algorithm.cpp
+    src/components/FundamentalMatrix.cpp
     src/components/Rectification_compute.cpp
     src/components/SpartKeyPointMatcher.cpp
     src/Utils/ImgUtils.cpp

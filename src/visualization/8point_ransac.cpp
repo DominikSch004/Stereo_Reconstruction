@@ -2,7 +2,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include "DTULoader.hpp"
-#include "SiftFlannMatcher.hpp"
+#include "SparseKeyPointMatcher.hpp"
 #include "FundamentalMatrix.hpp"
 #include "ImgUtils.hpp"
 
@@ -21,24 +21,27 @@ int main()
     cv::Mat grayLeft  = toGray(pair.imageLeft);
     cv::Mat grayRight = toGray(pair.imageRight);
 
-    SiftFlannMatcher matcher(0.75f);
+    SparseKeyPointMatcher matcher(0.75f);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
     std::vector<cv::Point2f> ptsL, ptsR;
-    SiftFlannMatcher::extractPoints(result, ptsL, ptsR);
+    SparseKeyPointMatcher::extractPoints(result, ptsL, ptsR);
 
-    std::cout << "Correspondences: " << ptsL.size() << "\n";
-    if ((int)ptsL.size() < 8) {
-        std::cerr << "Not enough correspondences\n";
+    std::cout << "Correspondences found: " << ptsL.size() << "\n";
+    if (ptsL.size() < 8) {
+        std::cerr << "Insufficient point pairs available for epipolar calculations\n";
         return -1;
     }
 
     std::vector<bool> inliers;
-    Eigen::Matrix3d F = FundamentalMatrix::ransac(ptsL, ptsR, inliers);
+    
+    // SWITCH TESTING BACKENDS HERE EASILY:
+    // Eigen::Matrix3d F = FundamentalMatrix::computeCustomRANSAC(ptsL, ptsR, inliers);
+    Eigen::Matrix3d F = FundamentalMatrix::computeOpenCVRANSAC(ptsL, ptsR, inliers);
 
     int nIn = std::count(inliers.begin(), inliers.end(), true);
-    std::cout << "Inliers: " << nIn << " / " << ptsL.size() << "\n";
-    std::cout << "F:\n" << F << "\n";
+    std::cout << "Robust Inliers: " << nIn << " / " << ptsL.size() << "\n";
+    std::cout << "Computed Matrix F:\n" << F << "\n";
 
     // Visualize epipolar lines for first 20 inliers
     cv::Mat vizL, vizR;
@@ -65,7 +68,7 @@ int main()
 
     cv::Mat combined;
     cv::hconcat(vizL, vizR, combined);
-    cv::imshow("Epipolar lines (RANSAC + 8-point)", combined);
+    cv::imshow("Epipolar Estimation Benchmarking Validation", combined);
     cv::waitKey(0);
     return 0;
 }
