@@ -34,6 +34,7 @@ add_library(stereo_core
     src/Utils/ImgUtils.cpp
     src/Utils/FreeImageHelper.cpp
     src/components/Disparity.cpp
+    src/components/Triangulation.cpp
     src/Pipeline.cpp
 )
 
