@@ -19,6 +19,7 @@ enum class TriangulationMethod {
 class Triangulation
 {
 public:
+    // TODO: This was method was left here but not sure where it's used in code
     /**
      * @brief Sparse multi-point triangulation helper.
      */

@@ -33,6 +33,7 @@ add_library(stereo_core STATIC
     src/components/Rectification.cpp
     src/components/Disparity.cpp
     src/components/Triangulation.cpp
+    src/components/ICP.cpp
     src/Utils/ImgUtils.cpp
     src/Utils/FreeImageHelper.cpp
     src/Utils/PlyUtils.cpp
@@ -62,9 +63,9 @@ register_visualisation_target(StereoRectification    src/visualization/stereo_re
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
 register_visualisation_target(PipelineEvaluation     src/visualization/pipeline_eval.cpp)
 
-# add_executable(IcpFusion
-#     src/icp_fusion.cpp
-#     src/ICP.cpp
-# )
-# target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
-# target_link_libraries(IcpFusion PRIVATE stereo_core Ceres::ceres)
+add_executable(IcpFusion
+    src/visualization/icp_fusion.cpp
+    src/components/ICP.cpp
+)
+target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
+target_link_libraries(IcpFusion PRIVATE stereo_core Ceres::ceres)
