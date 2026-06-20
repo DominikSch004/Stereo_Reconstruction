@@ -17,7 +17,8 @@ class CloudUtils
 public:
     static Cloud build(
         const PipelineResult& res,
-        const cv::Mat& disparity);
+        const cv::Mat& disparity,
+        TriangulationMethod method = TriangulationMethod::OpenCV);
 
     static void savePLY(
         const std::string& path,

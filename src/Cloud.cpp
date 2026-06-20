@@ -1,20 +1,13 @@
 #include "Cloud.hpp"
+#include "Triangulation.hpp"
 #include <opencv2/calib3d.hpp>
 #include <fstream>
 
-Cloud CloudUtils::build(const PipelineResult& res, const cv::Mat& disp)
+Cloud CloudUtils::build(const PipelineResult& res, const cv::Mat& disp, TriangulationMethod method)
 {
-    // Safety Check: Verify Q is a valid 4x4 matrix
-    if (res.Q.empty() || res.Q.rows != 4 || res.Q.cols != 4) {
-        std::cerr << "ERROR: PipelineResult::Q is invalid (size: " 
-                  << res.Q.rows << "x" << res.Q.cols << "). Cannot build cloud.\n";
-        return Cloud(); // Return empty cloud
-    }
+    cv::Mat pts3D = reprojectDisparityTo3D(disp, res, method);
+    if (pts3D.empty()) return Cloud(); // Return empty cloud
 
-    cv::Mat pts3D;
-    // Pass res.Q instead of a local uninitialized variable
-    cv::reprojectImageTo3D(disp, pts3D, res.Q, true);
-    
     Cloud cloud;
     const float maxZ = 1e4f;
     for (int y = 0; y < pts3D.rows; ++y)

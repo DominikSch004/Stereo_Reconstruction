@@ -1,4 +1,6 @@
 #include "Pipeline.hpp"
+#include "Triangulation.hpp"
+#include "Rectification.hpp"
 #include "ImgUtils.hpp"
 #include "SiftFlannMatcher.hpp"
 #include "FundamentalMatrix.hpp"
@@ -7,38 +9,6 @@
 #include <fstream>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
-
-cv::Vec3d triangulate(const cv::Mat &p1, const cv::Mat &p2, const cv::Vec2d &u1, const cv::Vec2d &u2) 
-{
-    cv::Matx43d A(u1(0)*p1.at<double>(2, 0) - p1.at<double>(0, 0),
-                  u1(0)*p1.at<double>(2, 1) - p1.at<double>(0, 1),
-                  u1(0)*p1.at<double>(2, 2) - p1.at<double>(0, 2),
-                  u1(1)*p1.at<double>(2, 0) - p1.at<double>(1, 0),
-                  u1(1)*p1.at<double>(2, 1) - p1.at<double>(1, 1),
-                  u1(1)*p1.at<double>(2, 2) - p1.at<double>(1, 2),
-                  u2(0)*p2.at<double>(2, 0) - p2.at<double>(0, 0),
-                  u2(0)*p2.at<double>(2, 1) - p2.at<double>(0, 1),
-                  u2(0)*p2.at<double>(2, 2) - p2.at<double>(0, 2),
-                  u2(1)*p2.at<double>(2, 0) - p2.at<double>(1, 0),
-                  u2(1)*p2.at<double>(2, 1) - p2.at<double>(1, 1),
-                  u2(1)*p2.at<double>(2, 2) - p2.at<double>(1, 2));
-
-    cv::Matx41d B(p1.at<double>(0, 3) - u1(0)*p1.at<double>(2, 3),
-                  p1.at<double>(1, 3) - u1(1)*p1.at<double>(2, 3),
-                  p2.at<double>(0, 3) - u2(0)*p2.at<double>(2, 3),
-                  p2.at<double>(1, 3) - u2(1)*p2.at<double>(2, 3));
-
-    cv::Vec3d X;
-    cv::solve(A, B, X, cv::DECOMP_SVD);
-    return X;
-}
-
-void triangulate_points(const cv::Mat &p1, const cv::Mat &p2, const std::vector<cv::Vec2d> &pts1, const std::vector<cv::Vec2d> &pts2, std::vector<cv::Vec3d> &pts3D) 
-{
-    for (size_t i = 0; i < pts1.size(); i++) {
-        pts3D.push_back(triangulate(p1, p2, pts1[i], pts2[i]));
-    }
-}
 
 void savePLY(const std::string& path, const std::vector<cv::Vec3f>& pts, const std::vector<cv::Vec3b>& colors) 
 {
@@ -58,32 +28,6 @@ void savePLY(const std::string& path, const std::vector<cv::Vec3f>& pts, const s
     std::cout << "Saved " << pts.size() << " points to " << path << "\n";
 }
 
-cv::Mat loadDTUProjection(const std::string& imgPath) 
-{
-    size_t rpos = imgPath.find("Rectified");
-    size_t fpos = imgPath.find("rect_");
-    if (rpos == std::string::npos || fpos == std::string::npos) {
-        std::cerr << "ERROR: cannot parse view id from " << imgPath << "\n";
-        return cv::Mat();
-    }
-    std::string base = imgPath.substr(0, rpos);
-    std::string id   = imgPath.substr(fpos + 5, 3);
-    std::string calPath = base + "Calibration/cal18/pos_" + id + ".txt";
-
-    std::ifstream f(calPath);
-    if (!f.is_open()) {
-        std::cerr << "ERROR: cannot open calibration file " << calPath << "\n";
-        return cv::Mat();
-    }
-    cv::Mat P(3, 4, CV_64F);
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 4; ++j)
-            if (!(f >> P.at<double>(i, j))) {
-                std::cerr << "ERROR: malformed calibration file " << calPath << "\n";
-                return cv::Mat();
-            }
-    return P;
-}
 
 bool runPipeline(const std::string& pathLeft, const std::string& pathRight, PipelineResult& res)
 {
@@ -98,12 +42,10 @@ bool runPipeline(const std::string& pathLeft, const std::string& pathRight, Pipe
     cv::Mat gray1 = toGray(pair.imageLeft);
     cv::Mat gray2 = toGray(pair.imageRight);
 
-    cv::Mat P1 = loadDTUProjection(pathLeft);
+    cv::Mat P1 = loader.loadDTUProjection(pathLeft);
     if (P1.empty()) return false;
 
-    cv::Mat K, R1, C1_hom;
-    cv::decomposeProjectionMatrix(P1, K, R1, C1_hom);
-    K.convertTo(K, CV_64F);
+    cv::Mat K = loader.getIntrinsicFromProjection(P1);
 
     const double scale = 0.5;
     cv::Size sz(cvRound(gray1.cols * scale), cvRound(gray1.rows * scale));
@@ -117,6 +59,7 @@ bool runPipeline(const std::string& pathLeft, const std::string& pathRight, Pipe
     K.at<double>(0, 2) *= scale; 
     K.at<double>(1, 2) *= scale; 
 
+    // Extract SIFT features and match with FLANN
     SiftFlannMatcher matcher(0.75f);
     MatchResult matchRes = matcher.match(gray1, gray2);
     
@@ -178,21 +121,23 @@ bool runPipeline(const std::string& pathLeft, const std::string& pathRight, Pipe
     cv::Mat identity3x3 = cv::Mat::eye(3, 3, CV_64F);
     identity3x3.copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)));
 
+    RectifyResult rect;
+    if (!Rectification::computeCalibrated(K, R, t, sz, gray1, gray2, bgr1, rect)) {
+        std::cerr << "ERROR: stereo rectification failed.\n";
+        return false;
+    }
+    res.Q         = rect.Q;
+    res.P1r       = rect.P1;
+    res.P2r       = rect.P2;
+    res.rectLeft  = rect.rectLeft;
+    res.rectRight = rect.rectRight;
+    res.rectColor = rect.rectColor;
+
     cv::Mat dist = cv::Mat::zeros(5, 1, CV_64F);
-    cv::Mat R1r, R2r, P1r, P2r;
-    cv::stereoRectify(K, dist, K, dist, sz, R, t, R1r, R2r, P1r, P2r, res.Q, cv::CALIB_ZERO_DISPARITY, -1);
-
-    cv::Mat mapAx, mapAy, mapBx, mapBy;
-    cv::initUndistortRectifyMap(K, dist, R1r, P1r, sz, CV_16SC2, mapAx, mapAy);
-    cv::initUndistortRectifyMap(K, dist, R2r, P2r, sz, CV_16SC2, mapBx, mapBy);
-    cv::remap(gray1, res.rectLeft,  mapAx, mapAy, cv::INTER_LINEAR);
-    cv::remap(gray2, res.rectRight, mapBx, mapBy, cv::INTER_LINEAR);
-    cv::remap(bgr1,  res.rectColor, mapAx, mapAy, cv::INTER_LINEAR);
-
     std::vector<float> disps;
     std::vector<cv::Point2f> rL, rR;
-    cv::undistortPoints(res.inPtsL, rL, K, dist, R1r, P1r);
-    cv::undistortPoints(res.inPtsR, rR, K, dist, R2r, P2r);
+    cv::undistortPoints(res.inPtsL, rL, K, dist, rect.R1, rect.P1);
+    cv::undistortPoints(res.inPtsR, rR, K, dist, rect.R2, rect.P2);
     for (size_t i = 0; i < rL.size(); ++i) {
         disps.push_back(rL[i].x - rR[i].x);
     }
@@ -215,7 +160,8 @@ bool runPipeline(const std::string& pathLeft, const std::string& pathRight, Pipe
     return true;
 }
 
-void buildAndSavePLY(const cv::Mat& dispFloat, const PipelineResult& res, int numDisp, const std::string& plyPath)
+void buildAndSavePLY(const cv::Mat& dispFloat, const PipelineResult& res, int numDisp, const std::string& plyPath,
+                     TriangulationMethod method)
 {
     cv::Mat disp32f;
     if (dispFloat.type() == CV_32F)
@@ -225,8 +171,8 @@ void buildAndSavePLY(const cv::Mat& dispFloat, const PipelineResult& res, int nu
     else
         dispFloat.convertTo(disp32f, CV_32F);
 
-    cv::Mat points3D;
-    cv::reprojectImageTo3D(disp32f, points3D, res.Q, true);
+    cv::Mat points3D = reprojectDisparityTo3D(disp32f, res, method);
+    if (points3D.empty()) return;
 
     const cv::Matx33d R = res.camToWorld.colRange(0, 3);
     const cv::Vec3d   t(res.camToWorld.at<double>(0, 3),
