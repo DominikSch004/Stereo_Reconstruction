@@ -34,9 +34,9 @@ add_library(stereo_core STATIC
     src/components/Disparity.cpp
     src/components/Triangulation.cpp
     src/components/ICP.cpp
-    src/Utils/ImgUtils.cpp
-    src/Utils/FreeImageHelper.cpp
-    src/Utils/PlyUtils.cpp
+    src/utils/ImgUtils.cpp
+    src/utils/FreeImageHelper.cpp
+    src/utils/PlyUtils.cpp
 )
 
 target_include_directories(stereo_core PUBLIC
@@ -64,7 +64,7 @@ register_visualisation_target(StereoMatching         src/visualization/stereo_ma
 register_visualisation_target(PipelineEvaluation     src/visualization/pipeline_eval.cpp)
 
 add_executable(IcpFusion
-    src/visualization/icp_fusion.cpp
+    src/icp_fusion.cpp
     src/components/ICP.cpp
 )
 target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
