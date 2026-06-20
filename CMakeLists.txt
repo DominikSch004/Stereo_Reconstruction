@@ -26,21 +26,53 @@ set_target_properties(FreeImage::FreeImage PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${FREEIMAGE_INCLUDE_DIR}"
 )
 
-add_executable(${PROJECT_NAME} 
-    src/main.cpp 
-    src/FreeImageHelper.cpp
+add_library(stereo_core
+    src/components/fundamental_matrix.cpp
+    src/components/8point_algorithm.cpp
+    src/components/Rectification_compute.cpp
+    src/components/sift_flann_matcher.cpp
+    src/Utils/ImgUtils.cpp
+    src/Utils/FreeImageHelper.cpp
+    src/Utils/PlyUtils.cpp
+    src/components/Disparity.cpp
+    src/components/Triangulation.cpp
+    src/Pipeline.cpp
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE
+target_include_directories(stereo_core PUBLIC
     include
     ${OpenCV_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIRS}
-    ${CERES_INCLUDE_DIRS}
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE
+target_link_libraries(stereo_core PUBLIC
     ${OpenCV_LIBS}
     Eigen3::Eigen
-    Ceres::ceres
     FreeImage::FreeImage
 )
+
+add_executable(${PROJECT_NAME}
+    src/main.cpp
+)
+target_include_directories(${PROJECT_NAME} PRIVATE include ${CERES_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} PRIVATE stereo_core Ceres::ceres)
+
+add_executable(SiftFlann src/visualization/sift_flann.cpp)
+target_include_directories(SiftFlann PRIVATE include)
+target_link_libraries(SiftFlann PRIVATE stereo_core)
+
+add_executable(EightPointRansac src/visualization/8point_ransac.cpp)
+target_include_directories(EightPointRansac PRIVATE include)
+target_link_libraries(EightPointRansac PRIVATE stereo_core)
+
+add_executable(Rectification src/visualization/rectification.cpp)
+target_include_directories(Rectification PRIVATE include)
+target_link_libraries(Rectification PRIVATE stereo_core)
+
+add_executable(IcpFusion
+    src/icp_fusion.cpp
+    src/ICP.cpp
+    src/Cloud.cpp
+)
+target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
+target_link_libraries(IcpFusion PRIVATE stereo_core Ceres::ceres)
