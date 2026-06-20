@@ -1,4 +1,5 @@
 #include "Pipeline.hpp"
+#include "PlyUtils.hpp"
 #include "Disparity.hpp"
 #include <iostream>
 

@@ -25,9 +25,6 @@ struct PipelineResult
     cv::Size imgSize;
 };
 
-void savePLY(const std::string& path, const std::vector<cv::Vec3f>& pts, const std::vector<cv::Vec3b>& colors);
 cv::Mat loadDTUProjection(const std::string& imgPath);
 
 bool runPipeline(const std::string& pathLeft, const std::string& pathRight, PipelineResult& res);
-void buildAndSavePLY(const cv::Mat& dispFloat, const PipelineResult& res, int numDisp, const std::string& plyPath,
-                     TriangulationMethod method = TriangulationMethod::OpenCV);
