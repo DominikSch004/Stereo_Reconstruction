@@ -51,7 +51,9 @@ public:
         int blockSize);
 
 private:
-    // Internal algorithmic implementations for cost calculations
+    /**
+     * @brief Internal helper functions for each cost metric. Each computes a raw cost volume and selects the best disparity per pixel.
+     */
     static cv::Mat computeSSD(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
     static cv::Mat computeSAD(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
     static cv::Mat computeNCC(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);

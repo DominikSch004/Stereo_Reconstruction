@@ -2,9 +2,19 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include "DTULoader.hpp"
+#include "SparseKeyPointMatcher.hpp"
+#include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
 #include "Disparity.hpp"
 #include "ImgUtils.hpp"
+
+// Utility function to normalize and colorize disparity maps for visualization
+static cv::Mat cleanViz(const cv::Mat& disp) {
+    cv::Mat viz;
+    cv::normalize(disp, viz, 0, 255, cv::NORM_MINMAX, CV_8U);
+    cv::applyColorMap(viz, viz, cv::COLORMAP_JET);
+    return viz;
+}
 
 int main()
 {
@@ -13,36 +23,93 @@ int main()
 
     DTULoader loader("");
     StereoPair pair = loader.loadPair(leftPath, rightPath);
-    if (!pair.imageLeft.data || !pair.imageRight.data) return -1;
+    if (!pair.imageLeft.data || !pair.imageRight.data) {
+        std::cerr << "ERROR: Failed to load images\n";
+        return -1;
+    }
 
+    // Convert raw inputs to grayscale for matching matrices
     cv::Mat grayL = toGray(pair.imageLeft);
     cv::Mat grayR = toGray(pair.imageRight);
+
+    // Compute Sparse Feature Alignment
+    SparseKeyPointMatcher matcher(0.75f);
+    MatchResult result = matcher.match(grayL, grayR);
+    std::vector<cv::Point2f> ptsL, ptsR;
+    SparseKeyPointMatcher::extractPoints(result, ptsL, ptsR);
+
+    std::cout << "Correspondences Found: " << ptsL.size() << "\n";
+    if (ptsL.size() < 8) {
+        std::cerr << "ERROR: Not enough correspondences available to proceed.\n";
+        return -1;
+    }
+
+    // Compute Robust Fundamental Matrix via updated Custom RANSAC pipeline
+    std::vector<bool> mask;
+    Eigen::Matrix3d F = FundamentalMatrix::computeCustomRANSAC(ptsL, ptsR, mask);
+
+    // Isolate clean inliers to ensure clean rectification homographies
+    std::vector<cv::Point2f> inL, inR;
+    for (size_t i = 0; i < ptsL.size(); ++i) {
+        if (mask[i]) { 
+            inL.push_back(ptsL[i]); 
+            inR.push_back(ptsR[i]); 
+        }
+    }
+
+    // Image Plane Rectification
+    // Compute Uncalibrated Homography mappings
+    // TODO: Replace with Calibrated rectification routines after getting intirinsics K
+    cv::Mat H1, H2;
+    if (!Rectification::computeUncalibrated(inL, inR, grayL.size(), toCvMat(F), H1, H2)) {
+        std::cerr << "ERROR: Stereo Rectification matrix processing failed.\n";
+        return -1;
+    }
+
+    // Warp raw frames into a guaranteed horizontal row-aligned perspective
+    cv::Mat rectL, rectR;
+    Rectification::warp(grayL, grayR, H1, H2, rectL, rectR);
 
     // Hardcode dataset boundaries (DTU setup parameters)
     int minDisp = 40;
     int numDisp = 64; 
     int blockSize = 7;
 
-    // Generate Custom Match Cost Map (try diff metrics by changing the last argument)
+    // Execute Dense Cost Volume Generation Suite
     std::cout << "Computing Custom SAD Disparity Map...\n";
-    cv::Mat customDisp = Disparity::computeCustom(grayL, grayR, minDisp, numDisp, blockSize, DisparityMethod::SAD);
+    cv::Mat customSAD = Disparity::computeCustom(rectL, rectR, minDisp, numDisp, blockSize, DisparityMethod::SAD);
 
-    // enerate OpenCV Semi-Global Baseline
+    std::cout << "Computing Custom SSD Disparity Map...\n";
+    cv::Mat customSSD = Disparity::computeCustom(rectL, rectR, minDisp, numDisp, blockSize, DisparityMethod::SSD);
+
+    std::cout << "Computing Custom NCC Disparity Map...\n";
+    cv::Mat customNCC = Disparity::computeCustom(rectL, rectR, minDisp, numDisp, blockSize, DisparityMethod::NCC);
+        
     std::cout << "Computing OpenCV SGBM Baseline...\n";
-    cv::Mat sgbmDisp = Disparity::computeSGBM(grayL, grayR, minDisp, numDisp, blockSize);
+    cv::Mat sgbmDisp = Disparity::computeSGBMOpenCV(rectL, rectR, minDisp, numDisp, blockSize);
 
-    // Normalize maps to [0, 255] bounds for rendering contrast clarity
-    cv::Mat customViz, sgbmViz;
-    cv::normalize(customDisp, customViz, 0, 255, cv::NORM_MINMAX, CV_8U);
-    cv::normalize(sgbmDisp,   sgbmViz,   0, 255, cv::NORM_MINMAX, CV_8U);
+    cv::Mat vizSAD = cleanViz(customSAD);
+    cv::Mat vizSSD = cleanViz(customSSD);
+    cv::Mat vizNCC = cleanViz(customNCC);
+    cv::Mat vizSGBM = cleanViz(sgbmDisp);
 
-    cv::Mat customColor, sgbmColor;
-    cv::applyColorMap(customViz, customColor, cv::COLORMAP_JET);
-    cv::applyColorMap(sgbmViz,   sggbmColor,   cv::COLORMAP_JET);
+    // Add overlay text tags to label the matching metrics clearly
+    auto labelImg = [](cv::Mat& img, const std::string& label) {
+        cv::putText(img, label, cv::Point(15, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 255), 2);
+    };
+    labelImg(vizSAD, "Custom SAD");
+    labelImg(vizSSD, "Custom SSD");
+    labelImg(vizNCC, "Custom NCC");
+    labelImg(vizSGBM, "OpenCV SGBM Baseline");
 
-    cv::Mat combined;
-    cv::hconcat(customColor, sgbmColor, combined);
-    cv::imshow("Dense Disparity: Custom SAD (Left) vs OpenCV SGBM (Right)", combined);
+    // Form layout tiles
+    cv::Mat rowTop, rowBottom, fullGrid;
+    cv::hconcat(vizSAD,  vizSSD,  rowTop);
+    cv::hconcat(vizNCC,  vizSGBM, rowBottom);
+    cv::vconcat(rowTop, rowBottom, fullGrid);
+
+    cv::imshow("Dense Stereo Cost Volume Metric Analysis Grid", fullGrid);
+    std::cout << "Press any key to complete cost sandbox execution cycles.\n";
     cv::waitKey(0);
 
     return 0;

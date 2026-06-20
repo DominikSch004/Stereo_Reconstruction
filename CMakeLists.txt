@@ -4,7 +4,7 @@ project(StereoReconstructionICP LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui calib3d features2d)
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED)
 
@@ -26,16 +26,16 @@ set_target_properties(FreeImage::FreeImage PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${FREEIMAGE_INCLUDE_DIR}"
 )
 
-add_library(stereo_core
+add_library(stereo_core STATIC
+    src/Pipeline.cpp
+    src/components/SparseKeyPointMatcher.cpp
     src/components/FundamentalMatrix.cpp
     src/components/Rectification.cpp
-    src/components/SpartKeyPointMatcher.cpp
+    src/components/Disparity.cpp
+    src/components/Triangulation.cpp
     src/Utils/ImgUtils.cpp
     src/Utils/FreeImageHelper.cpp
     src/Utils/PlyUtils.cpp
-    src/components/Disparity.cpp
-    src/components/Triangulation.cpp
-    src/Pipeline.cpp
 )
 
 target_include_directories(stereo_core PUBLIC
@@ -50,32 +50,21 @@ target_link_libraries(stereo_core PUBLIC
     FreeImage::FreeImage
 )
 
-add_executable(${PROJECT_NAME}
-    src/main.cpp
-)
-target_include_directories(${PROJECT_NAME} PRIVATE include ${CERES_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PRIVATE stereo_core Ceres::ceres)
+function(register_visualisation_target target_name source_path)
+    add_executable(${target_name} ${source_path})
+    target_include_directories(${target_name} PRIVATE include)
+    target_link_libraries(${target_name} PRIVATE stereo_core)
+endfunction()
 
-add_executable(SparseKeyPointMatching src/visualization/sparse_key_point_matching.cpp)
-target_include_directories(SparseKeyPointMatching PRIVATE include)
-target_link_libraries(SparseKeyPointMatching PRIVATE stereo_core)
+register_visualisation_target(SparseKeyPointMatching src/visualization/sparse_key_point_matching.cpp)
+register_visualisation_target(EightPointRansac       src/visualization/8point_ransac.cpp)
+register_visualisation_target(StereoRectification    src/visualization/stereo_rectification.cpp)
+register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
+register_visualisation_target(PipelineEvaluation     src/visualization/pipeline_eval.cpp)
 
-add_executable(EightPointRansac src/visualization/8point_ransac.cpp)
-target_include_directories(EightPointRansac PRIVATE include)
-target_link_libraries(EightPointRansac PRIVATE stereo_core)
-
-add_executable(StereoRectification src/visualization/stereo_rectification.cpp)
-target_include_directories(StereoRectification PRIVATE include)
-target_link_libraries(StereoRectification PRIVATE stereo_core)
-
-add_executable(StereoMatching src/visualization/stereo_matching.cpp)
-target_include_directories(StereoMatching PRIVATE include)
-target_link_libraries(StereoMatching PRIVATE stereo_core)
-
-add_executable(IcpFusion
-    src/icp_fusion.cpp
-    src/ICP.cpp
-    src/Cloud.cpp
-)
-target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
-target_link_libraries(IcpFusion PRIVATE stereo_core Ceres::ceres)
+# add_executable(IcpFusion
+#     src/icp_fusion.cpp
+#     src/ICP.cpp
+# )
+# target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
+# target_link_libraries(IcpFusion PRIVATE stereo_core Ceres::ceres)

@@ -34,7 +34,7 @@ int main()
         return -1;
     }
 
-    // 2. Compute Robust Fundamental Matrix via updated Custom RANSAC pipeline
+    // Compute Robust Fundamental Matrix via updated Custom RANSAC pipeline
     std::vector<bool> mask;
     Eigen::Matrix3d F = FundamentalMatrix::computeCustomRANSAC(ptsL, ptsR, mask);
 
