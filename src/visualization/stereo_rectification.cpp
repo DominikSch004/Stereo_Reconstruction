@@ -2,7 +2,7 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include "DTULoader.hpp"
-#include "SiftFlannMatcher.hpp"
+#include "SparseKeyPointMatcher.hpp"
 #include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
 #include "ImgUtils.hpp"
@@ -22,52 +22,57 @@ int main()
     cv::Mat grayLeft  = toGray(pair.imageLeft);
     cv::Mat grayRight = toGray(pair.imageRight);
 
-    // Match
-    SiftFlannMatcher matcher(0.75f);
+    // Compute Sparse Matching
+    SparseKeyPointMatcher matcher(0.75f);
     MatchResult result = matcher.match(grayLeft, grayRight);
     std::vector<cv::Point2f> ptsL, ptsR;
-    SiftFlannMatcher::extractPoints(result, ptsL, ptsR);
+    SparseKeyPointMatcher::extractPoints(result, ptsL, ptsR);
 
-    std::cout << "Correspondences: " << ptsL.size() << "\n";
-    if ((int)ptsL.size() < 8) {
-        std::cerr << "Not enough correspondences\n";
+    std::cout << "Correspondences Found: " << ptsL.size() << "\n";
+    if (ptsL.size() < 8) {
+        std::cerr << "Not enough correspondences available to continue execution\n";
         return -1;
     }
 
-    // RANSAC + 8-point → F
+    // 2. Compute Robust Fundamental Matrix via updated Custom RANSAC pipeline
     std::vector<bool> mask;
-    Eigen::Matrix3d F = FundamentalMatrix::ransac(ptsL, ptsR, mask);
+    Eigen::Matrix3d F = FundamentalMatrix::computeCustomRANSAC(ptsL, ptsR, mask);
 
     int nInliers = std::count(mask.begin(), mask.end(), true);
-    std::cout << "Inliers: " << nInliers << " / " << ptsL.size() << "\n";
+    std::cout << "RANSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
 
     std::vector<cv::Point2f> inL, inR;
-    for (size_t i = 0; i < ptsL.size(); ++i)
-        if (mask[i]) { inL.push_back(ptsL[i]); inR.push_back(ptsR[i]); }
+    for (size_t i = 0; i < ptsL.size(); ++i) {
+        if (mask[i]) { 
+            inL.push_back(ptsL[i]); 
+            inR.push_back(ptsR[i]); 
+        }
+    }
 
-    // Rectification (Loop & Zhang via stereoRectifyUncalibrated)
+    // Compute Uncalibrated Homography mappings
+    // TODO: Replace with Calibrated rectification routines after getting intirinsics K
     cv::Mat H1, H2;
-    if (!Rectification::computeUncalibrated(inL, inR, grayLeft.size(),
-                                             toCvMat(F), H1, H2)) {
-        std::cerr << "Rectification failed\n";
+    if (!Rectification::computeUncalibrated(inL, inR, grayLeft.size(), toCvMat(F), H1, H2)) {
+        std::cerr << "Stereo Rectification calculations failed\n";
         return -1;
     }
 
+    // Warp frames into standard perspective projections
     cv::Mat rectL, rectR;
     Rectification::warp(grayLeft, grayRight, H1, H2, rectL, rectR);
 
-    // Draw horizontal scan lines to verify row-alignment
+    // Render horizontal baseline verification vectors across tracking rows
     cv::Mat vizL, vizR;
     cv::cvtColor(rectL, vizL, cv::COLOR_GRAY2BGR);
     cv::cvtColor(rectR, vizR, cv::COLOR_GRAY2BGR);
     for (int y = 0; y < vizL.rows; y += 40) {
-        cv::line(vizL, {0, y}, {vizL.cols, y}, {0, 255, 0});
-        cv::line(vizR, {0, y}, {vizR.cols, y}, {0, 255, 0});
+        cv::line(vizL, {0, y}, {vizL.cols, y}, {0, 255, 0}, 1);
+        cv::line(vizR, {0, y}, {vizR.cols, y}, {0, 255, 0}, 1);
     }
 
     cv::Mat combined;
     cv::hconcat(vizL, vizR, combined);
-    cv::imshow("Rectification", combined);
+    cv::imshow("Stereo Rectification Row-Alignment Verification", combined);
     cv::waitKey(0);
     return 0;
 }

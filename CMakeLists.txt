@@ -28,7 +28,7 @@ set_target_properties(FreeImage::FreeImage PROPERTIES
 
 add_library(stereo_core
     src/components/FundamentalMatrix.cpp
-    src/components/Rectification_compute.cpp
+    src/components/Rectification.cpp
     src/components/SpartKeyPointMatcher.cpp
     src/Utils/ImgUtils.cpp
     src/Utils/FreeImageHelper.cpp
@@ -64,7 +64,7 @@ add_executable(EightPointRansac src/visualization/8point_ransac.cpp)
 target_include_directories(EightPointRansac PRIVATE include)
 target_link_libraries(EightPointRansac PRIVATE stereo_core)
 
-add_executable(Rectification src/visualization/rectification.cpp)
+add_executable(StereoRectification src/visualization/stereo_rectification.cpp)
 target_include_directories(Rectification PRIVATE include)
 target_link_libraries(Rectification PRIVATE stereo_core)
 
