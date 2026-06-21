@@ -44,12 +44,14 @@ int main()
     Eigen::Matrix3d R_est;
     Eigen::Vector3d t_est;
     double rot_err = 0.0, trans_err = 0.0;
+    double epi_err_custom = Evaluator::evaluateEpipolarError(F_custom, ptsL, ptsR, CustomInliers);
 
     // evaluate custom
     if (GeometryUtils::extractPoseFromFundamental(F_custom, ptsL, ptsR, CustomInliers, K, R_est, t_est))
     {
         Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
         std::cout << "Custom Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
+        std::cout << "Custom Epipolar Error: " << epi_err_custom << " px\n";
     }
     else
     {
@@ -57,10 +59,12 @@ int main()
     }
 
     // evaluate openCV
+    double epi_err_cv = Evaluator::evaluateEpipolarError(F_opencv, ptsL, ptsR, OpenCVInliers);
     if (GeometryUtils::extractPoseFromFundamental(F_opencv, ptsL, ptsR, OpenCVInliers, K, R_est, t_est))
     {
         Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
         std::cout << "OpenCV Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
+        std::cout << "OpenCV Epipolar Error: " << epi_err_cv << " px\n";
     }
     else
     {
