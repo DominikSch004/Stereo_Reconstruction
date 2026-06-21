@@ -13,13 +13,13 @@ enum class FundamentalMethod {
     OpenCVRANSAC   // Native, multi-threaded OpenCV robust solver baseline
 };
 
-
 /**
  * @class FundamentalMatrix
  * @brief Handles epipolar geometry estimation between two unrectified views.
  * * Provides utilities to compute the 3x3 Fundamental Matrix (F) using either
  * a custom normalized 8-point RANSAC pipeline or OpenCV's native robust estimators.
  */
+
 class FundamentalMatrix
 {
 public:
