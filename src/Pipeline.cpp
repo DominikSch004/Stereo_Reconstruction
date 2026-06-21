@@ -103,7 +103,7 @@ bool Pipeline::runPipelineOpenCV(const std::string& pathLeft, const std::string&
 
     // --- 4. Stereo Rectification ---
     RectifyResult rect;
-    if (!Rectification::computeCalibratedOpenCV(K, R, t, sz, gray1, gray2, bgr1, rect)) {
+    if (!Rectification::computeCalibrated(K, R, t, sz, gray1, gray2, bgr1, rect, RectificationMethod::CalibratedOpenCV)) {
         std::cerr << "ERROR: Stereo rectification execution failure.\n";
         return false;
     }
@@ -229,7 +229,7 @@ cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)))
     // --- 4. Stereo Rectification ---
     RectifyResult rect;
     // TODO: computeCalibratedCustom NOT IMPLEMENTED YET
-    if (!Rectification::computeCalibratedCustom(K, R, t, sz, gray1, gray2, bgr1, rect)) {
+    if (!Rectification::computeCalibrated(K, R, t, sz, gray1, gray2, bgr1, rect, RectificationMethod::CalibratedCustom)) {
         std::cerr << "ERROR: Stereo rectification execution failure.\n";
         return false;
     }

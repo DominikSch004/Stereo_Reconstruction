@@ -2,6 +2,20 @@
 #include <opencv2/calib3d.hpp>
 #include <iostream>
 
+bool Rectification::computeCalibrated(
+    const cv::Mat& K, const cv::Mat& R, const cv::Mat& t,
+    const cv::Size& imageSize, const cv::Mat& grayL, const cv::Mat& grayR,
+    const cv::Mat& colorL, RectifyResult& out, RectificationMethod method)
+{
+    switch (method) {
+        case RectificationMethod::CalibratedCustom:
+            return computeCalibratedCustom(K, R, t, imageSize, grayL, grayR, colorL, out);
+        case RectificationMethod::CalibratedOpenCV:
+        default:
+            return computeCalibratedOpenCV(K, R, t, imageSize, grayL, grayR, colorL, out);
+    }
+}
+
 bool Rectification::computeCalibratedOpenCV(
     const cv::Mat& K,
     const cv::Mat& R,
