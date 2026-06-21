@@ -65,14 +65,39 @@ int main()
     cv::Mat vizL, vizR;
     cv::cvtColor(rectL, vizL, cv::COLOR_GRAY2BGR);
     cv::cvtColor(rectR, vizR, cv::COLOR_GRAY2BGR);
+    
     for (int y = 0; y < vizL.rows; y += 40) {
-        cv::line(vizL, {0, y}, {vizL.cols, y}, {0, 255, 0}, 1);
-        cv::line(vizR, {0, y}, {vizR.cols, y}, {0, 255, 0}, 1);
+        cv::line(vizL, cv::Point(0, y), cv::Point(vizL.cols, y), {0, 255, 0}, 1);
+        cv::line(vizR, cv::Point(0, y), cv::Point(vizR.cols, y), {0, 255, 0}, 1);
     }
 
+    // --- STRUCTURAL WINDOW SEPARATION SWEEP ---
+    struct WindowTarget {
+        const cv::Mat& image;
+        std::string title;
+    };
+
+    std::vector<WindowTarget> panels = {
+        {vizL, "Rectified Frame: Left View (Position 1)"},
+        {vizR, "Rectified Frame: Right View (Position 2)"}
+    };
+
+    std::cout << "\nSpawning isolated highgui viewports...\n";
+    for (const auto& panel : panels) {
+        // CV_WINDOW_NORMAL guarantees you can freely resize the viewports on your desktop
+        cv::namedWindow(panel.title, cv::WINDOW_NORMAL);
+        cv::imshow(panel.title, panel.image);
+    }
+
+    // Keep the concatenated original global baseline active for side-by-side comparison
     cv::Mat combined;
     cv::hconcat(vizL, vizR, combined);
-    cv::imshow("Stereo Rectification Row-Alignment Verification", combined);
+    cv::namedWindow("Stereo Rectification Row-Alignment Verification (Combined)", cv::WINDOW_NORMAL);
+    cv::imshow("Stereo Rectification Row-Alignment Verification (Combined)", combined);
+
+    std::cout << "All windows active! Rearrange them to verify feature alignments.\n";
+    std::cout << "Press any key in any panel context to exit.\n";
     cv::waitKey(0);
+    
     return 0;
 }
