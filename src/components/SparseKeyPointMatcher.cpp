@@ -1,12 +1,12 @@
-#include "SiftFlannMatcher.hpp"
+#include "SparseKeyPointMatcher.hpp"
 
-SiftFlannMatcher::SiftFlannMatcher(float ratioThreshold)
+SparseKeyPointMatcher::SparseKeyPointMatcher(float ratioThreshold)
     : ratioThreshold_(ratioThreshold)
     , sift_(cv::SIFT::create())
 {}
 
-MatchResult SiftFlannMatcher::match(const cv::Mat& grayLeft,
-                                    const cv::Mat& grayRight) const
+MatchResult SparseKeyPointMatcher::match(const cv::Mat& grayLeft,
+                                         const cv::Mat& grayRight) const
 {
     MatchResult result;
 
@@ -20,16 +20,18 @@ MatchResult SiftFlannMatcher::match(const cv::Mat& grayLeft,
     std::vector<std::vector<cv::DMatch>> knnMatches;
     flann.knnMatch(descLeft, descRight, knnMatches, 2);
 
-    for (const auto& m : knnMatches)
-        if (m[0].distance < ratioThreshold_ * m[1].distance)
+    for (const auto& m : knnMatches) {
+        if (!m.empty() && m[0].distance < ratioThreshold_ * m[1].distance) {
             result.matches.push_back(m[0]);
+        }
+    }
 
     return result;
 }
 
-void SiftFlannMatcher::extractPoints(const MatchResult& result,
-                                     std::vector<cv::Point2f>& ptsLeft,
-                                     std::vector<cv::Point2f>& ptsRight)
+void SparseKeyPointMatcher::extractPoints(const MatchResult& result,
+                                          std::vector<cv::Point2f>& ptsLeft,
+                                          std::vector<cv::Point2f>& ptsRight)
 {
     ptsLeft.clear();
     ptsRight.clear();

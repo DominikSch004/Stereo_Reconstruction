@@ -1,9 +1,13 @@
 #include "Triangulation.hpp"
 #include <cmath>
+#include <iostream>
 #include <opencv2/calib3d.hpp>
 
-cv::Vec3d triangulate(const cv::Mat &p1, const cv::Mat &p2, const cv::Vec2d &u1, const cv::Vec2d &u2)
+cv::Vec3d Triangulation::triangulate(const cv::Mat &p1, const cv::Mat &p2, const cv::Vec2d &u1, const cv::Vec2d &u2)
 {
+    // Construct the linear system for DLT triangulation Ax = B
+    // Matrix A: each row corresponds to the cross product of the image point with the projection matrix rows
+    // Vector B: the difference between the projection matrix's last column and the scaled image point
     cv::Matx43d A(u1(0)*p1.at<double>(2, 0) - p1.at<double>(0, 0),
                   u1(0)*p1.at<double>(2, 1) - p1.at<double>(0, 1),
                   u1(0)*p1.at<double>(2, 2) - p1.at<double>(0, 2),
@@ -27,33 +31,29 @@ cv::Vec3d triangulate(const cv::Mat &p1, const cv::Mat &p2, const cv::Vec2d &u1,
     return X;
 }
 
-void triangulate_points(const cv::Mat &p1, const cv::Mat &p2, const std::vector<cv::Vec2d> &pts1, const std::vector<cv::Vec2d> &pts2, std::vector<cv::Vec3d> &pts3D)
+void Triangulation::triangulatePoints(const cv::Mat &p1, const cv::Mat &p2, const std::vector<cv::Vec2d> &pts1, const std::vector<cv::Vec2d> &pts2, std::vector<cv::Vec3d> &pts3D)
 {
+    pts3D.reserve(pts3D.size() + pts1.size());
     for (size_t i = 0; i < pts1.size(); i++) {
         pts3D.push_back(triangulate(p1, p2, pts1[i], pts2[i]));
     }
 }
 
-// OpenCV backend: disparity-to-depth reprojection via Q.
-static cv::Mat reprojectOpenCV(const cv::Mat &disp32f, const PipelineResult &res)
+cv::Mat Triangulation::reprojectOpenCV(const cv::Mat &disp32f, const cv::Mat &Q)
 {
-    if (res.Q.empty() || res.Q.rows != 4 || res.Q.cols != 4) {
-        std::cerr << "ERROR: PipelineResult::Q is invalid ("
-                  << res.Q.rows << "x" << res.Q.cols << "). Cannot reproject.\n";
+    if (Q.empty() || Q.rows != 4 || Q.cols != 4) {
+        std::cerr << "ERROR: Q matrix is invalid. Reprojection aborted.\n";
         return cv::Mat();
     }
     cv::Mat pts3D;
-    cv::reprojectImageTo3D(disp32f, pts3D, res.Q, true);
+    cv::reprojectImageTo3D(disp32f, pts3D, Q, true);
     return pts3D;
 }
 
-// Manual backend: per-pixel DLT triangulation using the rectified projections.
-// In rectified geometry a pixel (x, y) on the left matches (x - d, y) on the right.
-static cv::Mat reprojectManual(const cv::Mat &disp32f, const PipelineResult &res)
+cv::Mat Triangulation::reprojectManual(const cv::Mat &disp32f, const cv::Mat &P1r, const cv::Mat &P2r)
 {
-    if (res.P1r.empty() || res.P2r.empty()) {
-        std::cerr << "ERROR: PipelineResult::P1r/P2r are empty. "
-                     "Manual triangulation needs the rectified projection matrices.\n";
+    if (P1r.empty() || P2r.empty()) {
+        std::cerr << "ERROR: Manual projection requires populated rectified matrices P1r/P2r.\n";
         return cv::Mat();
     }
 
@@ -61,22 +61,27 @@ static cv::Mat reprojectManual(const cv::Mat &disp32f, const PipelineResult &res
     for (int y = 0; y < disp32f.rows; ++y) {
         for (int x = 0; x < disp32f.cols; ++x) {
             float d = disp32f.at<float>(y, x);
-            if (!std::isfinite(d)) continue;
+            if (!std::isfinite(d) || d <= 0.0f) continue;
 
             cv::Vec2d u1(x, y);
             cv::Vec2d u2(x - d, y);
-            cv::Vec3d X = triangulate(res.P1r, res.P2r, u1, u2);
+            cv::Vec3d X = Triangulation::triangulate(P1r, P2r, u1, u2);
             pts3D.at<cv::Vec3f>(y, x) = cv::Vec3f((float)X[0], (float)X[1], (float)X[2]);
         }
     }
     return pts3D;
 }
 
-cv::Mat reprojectDisparityTo3D(const cv::Mat &disp32f, const PipelineResult &res, TriangulationMethod method)
+cv::Mat Triangulation::reprojectDisparityTo3D(
+    const cv::Mat &disp32f, 
+    const cv::Mat &Q, 
+    const cv::Mat &P1r, 
+    const cv::Mat &P2r, 
+    TriangulationMethod method)
 {
     switch (method) {
-        case TriangulationMethod::Manual: return reprojectManual(disp32f, res);
+        case TriangulationMethod::Manual: return reprojectManual(disp32f, P1r, P2r);
         case TriangulationMethod::OpenCV:
-        default:                          return reprojectOpenCV(disp32f, res);
+        default:                          return reprojectOpenCV(disp32f, Q);
     }
 }
