@@ -75,36 +75,30 @@ int main()
     int numDisp = 64; 
     int blockSize = 7;
 
-    // Execute Dense Cost Volume Generation Suite
-    std::cout << "Computing Custom SAD Disparity Map...\n";
-    cv::Mat customSAD = Disparity::computeCustom(rectL, rectR, minDisp, numDisp, blockSize, DisparityMethod::SAD);
+    // Define the testing suite parameters using our unified DisparityMethod enum pairs
+    std::vector<std::pair<DisparityMethod, std::string>> methods = {
+        {DisparityMethod::SAD,        "Custom SAD"},
+        {DisparityMethod::SSD,        "Custom SSD"},
+        {DisparityMethod::NCC,        "Custom NCC"},
+        {DisparityMethod::OpenCVSGBM, "OpenCV SGBM Baseline"}
+    };
 
-    std::cout << "Computing Custom SSD Disparity Map...\n";
-    cv::Mat customSSD = Disparity::computeCustom(rectL, rectR, minDisp, numDisp, blockSize, DisparityMethod::SSD);
+    std::cout << "\n=== Executing Uniform Cost Volume Processing Suite ===\n";
 
-    std::cout << "Computing Custom NCC Disparity Map...\n";
-    cv::Mat customNCC = Disparity::computeCustom(rectL, rectR, minDisp, numDisp, blockSize, DisparityMethod::NCC);
+    for (const auto& [method, windowTitle] : methods) {
+        std::cout << "Computing cost map for: " << windowTitle << "...\n";
         
-    std::cout << "Computing OpenCV SGBM Baseline...\n";
-    cv::Mat sgbmDisp = Disparity::computeSGBMOpenCV(rectL, rectR, minDisp, numDisp, blockSize);
+        cv::Mat rawDisp = Disparity::computeDisparity(rectL, rectR, minDisp, numDisp, blockSize, method);
+        
+        // Colorize
+        cv::Mat coloredViz = cleanViz(rawDisp);
 
-    cv::Mat vizSAD = cleanViz(customSAD);
-    cv::Mat vizSSD = cleanViz(customSSD);
-    cv::Mat vizNCC = cleanViz(customNCC);
-    cv::Mat vizSGBM = cleanViz(sgbmDisp);
+        // Render to its own scalable independent window window
+        cv::namedWindow("Metric: " + windowTitle, cv::WINDOW_NORMAL);
+        cv::imshow("Metric: " + windowTitle, coloredViz);
+    }
 
-    // Spawn completely independent highgui windows
-    // CV_WINDOW_NORMAL allows manual window scaling on high-res displays
-    cv::namedWindow("Metric: Custom SAD", cv::WINDOW_NORMAL);
-    cv::namedWindow("Metric: Custom SSD", cv::WINDOW_NORMAL);
-    cv::namedWindow("Metric: Custom NCC", cv::WINDOW_NORMAL);
-    cv::namedWindow("Metric: OpenCV SGBM", cv::WINDOW_NORMAL);
-
-    cv::imshow("Metric: Custom SAD",  vizSAD);
-    cv::imshow("Metric: Custom SSD",  vizSSD);
-    cv::imshow("Metric: Custom NCC",  vizNCC);
-    cv::imshow("Metric: OpenCV SGBM", vizSGBM);
-
+    std::cout << "\nAll windows separated successfully! Drag them around to compare.\n";
     std::cout << "Press any key to close visualization panels and exit.\n";
     cv::waitKey(0);
 

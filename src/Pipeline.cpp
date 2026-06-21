@@ -139,10 +139,7 @@ bool Pipeline::runPipelineOpenCV(const std::string& pathLeft, const std::string&
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = 7;
-    if (method == DisparityMethod::OpenCVSGBM)
-        res.denseDisparity = Disparity::computeSGBMOpenCV(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize);
-    else
-        res.denseDisparity = Disparity::computeCustom(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, method);
+    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, method);
 
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(
@@ -268,10 +265,7 @@ cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)))
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = 7;
-    if (method == DisparityMethod::OpenCVSGBM)
-        res.denseDisparity = Disparity::computeSGBMOpenCV(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize);
-    else
-        res.denseDisparity = Disparity::computeCustom(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, method);
+    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, method);
 
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(

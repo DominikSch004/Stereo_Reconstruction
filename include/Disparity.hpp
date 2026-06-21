@@ -22,35 +22,22 @@ class Disparity
 {
 public:
     /**
-     * @brief Custom dense block-matching pipeline using selectable cost metrics.
-     * @details Computes a dense disparity map by sliding a window along horizontal epipolar lines.
+     * @brief High-level entrypoint that computes a dense disparity map using the requested method.
      * @param left Rectified grayscale left image.
      * @param right Rectified grayscale right image.
-     * @param minDisp Minimum disparity search bound (usually 0 or negative depending on setup).
-     * @param numDisp Total number of disparity levels to search (must be divisible by 16 for hardware alignment).
-     * @param blockSize Odd window size diameter (e.g., 3, 5, 7) for pixel aggregation.
-     * @param method The cost metric to use (SAD, SSD, or NCC).
-     * @return CV_32F disparity map matrix.
+     * @param minDisp Minimum disparity search bound.
+     * @param numDisp Total number of disparity levels to search.
+     * @param blockSize Odd window size diameter for pixel aggregation.
+     * @param method The cost metric or backend engine choice.
+     * @return CV_32F disparity map matrix containing actual pixel disparities.
      */
-    static cv::Mat computeCustom(
+    static cv::Mat computeDisparity(
         const cv::Mat& left,
         const cv::Mat& right,
         int minDisp,
         int numDisp,
         int blockSize,
-        DisparityMethod method = DisparityMethod::SAD);
-
-    /**
-     * @brief OpenCV baseline dense matcher using Semi-Global Block Matching (SGBM) with openCV
-     * @details Acts as the gold-standard baseline for cost-volume evaluation.
-     * @return CV_32F disparity map scaled down to actual pixel disparity values.
-     */
-    static cv::Mat computeSGBMOpenCV(
-        const cv::Mat& left,
-        const cv::Mat& right,
-        int minDisp,
-        int numDisp,
-        int blockSize
+        DisparityMethod method = DisparityMethod::OpenCVSGBM
     );
 
 private:
@@ -60,4 +47,5 @@ private:
     static cv::Mat computeSSD(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
     static cv::Mat computeSAD(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
     static cv::Mat computeNCC(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
+    static cv::Mat computeSGBMOpenCV(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
 };

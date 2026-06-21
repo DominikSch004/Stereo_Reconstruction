@@ -38,7 +38,7 @@ static void fillBorders(cv::Mat& disp, int blockSize, float value)
     disp(cv::Rect(disp.cols - h, 0, h, disp.rows)) = value; // Right border
 }
 
-cv::Mat Disparity::computeCustom(
+cv::Mat Disparity::computeDisparity(
     const cv::Mat& left,
     const cv::Mat& right,
     int minDisp,
@@ -52,8 +52,10 @@ cv::Mat Disparity::computeCustom(
         case DisparityMethod::NCC:
             return computeNCC(left, right, minDisp, numDisp, blockSize);
         case DisparityMethod::SAD:
-        default:
             return computeSAD(left, right, minDisp, numDisp, blockSize);
+        case DisparityMethod::OpenCVSGBM:
+        default:
+            return computeSGBMOpenCV(left, right, minDisp, numDisp, blockSize);
     }
 }
 
@@ -178,7 +180,8 @@ cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat& left, const cv::Mat& right, 
         10,  // uniquenessRatio
         100, // speckleWindowSize
         32,  // speckleRange
-        cv::StereoSGBM::MODE_SGBM_3WAY);
+        cv::StereoSGBM::MODE_SGBM
+    );
 
     cv::Mat disp16;
     sgbm->compute(left, right, disp16);
