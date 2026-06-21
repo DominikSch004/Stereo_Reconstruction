@@ -37,6 +37,9 @@ add_library(stereo_core STATIC
     src/utils/ImgUtils.cpp
     src/utils/FreeImageHelper.cpp
     src/utils/PlyUtils.cpp
+    src/utils/GeometryUtils.cpp
+    src/utils/VisualizationUtils.cpp
+    benchmark/Evaluator.cpp
 )
 
 target_include_directories(stereo_core PUBLIC
