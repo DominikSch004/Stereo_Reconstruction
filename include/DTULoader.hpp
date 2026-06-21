@@ -121,7 +121,7 @@ public:
                                        Eigen::Matrix3d &R_rel, Eigen::Vector3d &t_rel)
     {
         R_rel = pose2.R * pose1.R.transpose();
-        t_rel = pose2.t - (R_rel * pose1.t);
+        t_rel = pose2.R * (pose1.t - pose2.t);
         if (t_rel.norm() > 0)
         {
             t_rel.normalize();
