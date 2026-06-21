@@ -5,6 +5,16 @@
 #include <Eigen/Dense>
 
 /**
+ * @enum FundamentalMethod
+ * @brief Selects the robust estimation engine to compute the Fundamental Matrix.
+ */
+enum class FundamentalMethod {
+    CustomRANSAC,  // Custom hand-rolled 8-point RANSAC loop with Sampson distance refitting
+    OpenCVRANSAC   // Native, multi-threaded OpenCV robust solver baseline
+};
+
+
+/**
  * @class FundamentalMatrix
  * @brief Handles epipolar geometry estimation between two unrectified views.
  * * Provides utilities to compute the 3x3 Fundamental Matrix (F) using either
@@ -13,6 +23,27 @@
 class FundamentalMatrix
 {
 public:
+    /**
+     * @brief High-level unified entrypoint to estimate F robustly using a selectable backend.
+     * @param ptsL All matched features in the left image.
+     * @param ptsR All matched features in the right image.
+     * @param[out] inlierMask Array tracking true/false status for each input pair.
+     * @param method Choice of robust estimation engine (CustomRANSAC or OpenCVRANSAC).
+     * @param threshold Max allowed epipolar/Sampson distance error to count as an inlier (pixels).
+     * @param confidence Target probability configuration (0.0 to 1.0) for RANSAC completion hooks (OpenCV only).
+     * @param maxIter Maximum allocation of sampling loop generations (CustomRANSAC only).
+     * @return Refined 3x3 Fundamental Matrix (Eigen::Matrix3d).
+     */
+    static Eigen::Matrix3d computeFundamental(
+        const std::vector<cv::Point2f>& ptsL,
+        const std::vector<cv::Point2f>& ptsR,
+        std::vector<bool>& inlierMask,
+        FundamentalMethod method = FundamentalMethod::OpenCVRANSAC,
+        double threshold = 1.0,
+        double confidence = 0.99,
+        int maxIter = 1000
+    );
+
     /**
      * @brief Computes the Sampson distance error for a single point pair.
      * @details Acts as a first-order geometric approximation of the distance to the 
@@ -54,8 +85,9 @@ public:
         const std::vector<cv::Point2f>& ptsL,
         const std::vector<cv::Point2f>& ptsR);
 
+private:
     /**
-     * @brief APPROACH A (Custom): Estimates F robustly using a manual RANSAC loop.
+     * @brief Custom APPROACH : Estimates F robustly using a manual RANSAC loop.
      * @details Randomly samples 8-point subsets to generate hypotheses, evaluates
      * inliers via the Sampson distance threshold, and performs a final 
      * Levenberg-Marquardt style refit over the entire gathered inlier set.
@@ -74,7 +106,7 @@ public:
         int maxIter = 1000);
 
     /**
-     * @brief APPROACH B (OpenCV): Wrapper for cv::findFundamentalMat.
+     * @brief OpenCV APPROACH : Wrapper for cv::findFundamentalMat.
      * @details Utilizes OpenCV's highly optimized, multi-threaded RANSAC execution 
      * path to act as a gold-standard baseline for custom algorithm evaluation.
      * @param ptsL All matched features in the left image.

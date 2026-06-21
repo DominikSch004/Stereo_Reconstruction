@@ -67,7 +67,7 @@ bool Pipeline::runPipelineOpenCV(const std::string& pathLeft, const std::string&
 
     // --- 2. Epipolar Geometry & Extrinsic Calculation (OpenCV Backend) ---
     std::vector<bool> inlierMask;
-    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeOpenCVRANSAC(ptsL, ptsR, inlierMask, 1.0, 0.99);
+    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
     cv::Mat F_cv = toCvMat(F_eigen);
     if (F_cv.empty()) return false;
 
@@ -195,7 +195,7 @@ bool Pipeline::runPipelineCustom(const std::string& pathLeft, const std::string&
 
     // --- 2. Epipolar Geometry Estimations (Custom Hand-Rolled RANSAC Engine) ---
     std::vector<bool> customMask;
-    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeCustomRANSAC(ptsL, ptsR, customMask, 1.0, 1000);
+    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, customMask, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
     cv::Mat F_cv = toCvMat(F_eigen);
     if (F_cv.empty()) return false;
 

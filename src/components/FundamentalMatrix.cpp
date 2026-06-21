@@ -111,6 +111,21 @@ Eigen::Matrix3d FundamentalMatrix::compute8Point(
     return Fdenorm;
 }
 
+Eigen::Matrix3d FundamentalMatrix::computeFundamental(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    std::vector<bool>& inlierMask,
+    FundamentalMethod method,
+    double threshold,
+    double confidence,
+    int maxIter)
+{
+    if (method == FundamentalMethod::CustomRANSAC)
+        return computeCustomRANSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
+    else
+        return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
+}
+
 Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     const std::vector<cv::Point2f>& ptsL,
     const std::vector<cv::Point2f>& ptsR,

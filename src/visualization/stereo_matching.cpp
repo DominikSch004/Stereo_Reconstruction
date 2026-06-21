@@ -46,7 +46,7 @@ int main()
 
     // Compute Robust Fundamental Matrix via updated Custom RANSAC pipeline
     std::vector<bool> mask;
-    Eigen::Matrix3d F = FundamentalMatrix::computeCustomRANSAC(ptsL, ptsR, mask);
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
 
     // Isolate clean inliers to ensure clean rectification homographies
     std::vector<cv::Point2f> inL, inR;

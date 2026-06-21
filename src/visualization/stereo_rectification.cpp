@@ -36,7 +36,7 @@ int main()
 
     // Compute Robust Fundamental Matrix via updated Custom RANSAC pipeline
     std::vector<bool> mask;
-    Eigen::Matrix3d F = FundamentalMatrix::computeCustomRANSAC(ptsL, ptsR, mask);
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
 
     int nInliers = std::count(mask.begin(), mask.end(), true);
     std::cout << "RANSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
