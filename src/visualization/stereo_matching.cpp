@@ -93,23 +93,19 @@ int main()
     cv::Mat vizNCC = cleanViz(customNCC);
     cv::Mat vizSGBM = cleanViz(sgbmDisp);
 
-    // Add overlay text tags to label the matching metrics clearly
-    auto labelImg = [](cv::Mat& img, const std::string& label) {
-        cv::putText(img, label, cv::Point(15, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 255), 2);
-    };
-    labelImg(vizSAD, "Custom SAD");
-    labelImg(vizSSD, "Custom SSD");
-    labelImg(vizNCC, "Custom NCC");
-    labelImg(vizSGBM, "OpenCV SGBM Baseline");
+    // Spawn completely independent highgui windows
+    // CV_WINDOW_NORMAL allows manual window scaling on high-res displays
+    cv::namedWindow("Metric: Custom SAD", cv::WINDOW_NORMAL);
+    cv::namedWindow("Metric: Custom SSD", cv::WINDOW_NORMAL);
+    cv::namedWindow("Metric: Custom NCC", cv::WINDOW_NORMAL);
+    cv::namedWindow("Metric: OpenCV SGBM", cv::WINDOW_NORMAL);
 
-    // Form layout tiles
-    cv::Mat rowTop, rowBottom, fullGrid;
-    cv::hconcat(vizSAD,  vizSSD,  rowTop);
-    cv::hconcat(vizNCC,  vizSGBM, rowBottom);
-    cv::vconcat(rowTop, rowBottom, fullGrid);
+    cv::imshow("Metric: Custom SAD",  vizSAD);
+    cv::imshow("Metric: Custom SSD",  vizSSD);
+    cv::imshow("Metric: Custom NCC",  vizNCC);
+    cv::imshow("Metric: OpenCV SGBM", vizSGBM);
 
-    cv::imshow("Dense Stereo Cost Volume Metric Analysis Grid", fullGrid);
-    std::cout << "Press any key to complete cost sandbox execution cycles.\n";
+    std::cout << "Press any key to close visualization panels and exit.\n";
     cv::waitKey(0);
 
     return 0;

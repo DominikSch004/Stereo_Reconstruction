@@ -5,11 +5,13 @@
 /**
  * @enum DisparityMethod
  * @brief Selects the cost volume metric for hand-rolled dense block-matching.
+ * SAD: Sum of Absolute Differences, SSD: Sum of Squared Differences, NCC: Normalized Cross-Correlation, OpenCVSGBM: OpenCV's optimized Semi-Global Block Matching (SGBM).
  */
 enum class DisparityMethod {
-    SSD,  // Sum of Squared Differences
-    SAD,  // Sum of Absolute Differences
-    NCC   // Normalized Cross-Correlation
+    SSD,        // Sum of Squared Differences
+    SAD,        // Sum of Absolute Differences
+    NCC,        // Normalized Cross-Correlation
+    OpenCVSGBM // OpenCV's Semi-Global Block Matching (SGBM)
 };
 
 /**
@@ -48,7 +50,8 @@ public:
         const cv::Mat& right,
         int minDisp,
         int numDisp,
-        int blockSize);
+        int blockSize
+    );
 
 private:
     /**

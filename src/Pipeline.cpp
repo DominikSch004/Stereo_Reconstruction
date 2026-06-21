@@ -9,20 +9,20 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 
-bool Pipeline::runPipeline(const std::string& pathLeft, const std::string& pathRight, PipelineResult& res, PipelineMode mode)
+bool Pipeline::runPipeline(const std::string& pathLeft, const std::string& pathRight, PipelineResult& res, PipelineMode mode, DisparityMethod method)
 {
     switch (mode) {
         case PipelineMode::Custom:
             std::cout << "  LAUNCHING PIPELINE ORCHESTRATION: CUSTOM\n";
-            return runPipelineCustom(pathLeft, pathRight, res);
+            return runPipelineCustom(pathLeft, pathRight, res, method);
         case PipelineMode::OpenCV:
         default:
             std::cout << "  LAUNCHING PIPELINE ORCHESTRATION: OPENCV\n";
-            return runPipelineOpenCV(pathLeft, pathRight, res);
+            return runPipelineOpenCV(pathLeft, pathRight, res, method);
     }
 }
 
-bool Pipeline::runPipelineOpenCV(const std::string& pathLeft, const std::string& pathRight, PipelineResult& res)
+bool Pipeline::runPipelineOpenCV(const std::string& pathLeft, const std::string& pathRight, PipelineResult& res, DisparityMethod method)
 {
     // --- 0. Data Setup & Preprocessing ---
     DTULoader loader("");
@@ -139,7 +139,10 @@ bool Pipeline::runPipelineOpenCV(const std::string& pathLeft, const std::string&
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = 7;
-    res.denseDisparity = Disparity::computeSGBMOpenCV(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize);
+    if (method == DisparityMethod::OpenCVSGBM)
+        res.denseDisparity = Disparity::computeSGBMOpenCV(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize);
+    else
+        res.denseDisparity = Disparity::computeCustom(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, method);
 
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(
@@ -150,7 +153,7 @@ bool Pipeline::runPipelineOpenCV(const std::string& pathLeft, const std::string&
     return true;
 }
 
-bool Pipeline::runPipelineCustom(const std::string& pathLeft, const std::string& pathRight, PipelineResult& res)
+bool Pipeline::runPipelineCustom(const std::string& pathLeft, const std::string& pathRight, PipelineResult& res, DisparityMethod method)
 {
     // --- 0. Data Setup & Preprocessing ---
     DTULoader loader("");
@@ -265,7 +268,10 @@ cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)))
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = 7;
-    res.denseDisparity = Disparity::computeCustom(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, DisparityMethod::SAD);
+    if (method == DisparityMethod::OpenCVSGBM)
+        res.denseDisparity = Disparity::computeSGBMOpenCV(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize);
+    else
+        res.denseDisparity = Disparity::computeCustom(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, method);
 
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(

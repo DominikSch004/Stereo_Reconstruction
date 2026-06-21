@@ -6,6 +6,7 @@
 #include <opencv2/core.hpp>
 #include "DTULoader.hpp"
 #include "Triangulation.hpp"
+#include "Disparity.hpp"
 
 /**
  * @enum PipelineMode
@@ -51,7 +52,8 @@ public:
         const std::string& pathLeft, 
         const std::string& pathRight, 
         PipelineResult& res,
-        PipelineMode mode = PipelineMode::OpenCV
+        PipelineMode mode = PipelineMode::OpenCV,
+        DisparityMethod method = DisparityMethod::OpenCVSGBM
     );
 
 private:
@@ -61,7 +63,8 @@ private:
     static bool runPipelineOpenCV(
         const std::string& pathLeft, 
         const std::string& pathRight, 
-        PipelineResult& res
+        PipelineResult& res,
+        DisparityMethod method = DisparityMethod::OpenCVSGBM // Default to SGBM for OpenCV 
     );
 
     /**
@@ -71,6 +74,7 @@ private:
     static bool runPipelineCustom(
         const std::string& pathLeft, 
         const std::string& pathRight, 
-        PipelineResult& res
+        PipelineResult& res,
+        DisparityMethod method = DisparityMethod::SAD // Default to SAD for Custom
     );
 };
