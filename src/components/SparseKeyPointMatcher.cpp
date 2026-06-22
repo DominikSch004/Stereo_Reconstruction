@@ -20,7 +20,7 @@ MatchResult SparseKeyPointMatcher::match(const cv::Mat& grayLeft,
     std::vector<std::vector<cv::DMatch>> knnMatches;
     flann.knnMatch(descLeft, descRight, knnMatches, 2);
 
-    for (const auto& m : knnMatches) {
+    for (const auto& m : knnMatches) { // Lowe's ratio test
         if (!m.empty() && m[0].distance < ratioThreshold_ * m[1].distance) {
             result.matches.push_back(m[0]);
         }

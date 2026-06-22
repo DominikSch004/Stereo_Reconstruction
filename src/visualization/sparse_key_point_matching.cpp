@@ -34,6 +34,12 @@ int main()
                     cv::Scalar::all(-1), cv::Scalar::all(-1), {},
                     cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 
+    const std::string outPath = "sparse_matches.png";
+    cv::imwrite(outPath, vis);
+    std::cout << "Saved visualization to " << outPath
+              << " (" << result.matches.size() << " of " << result.matches.size()
+              << " matches drawn)\n";
+
     cv::imshow("Sparse Key Point Matching correspondences", vis);
     cv::waitKey(0);
     return 0;
