@@ -138,7 +138,13 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     int bestInliers = 0;
 
     inlierMask.assign(N, false);
-    
+
+    // sampsonError() returns a SQUARED pixel distance (first-order Sampson
+    // approximation), while `threshold` is specified as a linear pixel
+    // tolerance — matching cv::findFundamentalMat's ransacReprojThreshold
+    // convention so custom vs. OpenCV stay comparable at any threshold value.
+    const double thresholdSq = threshold * threshold;
+
     // Setup random number generator
     std::mt19937 rng(42);
     std::uniform_int_distribution<int> dist(0, N - 1);
@@ -167,7 +173,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
 
         // Evaluate model fit quality over the whole population using Sampson distance
         for (int i = 0; i < N; ++i) {
-            mask[i] = sampsonError(F, ptsL[i], ptsR[i]) < threshold;
+            mask[i] = sampsonError(F, ptsL[i], ptsR[i]) < thresholdSq;
             if (mask[i]) ++inliers;
         }
 
@@ -193,7 +199,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
         bestF = compute8Point(inL, inR);
         // Refresh final outlier rejection tracking arrays
         for (int i = 0; i < N; ++i) {
-            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < threshold;
+            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < thresholdSq;
         }
     }
     return bestF;
