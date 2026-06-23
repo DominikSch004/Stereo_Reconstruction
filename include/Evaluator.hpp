@@ -24,4 +24,7 @@ public:
                                         const std::vector<cv::Point2f> &ptsL,
                                         const std::vector<cv::Point2f> &ptsR,
                                         const std::vector<bool> &inlierMask);
+
+    // Calculates the percentage of matched points that survived the RANSAC filtering process.
+    static double computeInlierRatio(const std::vector<bool> &inlierMask);
 };

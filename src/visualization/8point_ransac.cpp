@@ -45,6 +45,7 @@ int main()
     Eigen::Vector3d t_est;
     double rot_err = 0.0, trans_err = 0.0;
     double epi_err_custom = Evaluator::evaluateEpipolarError(F_custom, ptsL, ptsR, CustomInliers);
+    double custom_ratio = Evaluator::computeInlierRatio(CustomInliers);
 
     // evaluate custom
     if (GeometryUtils::extractPoseFromFundamental(F_custom, ptsL, ptsR, CustomInliers, K, R_est, t_est))
@@ -52,6 +53,7 @@ int main()
         Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
         std::cout << "Custom Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
         std::cout << "Custom Epipolar Error: " << epi_err_custom << " px\n";
+        std::cout << "Custom Inlier Ratio: " << custom_ratio << "%\n";
     }
     else
     {
@@ -60,11 +62,13 @@ int main()
 
     // evaluate openCV
     double epi_err_cv = Evaluator::evaluateEpipolarError(F_opencv, ptsL, ptsR, OpenCVInliers);
+    double cv_ratio = Evaluator::computeInlierRatio(OpenCVInliers);
     if (GeometryUtils::extractPoseFromFundamental(F_opencv, ptsL, ptsR, OpenCVInliers, K, R_est, t_est))
     {
         Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
         std::cout << "OpenCV Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
         std::cout << "OpenCV Epipolar Error: " << epi_err_cv << " px\n";
+        std::cout << "OpenCV Inlier Ratio: " << cv_ratio << "%\n";
     }
     else
     {

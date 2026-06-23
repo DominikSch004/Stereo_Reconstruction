@@ -93,3 +93,10 @@ double Evaluator::evaluateEpipolarError(const Eigen::Matrix3d &F_eigen,
 
     return computeSymmetricEpipolarDistance(inL, inR, F_cv);
 }
+double Evaluator::computeInlierRatio(const std::vector<bool> &inlierMask)
+{
+    if (inlierMask.empty())
+        return 0.0;
+    int inlier_count = std::count(inlierMask.begin(), inlierMask.end(), true);
+    return ((double)inlier_count / inlierMask.size()) * 100.0;
+}
