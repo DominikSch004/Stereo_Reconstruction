@@ -7,10 +7,11 @@
  * @brief Selects the cost volume metric for hand-rolled dense block-matching.
  * SAD: Sum of Absolute Differences, SSD: Sum of Squared Differences, NCC: Normalized Cross-Correlation, OpenCVSGBM: OpenCV's optimized Semi-Global Block Matching (SGBM).
  */
-enum class DisparityMethod {
-    SSD,        // Sum of Squared Differences
-    SAD,        // Sum of Absolute Differences
-    NCC,        // Normalized Cross-Correlation
+enum class DisparityMethod
+{
+    SSD,       // Sum of Squared Differences
+    SAD,       // Sum of Absolute Differences
+    NCC,       // Normalized Cross-Correlation
     OpenCVSGBM // OpenCV's Semi-Global Block Matching (SGBM)
 };
 
@@ -32,20 +33,19 @@ public:
      * @return CV_32F disparity map matrix containing actual pixel disparities.
      */
     static cv::Mat computeDisparity(
-        const cv::Mat& left,
-        const cv::Mat& right,
+        const cv::Mat &left,
+        const cv::Mat &right,
         int minDisp,
         int numDisp,
         int blockSize,
-        DisparityMethod method = DisparityMethod::OpenCVSGBM
-    );
+        DisparityMethod method = DisparityMethod::OpenCVSGBM);
 
 private:
     /**
      * @brief Internal helper functions for each cost metric. Each computes a raw cost volume and selects the best disparity per pixel.
      */
-    static cv::Mat computeSSD(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
-    static cv::Mat computeSAD(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
-    static cv::Mat computeNCC(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
-    static cv::Mat computeSGBMOpenCV(const cv::Mat& left, const cv::Mat& right, int minDisp, int numDisp, int blockSize);
+    static cv::Mat computeSSD(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
+    static cv::Mat computeSAD(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
+    static cv::Mat computeNCC(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
+    static cv::Mat computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
 };

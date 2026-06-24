@@ -10,10 +10,11 @@
 
 /**
  * @enum PipelineMode
- * @brief Dictates whether the top-level orchestration uses custom hand-rolled backends 
+ * @brief Dictates whether the top-level orchestration uses custom hand-rolled backends
  * or optimized native OpenCV baselines across individual pipeline phases.
  */
-enum class PipelineMode {
+enum class PipelineMode
+{
     OpenCV,
     Custom
 };
@@ -25,20 +26,20 @@ enum class PipelineMode {
 struct PipelineResult
 {
     cv::Mat rectLeft, rectRight, rectColor;
-    cv::Mat Q;            // 4x4 disparity-to-depth matrix
-    cv::Mat P1r, P2r;     // 3x4 rectified projection matrices (left, right)
-    cv::Mat camToWorld;   // 3x4 [R|t]: camera coordinates -> world frame
-    int minDisp = 0;      // Dynamic search range start
-    int numDisp = 16;     // Dynamic search range width (multiple of 16)
+    cv::Mat Q;          // 4x4 disparity-to-depth matrix
+    cv::Mat P1r, P2r;   // 3x4 rectified projection matrices (left, right)
+    cv::Mat camToWorld; // 3x4 [R|t]: camera coordinates -> world frame
+    int minDisp = 0;    // Dynamic search range start
+    int numDisp = 16;   // Dynamic search range width (multiple of 16)
     std::vector<cv::Point2f> inPtsL, inPtsR;
     cv::Size imgSize;
-    cv::Mat denseDisparity;      // CV_32F calculated dense correspondence map
+    cv::Mat denseDisparity; // CV_32F calculated dense correspondence map
     cv::Mat dense3DPoints;  // CV_32FC3 spatial point grid for downstream ICP pipelines
 };
 
 /**
  * @class Pipeline
- * @brief Orchestration engine coordinating feature matching, epipolar geometry, 
+ * @brief Orchestration engine coordinating feature matching, epipolar geometry,
  * stereo rectification, and dense matching search-bound configuration.
  */
 class Pipeline
@@ -49,22 +50,25 @@ public:
      * @return true if the entire orchestration sequence finishes successfully, false otherwise.
      */
     static bool runPipeline(
-        const std::string& pathLeft, 
-        const std::string& pathRight, 
-        PipelineResult& res,
+        const cv::Mat &imgLeft,
+        const cv::Mat &imgRight,
+        const cv::Mat &K,
+        PipelineResult &res,
         PipelineMode mode = PipelineMode::OpenCV,
-        DisparityMethod method = DisparityMethod::OpenCVSGBM
-    );
+        DisparityMethod method = DisparityMethod::OpenCVSGBM);
 
 private:
     /**
      * @brief Executes the pipeline using native OpenCV baseline modules.
      */
     static bool runPipelineOpenCV(
-        const std::string& pathLeft, 
-        const std::string& pathRight, 
-        PipelineResult& res,
-        DisparityMethod method = DisparityMethod::OpenCVSGBM // Default to SGBM for OpenCV 
+        const cv::Mat &gray1,
+        const cv::Mat &gray2,
+        const cv::Mat &bgr1,
+        const cv::Size &sz,
+        const cv::Mat &K,
+        PipelineResult &res,
+        DisparityMethod method = DisparityMethod::OpenCVSGBM // Default to SGBM for OpenCV
     );
 
     /**
@@ -72,9 +76,12 @@ private:
      * @note Placeholder ready for when you substitute parts (like custom RANSAC, 8-point, or custom rectification).
      */
     static bool runPipelineCustom(
-        const std::string& pathLeft, 
-        const std::string& pathRight, 
-        PipelineResult& res,
+        const cv::Mat &gray1,
+        const cv::Mat &gray2,
+        const cv::Mat &bgr1,
+        const cv::Size &sz,
+        const cv::Mat &K,
+        PipelineResult &res,
         DisparityMethod method = DisparityMethod::SAD // Default to SAD for Custom
     );
 };

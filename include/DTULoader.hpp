@@ -5,12 +5,14 @@
 #include <Eigen/Dense>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
-#include <FreeImageHelper.h>
+#include <opencv2/imgcodecs.hpp>
+
+// #include <FreeImageHelper.h> if we cannot use openCV data structres for custom approach we can go back to this.
 
 struct StereoPair
 {
-    FreeImageB imageLeft;
-    FreeImageB imageRight;
+    cv::Mat imageLeft;
+    cv::Mat imageRight;
 };
 
 struct CameraPose
@@ -25,52 +27,105 @@ class DTULoader
 public:
     DTULoader(const std::string &datasetDir) : m_baseDir(datasetDir) {}
 
-    StereoPair loadPair(int scanId, int viewIdLeft, int viewIdRight, int illumination = 3)
+    StereoPair loadPair(int viewIdLeft, int viewIdRight, int datasetID = 1, int illumination = 3)
     {
-        StereoPair pair;
-        std::string pathLeft = buildImagePath(scanId, viewIdLeft, illumination);
-        std::string pathRight = buildImagePath(scanId, viewIdRight, illumination);
+        std::string pathLeft = buildImagePath(datasetID, viewIdLeft, illumination);
+        std::string pathRight = buildImagePath(datasetID, viewIdRight, illumination);
 
-        std::cout << "Loading left image: " << pathLeft << "\n";
-        pair.imageLeft = loadToFreeImage(pathLeft);
-
-        std::cout << "Loading right image: " << pathRight << "\n";
-        pair.imageRight = loadToFreeImage(pathRight);
-
-        return pair;
+        return loadPair(pathLeft, pathRight);
     }
 
     StereoPair loadPair(const std::string &pathLeft, const std::string &pathRight)
     {
         StereoPair pair;
         std::cout << "Loading left image: " << pathLeft << "\n";
-        pair.imageLeft = loadToFreeImage(pathLeft);
+        pair.imageLeft = cv::imread(pathLeft, cv::IMREAD_COLOR);
+        if (pair.imageLeft.empty())
+        {
+            std::cerr << "ERROR: Failed to load left image! Check if the path exists: " << pathLeft << "\n";
+        }
 
         std::cout << "Loading right image: " << pathRight << "\n";
-        pair.imageRight = loadToFreeImage(pathRight);
+        pair.imageRight = cv::imread(pathRight, cv::IMREAD_COLOR);
+        if (pair.imageRight.empty())
+        {
+            std::cerr << "ERROR: Failed to load right image! Check if the path exists: " << pathRight << "\n";
+        }
 
         return pair;
     }
 
+    CameraPose loadCameraPose(int imageId, int datasetId = 1)
+    {
+        char idStr[4];
+        snprintf(idStr, sizeof(idStr), "%03d", imageId);
+        std::string calPath = m_baseDir + "Calibration/cal18/pos_" + std::string(idStr) + ".txt";
+
+        return loadPoseFromTxt(calPath);
+    }
+
     CameraPose loadCameraPose(const std::string &imgPath)
     {
-        CameraPose pose;
-
         size_t rpos = imgPath.find("Rectified");
         size_t fpos = imgPath.find("rect_");
         if (rpos == std::string::npos || fpos == std::string::npos)
         {
-            std::cerr << "ERROR: cannot parse view id from " << imgPath << "\n";
-            return pose;
+            std::cerr << "ERROR: Cannot parse view id from path: " << imgPath << "\n";
+            return CameraPose(); // Return empty pose
         }
+
         std::string base = imgPath.substr(0, rpos);
         std::string id = imgPath.substr(fpos + 5, 3);
         std::string calPath = base + "Calibration/cal18/pos_" + id + ".txt";
 
+        return loadPoseFromTxt(calPath);
+    }
+
+    cv::Mat loadIntrinsicCV(int imageId, int datasetId = 1)
+    {
+        CameraPose pose = loadCameraPose(imageId, datasetId);
+        return poseToInstrinsics(pose);
+    }
+
+    cv::Mat loadIntrinsicCV(const std::string &imgPath)
+    {
+        CameraPose pose = loadCameraPose(imgPath);
+        return poseToInstrinsics(pose);
+    }
+
+    // Compute relative rotation and translation between two poses
+    static inline void getRelativePose(const CameraPose &pose1, const CameraPose &pose2,
+                                       Eigen::Matrix3d &R_rel, Eigen::Vector3d &t_rel)
+    {
+        R_rel = pose2.R * pose1.R.transpose();
+        t_rel = pose2.R * (pose1.t - pose2.t);
+        if (t_rel.norm() > 0)
+        {
+            t_rel.normalize();
+        }
+    }
+
+private:
+    std::string m_baseDir;
+
+    std::string buildImagePath(int datasetID, int viewId, int illumination)
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "SampleSet/MVS Data/Rectified/scan%d/rect_%03d_%d_r5000.png", datasetID, viewId, illumination);
+        return m_baseDir + std::string(buf);
+    }
+
+    CameraPose loadPoseFromTxt(const std::string &calPath)
+    {
+        CameraPose pose;
+        pose.R = Eigen::Matrix3d::Identity();
+        pose.K = Eigen::Matrix3d::Identity();
+        pose.t = Eigen::Vector3d::Zero();
+
         std::ifstream file(calPath);
         if (!file.is_open())
         {
-            std::cerr << "ERROR: cannot open calibration file " << calPath << "\n";
+            std::cerr << "ERROR: Cannot open calibration file! Path does not exist: " << calPath << "\n";
             return pose;
         }
 
@@ -80,7 +135,11 @@ public:
         {
             for (int j = 0; j < 4; ++j)
             {
-                file >> P.at<double>(i, j);
+                if (!(file >> P.at<double>(i, j)))
+                {
+                    std::cerr << "ERROR: Failed to read matrix data from " << calPath << " (file might be corrupted or empty)\n";
+                    return pose;
+                }
             }
         }
         file.close();
@@ -102,10 +161,8 @@ public:
         return pose;
     }
 
-    // only load k matrix
-    cv::Mat loadIntrinsicCV(const std::string &imgPath)
+    cv::Mat poseToInstrinsics(const CameraPose &pose)
     {
-        CameraPose pose = loadCameraPose(imgPath);
         cv::Mat K_cv(3, 3, CV_64F);
         for (int i = 0; i < 3; ++i)
         {
@@ -115,37 +172,5 @@ public:
             }
         }
         return K_cv;
-    }
-
-    static inline void getRelativePose(const CameraPose &pose1, const CameraPose &pose2,
-                                       Eigen::Matrix3d &R_rel, Eigen::Vector3d &t_rel)
-    {
-        R_rel = pose2.R * pose1.R.transpose();
-        t_rel = pose2.R * (pose1.t - pose2.t);
-        if (t_rel.norm() > 0)
-        {
-            t_rel.normalize();
-        }
-    }
-
-private:
-    std::string m_baseDir;
-
-    std::string buildImagePath(int scanId, int viewId, int illumination)
-    {
-        char viewStr[10];
-        snprintf(viewStr, sizeof(viewStr), "%03d", viewId);
-        return m_baseDir + "/SampleSet/MVS Data/Rectified/scan" + std::to_string(scanId) +
-               "/rect_" + std::string(viewStr) + "_" + std::to_string(illumination) + "_r5000.png";
-    }
-
-    FreeImageB loadToFreeImage(const std::string &filepath)
-    {
-        FreeImageB fi;
-        if (!fi.LoadImageFromFile(filepath))
-        {
-            std::cerr << "ERROR: Failed to load image at " << filepath << "\n";
-        }
-        return fi;
     }
 };
