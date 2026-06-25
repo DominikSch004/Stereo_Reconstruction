@@ -10,17 +10,15 @@
 
 int main()
 {
-    const std::string leftPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png";
-    const std::string rightPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png";
+    // 1. Load data
+    DTULoader loader("../data/dtu/");
 
-    DTULoader loader("");
-    StereoPair pair = loader.loadPair(leftPath, rightPath);
-    if (!pair.imageLeft.data || !pair.imageRight.data)
-        return -1;
+    // select by image id, default is dataset 1 (scan1) & illumination 3
+    StereoPair pair = loader.loadPair(1, 2);
 
-    cv::Mat K = loader.loadIntrinsicCV(leftPath);
-    CameraPose pose1 = loader.loadCameraPose(leftPath);
-    CameraPose pose2 = loader.loadCameraPose(rightPath);
+    cv::Mat K = loader.loadIntrinsicCV(1);
+    CameraPose pose1 = loader.loadCameraPose(1);
+    CameraPose pose2 = loader.loadCameraPose(2);
     Eigen::Matrix3d R_gt;
     Eigen::Vector3d t_gt;
     DTULoader::getRelativePose(pose1, pose2, R_gt, t_gt);

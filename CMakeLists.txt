@@ -64,8 +64,7 @@ register_visualisation_target(SparseKeyPointMatching src/visualization/sparse_ke
 register_visualisation_target(EightPointRansac       src/visualization/8point_ransac.cpp)
 register_visualisation_target(StereoRectification    src/visualization/stereo_rectification.cpp)
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
-register_visualisation_target(PipelineOpenCVEvaluation     src/visualization/pipeline_opencv_eval.cpp)
-register_visualisation_target(PipelineCustomEvaluation     src/visualization/pipeline_custom_eval.cpp)
+register_visualisation_target(PipelineOpenCVEvaluation     src/visualization/pipeline_eval.cpp)
 
 add_executable(IcpFusion
     src/IcpFusion.cpp

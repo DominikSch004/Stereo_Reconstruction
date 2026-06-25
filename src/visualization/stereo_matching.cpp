@@ -9,7 +9,8 @@
 #include "ImgUtils.hpp"
 
 // Utility function to normalize and colorize disparity maps for visualization
-static cv::Mat cleanViz(const cv::Mat& disp) {
+static cv::Mat cleanViz(const cv::Mat &disp)
+{
     cv::Mat viz;
     cv::normalize(disp, viz, 0, 255, cv::NORM_MINMAX, CV_8U);
     cv::applyColorMap(viz, viz, cv::COLORMAP_JET);
@@ -18,15 +19,11 @@ static cv::Mat cleanViz(const cv::Mat& disp) {
 
 int main()
 {
-    const std::string leftPath  = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png";
-    const std::string rightPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png";
+    // 1. Load data
+    DTULoader loader("../data/dtu/");
 
-    DTULoader loader("");
-    StereoPair pair = loader.loadPair(leftPath, rightPath);
-    if (!pair.imageLeft.data || !pair.imageRight.data) {
-        std::cerr << "ERROR: Failed to load images\n";
-        return -1;
-    }
+    // select by image id; default is dataset 1 (scan1) & illumination 3
+    StereoPair pair = loader.loadPair(1, 2);
 
     // Convert raw inputs to grayscale for matching matrices
     cv::Mat grayL = toGray(pair.imageLeft);
@@ -39,7 +36,8 @@ int main()
     SparseKeyPointMatcher::extractPoints(result, ptsL, ptsR);
 
     std::cout << "Correspondences Found: " << ptsL.size() << "\n";
-    if (ptsL.size() < 8) {
+    if (ptsL.size() < 8)
+    {
         std::cerr << "ERROR: Not enough correspondences available to proceed.\n";
         return -1;
     }
@@ -50,10 +48,12 @@ int main()
 
     // Isolate clean inliers to ensure clean rectification homographies
     std::vector<cv::Point2f> inL, inR;
-    for (size_t i = 0; i < ptsL.size(); ++i) {
-        if (mask[i]) { 
-            inL.push_back(ptsL[i]); 
-            inR.push_back(ptsR[i]); 
+    for (size_t i = 0; i < ptsL.size(); ++i)
+    {
+        if (mask[i])
+        {
+            inL.push_back(ptsL[i]);
+            inR.push_back(ptsR[i]);
         }
     }
 
@@ -61,7 +61,8 @@ int main()
     // Compute Uncalibrated Homography mappings
     // TODO: Replace with Calibrated rectification routines after getting intirinsics K
     cv::Mat H1, H2;
-    if (!Rectification::computeUncalibrated(inL, inR, grayL.size(), toCvMat(F), H1, H2)) {
+    if (!Rectification::computeUncalibrated(inL, inR, grayL.size(), toCvMat(F), H1, H2))
+    {
         std::cerr << "ERROR: Stereo Rectification matrix processing failed.\n";
         return -1;
     }
@@ -72,24 +73,24 @@ int main()
 
     // Hardcode dataset boundaries (DTU setup parameters)
     int minDisp = 40;
-    int numDisp = 64; 
+    int numDisp = 64;
     int blockSize = 7;
 
     // Define the testing suite parameters using our unified DisparityMethod enum pairs
     std::vector<std::pair<DisparityMethod, std::string>> methods = {
-        {DisparityMethod::SAD,        "Custom SAD"},
-        {DisparityMethod::SSD,        "Custom SSD"},
-        {DisparityMethod::NCC,        "Custom NCC"},
-        {DisparityMethod::OpenCVSGBM, "OpenCV SGBM Baseline"}
-    };
+        {DisparityMethod::SAD, "Custom SAD"},
+        {DisparityMethod::SSD, "Custom SSD"},
+        {DisparityMethod::NCC, "Custom NCC"},
+        {DisparityMethod::OpenCVSGBM, "OpenCV SGBM Baseline"}};
 
     std::cout << "\n=== Executing Uniform Cost Volume Processing Suite ===\n";
 
-    for (const auto& [method, windowTitle] : methods) {
+    for (const auto &[method, windowTitle] : methods)
+    {
         std::cout << "Computing cost map for: " << windowTitle << "...\n";
-        
+
         cv::Mat rawDisp = Disparity::computeDisparity(rectL, rectR, minDisp, numDisp, blockSize, method);
-        
+
         // Colorize
         cv::Mat coloredViz = cleanViz(rawDisp);
 
