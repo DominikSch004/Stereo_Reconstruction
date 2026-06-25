@@ -224,7 +224,7 @@ bool Pipeline::runPipelineCustom(const std::string& pathLeft, const std::string&
     }
 
     res.camToWorld = cv::Mat::zeros(3, 4, CV_64F);
-cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)));
+    cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)));
 
     // --- 4. Stereo Rectification ---
     RectifyResult rect;
