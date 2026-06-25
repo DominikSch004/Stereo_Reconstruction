@@ -59,7 +59,7 @@ public:
     {
         char idStr[4];
         snprintf(idStr, sizeof(idStr), "%03d", imageId);
-        std::string calPath = m_baseDir + "Calibration/cal18/pos_" + std::string(idStr) + ".txt";
+        std::string calPath = m_baseDir + "SampleSet/MVS Data/Calibration/cal18/pos_" + std::string(idStr) + ".txt";
 
         return loadPoseFromTxt(calPath);
     }
@@ -76,7 +76,7 @@ public:
 
         std::string base = imgPath.substr(0, rpos);
         std::string id = imgPath.substr(fpos + 5, 3);
-        std::string calPath = base + "Calibration/cal18/pos_" + id + ".txt";
+        std::string calPath = base + "SampleSet/MVS Data/Calibration/cal18/pos_" + id + ".txt";
 
         return loadPoseFromTxt(calPath);
     }

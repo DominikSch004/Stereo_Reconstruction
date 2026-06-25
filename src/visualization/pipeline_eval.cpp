@@ -14,7 +14,7 @@ int main()
     cv::Mat K = loader.loadIntrinsicCV(1);
     // 2. run pipeline, select which one you want to run below.
     bool runOpenCV = true;
-    bool runCustom = true;
+    bool runCustom = false;
     PipelineResult res;
     std::string plyFilename;
 
@@ -47,6 +47,6 @@ int main()
     PlyUtils::buildAndSavePLY(
         plyFilename,
         res.denseDisparity, res.Q, res.P1r, res.P2r,
-        res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::Manual);
+        res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
     return 0;
 }

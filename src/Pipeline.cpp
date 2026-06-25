@@ -30,6 +30,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     K.at<double>(1, 1) *= scale;
     K.at<double>(0, 2) *= scale;
     K.at<double>(1, 2) *= scale;
+    res.K = K.clone();
     switch (mode)
     {
     case PipelineMode::Custom:
@@ -78,18 +79,21 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
         return false;
 
     // --- 3. Relative Pose Recovery ---
-    // TODO: MAYBE PASS THIS ONTO SOME FUNDAMENTAL MATRIX METHOD ...
-    // E = K^T * F * K
-    cv::Mat E = K.t() * F_cv * K;
-    cv::Mat R, t, poseMask;
-    cv::Mat cvE_mask = cv::Mat::ones(inL.size(), 1, CV_8U);
-    cv::recoverPose(E, inL, inR, K, R, t, cvE_mask);
+    // Estimate the essential matrix DIRECTLY rather than converting from F via
+    // E = K^T F K. The latter propagates F's noise and never enforces the
+    // essential-matrix constraint (two equal singular values), yielding a poor
+    // translation direction that tilts the rectified rows (~74px vertical residual
+    // vs ~0.4px with findEssentialMat). See stereo_rectification verification.
+    cv::Mat poseMask;
+    cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
+    cv::Mat R, t;
+    cv::recoverPose(E, inL, inR, K, R, t, poseMask);
 
     res.inPtsL.clear();
     res.inPtsR.clear();
-    for (int i = 0; i < cvE_mask.rows; ++i)
+    for (int i = 0; i < poseMask.rows; ++i)
     {
-        if (cvE_mask.at<uchar>(i))
+        if (poseMask.at<uchar>(i))
         {
             res.inPtsL.push_back(inL[i]);
             res.inPtsR.push_back(inR[i]);
@@ -108,6 +112,8 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
         return false;
     }
     res.Q = rect.Q;
+    res.R1 = rect.R1;
+    res.R2 = rect.R2;
     res.P1r = rect.P1;
     res.P2r = rect.P2;
     res.rectLeft = rect.rectLeft;
@@ -187,17 +193,21 @@ bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, con
         return false;
 
     // --- 3. Relative Pose Recovery ---
-    // TODO: MAYBE HAVE SOME FUNDAMENTAL MATRIX METHOD FOR THIS...
-    cv::Mat E = K.t() * F_cv * K;
-    cv::Mat R, t, poseMask;
-    cv::Mat cvE_mask = cv::Mat::ones(inL.size(), 1, CV_8U);
-    cv::recoverPose(E, inL, inR, K, R, t, cvE_mask);
+    // Estimate the essential matrix DIRECTLY rather than converting from F via
+    // E = K^T F K. The latter propagates F's noise and never enforces the
+    // essential-matrix constraint (two equal singular values), yielding a poor
+    // translation direction that tilts the rectified rows (~74px vertical residual
+    // vs ~0.4px with findEssentialMat). See stereo_rectification verification.
+    cv::Mat poseMask;
+    cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
+    cv::Mat R, t;
+    cv::recoverPose(E, inL, inR, K, R, t, poseMask);
 
     res.inPtsL.clear();
     res.inPtsR.clear();
-    for (int i = 0; i < cvE_mask.rows; ++i)
+    for (int i = 0; i < poseMask.rows; ++i)
     {
-        if (cvE_mask.at<uchar>(i))
+        if (poseMask.at<uchar>(i))
         {
             res.inPtsL.push_back(inL[i]);
             res.inPtsR.push_back(inR[i]);
@@ -216,6 +226,8 @@ bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, con
         return false;
     }
     res.Q = rect.Q;
+    res.R1 = rect.R1;
+    res.R2 = rect.R2;
     res.P1r = rect.P1;
     res.P2r = rect.P2;
     res.rectLeft = rect.rectLeft;
@@ -253,7 +265,7 @@ bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, con
 
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(
-        res.denseDisparity, res.Q, res.P1r, res.P2r, TriangulationMethod::Manual);
+        res.denseDisparity, res.Q, res.P1r, res.P2r, TriangulationMethod::OpenCV);
 
     std::cout << "[Custom Mode] End-to-End Execution Completed Successfully.\n";
     return true;

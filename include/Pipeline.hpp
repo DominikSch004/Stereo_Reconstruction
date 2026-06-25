@@ -27,7 +27,9 @@ struct PipelineResult
 {
     cv::Mat rectLeft, rectRight, rectColor;
     cv::Mat Q;          // 4x4 disparity-to-depth matrix
+    cv::Mat R1, R2;     // 3x3 rectifying rotations (left, right)
     cv::Mat P1r, P2r;   // 3x4 rectified projection matrices (left, right)
+    cv::Mat K;          // intrinsics actually used (scaled to processing resolution)
     cv::Mat camToWorld; // 3x4 [R|t]: camera coordinates -> world frame
     int minDisp = 0;    // Dynamic search range start
     int numDisp = 16;   // Dynamic search range width (multiple of 16)

@@ -65,6 +65,7 @@ register_visualisation_target(EightPointRansac       src/visualization/8point_ra
 register_visualisation_target(StereoRectification    src/visualization/stereo_rectification.cpp)
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
 register_visualisation_target(PipelineOpenCVEvaluation     src/visualization/pipeline_eval.cpp)
+register_visualisation_target(TriangulationVerification     src/visualization/triangulation_verification.cpp)
 
 add_executable(IcpFusion
     src/IcpFusion.cpp
