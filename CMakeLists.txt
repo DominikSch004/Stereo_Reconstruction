@@ -4,7 +4,7 @@ project(StereoReconstructionICP LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui calib3d features2d)
+find_package(OpenCV 4.5 REQUIRED COMPONENTS core imgproc highgui calib3d features2d)
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED)
 
