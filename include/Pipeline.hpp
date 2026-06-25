@@ -7,17 +7,7 @@
 #include "DTULoader.hpp"
 #include "Triangulation.hpp"
 #include "Disparity.hpp"
-
-/**
- * @enum PipelineMode
- * @brief Dictates whether the top-level orchestration uses custom hand-rolled backends
- * or optimized native OpenCV baselines across individual pipeline phases.
- */
-enum class PipelineMode
-{
-    OpenCV,
-    Custom
-};
+#include "Types.hpp"
 
 /**
  * @struct PipelineResult
@@ -56,8 +46,7 @@ public:
         const cv::Mat &imgRight,
         const cv::Mat &K,
         PipelineResult &res,
-        PipelineMode mode = PipelineMode::OpenCV,
-        DisparityMethod method = DisparityMethod::OpenCVSGBM);
+        PipelineMode mode = PipelineMode::OpenCV);
 
 private:
     /**
@@ -69,9 +58,7 @@ private:
         const cv::Mat &bgr1,
         const cv::Size &sz,
         const cv::Mat &K,
-        PipelineResult &res,
-        DisparityMethod method = DisparityMethod::OpenCVSGBM // Default to SGBM for OpenCV
-    );
+        PipelineResult &res);
 
     /**
      * @brief Executes the pipeline using your custom hand-rolled mathematical backends.
@@ -83,7 +70,5 @@ private:
         const cv::Mat &bgr1,
         const cv::Size &sz,
         const cv::Mat &K,
-        PipelineResult &res,
-        DisparityMethod method = DisparityMethod::SAD // Default to SAD for Custom
-    );
+        PipelineResult &res);
 };

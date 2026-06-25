@@ -9,7 +9,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 
-bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, PipelineMode mode, DisparityMethod method)
+bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, PipelineMode mode)
 {
     cv::Mat bgr1 = imgLeft.clone();
     cv::Mat gray1, gray2;
@@ -34,16 +34,16 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     switch (mode)
     {
     case PipelineMode::Custom:
-        return runPipelineCustom(gray1, gray2, bgr1, sz, K, res, method);
+        return runPipelineCustom(gray1, gray2, bgr1, sz, K, res);
     case PipelineMode::OpenCV:
-        return runPipelineOpenCV(gray1, gray2, bgr1, sz, K, res, method);
+        return runPipelineOpenCV(gray1, gray2, bgr1, sz, K, res);
     default:
         std::cout << "Failed! Select a valid pipeline";
         return false;
     }
 }
 
-bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, const cv::Mat &bgr1, const cv::Size &sz, const cv::Mat &K, PipelineResult &res, DisparityMethod method)
+bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, const cv::Mat &bgr1, const cv::Size &sz, const cv::Mat &K, PipelineResult &res)
 {
 
     // --- 1. Sparse Feature Matching ---
@@ -147,7 +147,7 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = 7;
-    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, method);
+    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, PipelineMode::OpenCV);
 
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(
@@ -157,7 +157,7 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
     return true;
 }
 
-bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, const cv::Mat &bgr1, const cv::Size &sz, const cv::Mat &K, PipelineResult &res, DisparityMethod method)
+bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, const cv::Mat &bgr1, const cv::Size &sz, const cv::Mat &K, PipelineResult &res)
 {
 
     // --- 1. Sparse Feature Matching ---
@@ -261,7 +261,7 @@ bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, con
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = 7;
-    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, method);
+    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, PipelineMode::Custom);
 
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(
