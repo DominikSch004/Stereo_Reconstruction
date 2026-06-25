@@ -14,7 +14,7 @@ int main()
     cv::Mat K = loader.loadIntrinsicCV(1);
     // 2. run pipeline, select which one you want to run below.
     bool runOpenCV = true;
-    bool runCustom = false;
+    bool runCustom = true;
     PipelineResult res;
     std::string plyFilename;
 
@@ -29,6 +29,11 @@ int main()
 
         // 3. Export dense local frame 3D point grids to PLY meshes for cloud inspection
         plyFilename = "pointcloud_opencv.ply";
+        std::cout << "Saving cloud to: " << plyFilename << "\n";
+        PlyUtils::buildAndSavePLY(
+            plyFilename,
+            res.denseDisparity, res.Q, res.P1r, res.P2r,
+            res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
     }
 
     if (runCustom)
@@ -42,11 +47,11 @@ int main()
 
         // 3. Export dense local frame 3D point grids to PLY meshes for cloud inspection
         plyFilename = "pointcloud_custom.ply";
+        std::cout << "Saving cloud to: " << plyFilename << "\n";
+        PlyUtils::buildAndSavePLY(
+            plyFilename,
+            res.denseDisparity, res.Q, res.P1r, res.P2r,
+            res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
     }
-    std::cout << "Saving cloud to: " << plyFilename << "\n";
-    PlyUtils::buildAndSavePLY(
-        plyFilename,
-        res.denseDisparity, res.Q, res.P1r, res.P2r,
-        res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
     return 0;
 }
