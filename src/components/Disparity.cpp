@@ -19,17 +19,18 @@ cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, i
 
 cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize)
 {
+    int numChannels = left.channels(); // images are grayscale (1) & (3) BGR
     auto sgbm = cv::StereoSGBM::create(
         minDisp,
         numDisp,
         blockSize,
-        8 * 3 * blockSize * blockSize,  // P1 smoothness penalty
-        32 * 3 * blockSize * blockSize, // P2 smoothness penalty
-        1,                              // disp12MaxDiff
-        0,                              // preFilterCap
-        10,                             // uniquenessRatio
-        100,                            // speckleWindowSize
-        32,                             // speckleRange
+        8 * numChannels * blockSize * blockSize,  // P1 smoothness penalty
+        32 * numChannels * blockSize * blockSize, // P2 smoothness penalty
+        1,                                        // disp12MaxDiff
+        0,                                        // preFilterCap
+        10,                                       // uniquenessRatio
+        100,                                      // speckleWindowSize
+        32,                                       // speckleRange
         cv::StereoSGBM::MODE_SGBM);
 
     cv::Mat disp16;
