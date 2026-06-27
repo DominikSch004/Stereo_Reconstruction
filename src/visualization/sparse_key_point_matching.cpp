@@ -7,28 +7,24 @@
 
 int main()
 {
-    const std::string leftPath  = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_001_3_r5000.png";
-    const std::string rightPath = "../data/dtu/SampleSet/MVS Data/Rectified/scan1/rect_002_3_r5000.png";
+    // 1. Load data
+    DTULoader loader("../data/dtu/");
 
-    DTULoader loader("");
-    StereoPair pair = loader.loadPair(leftPath, rightPath);
-    if (!pair.imageLeft.data || !pair.imageRight.data) {
-        std::cerr << "ERROR: Failed to load images\n";
-        return -1;
-    }
+    // select by image id, default is dataset 1 (scan1) & illumination 3
+    StereoPair pair = loader.loadPair(1, 2);
 
-    cv::Mat grayLeft  = toGray(pair.imageLeft);
+    cv::Mat grayLeft = toGray(pair.imageLeft);
     cv::Mat grayRight = toGray(pair.imageRight);
 
     SparseKeyPointMatcher matcher(0.75f);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
     std::cout << "Keypoints — left: " << result.keypointsLeft.size()
-              << ", right: "          << result.keypointsRight.size() << "\n"
+              << ", right: " << result.keypointsRight.size() << "\n"
               << "Matches passed ratio test: " << result.matches.size() << "\n";
 
     cv::Mat vis;
-    cv::drawMatches(grayLeft,  result.keypointsLeft,
+    cv::drawMatches(grayLeft, result.keypointsLeft,
                     grayRight, result.keypointsRight,
                     result.matches, vis,
                     cv::Scalar::all(-1), cv::Scalar::all(-1), {},

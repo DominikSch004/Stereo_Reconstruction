@@ -9,35 +9,30 @@
 #include "PlyUtils.hpp"
 #include "ICP.hpp"
 
-std::string getLocalPath(int scanId, int viewId, int illumination = 3)
-{
-    char viewStr[10];
-    snprintf(viewStr, sizeof(viewStr), "%03d", viewId);
-    return "../data/dtu/SampleSet/MVS Data/Rectified/scan" + std::to_string(scanId) +
-           "/rect_" + std::string(viewStr) + "_" + std::to_string(illumination) + "_r5000.png";
-}
-
 int main()
 {
-    const int scanId    = 1;
-    const int numPairs  = 5;
+    const int scanId = 1;
+    const int numPairs = 5;
     const size_t icpSamples = 4000;
 
     std::mt19937 rng(42);
 
     std::vector<PointCloud> clouds;
     clouds.reserve(numPairs);
+    DTULoader loader("../data/dtu/");
 
     for (int i = 1; i <= numPairs; ++i)
     {
-        std::cout << "\n=== Processing Pair (" << i << ", " << i+1 << ") ===\n";
-        
-        std::string pathLeft  = getLocalPath(scanId, i);
-        std::string pathRight = getLocalPath(scanId, i + 1);
+        std::cout << "\n=== Processing Pair (" << i << ", " << i + 1 << ") ===\n";
+
+        // select by image id, default is dataset 1 (scan1) & illumination 3
+        StereoPair pair = loader.loadPair(i, i + 1);
+        // get intrinsics of 1st image.
+        cv::Mat K = loader.loadIntrinsicCV(i);
 
         PipelineResult res;
         // Standardize onto updated static scope pipeline execution wrappers
-        if (!Pipeline::runPipeline(pathLeft, pathRight, res, PipelineMode::OpenCV))
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV))
         {
             std::cerr << "Pipeline failed for pair " << i << "\n";
             continue;
@@ -45,31 +40,32 @@ int main()
 
         // Extract cloud fields using your pipeline's underlying dense tracking layers
         PointCloud cloud = PlyUtils::buildPointCloud(
-            res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV
-        );
-        
+            res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
+
         std::cout << "Cloud " << i << ": " << cloud.pts.size() << " points generated.\n";
         clouds.push_back(std::move(cloud));
     }
 
-    if (clouds.empty()) { 
-        std::cerr << "No point clouds were successfully generated. Aborting execution.\n"; 
-        return -1; 
+    if (clouds.empty())
+    {
+        std::cerr << "No point clouds were successfully generated. Aborting execution.\n";
+        return -1;
     }
 
     // Normalization shifts mapped seamlessly onto PlyUtils helpers
     auto [mean0, scale0] = PlyUtils::normalise(clouds[0]);
-    for (size_t i = 1; i < clouds.size(); ++i) {
+    for (size_t i = 1; i < clouds.size(); ++i)
+    {
         PlyUtils::normalise(clouds[i]);
     }
 
     PointCloud fused = clouds[0];
     for (size_t i = 1; i < clouds.size(); ++i)
     {
-        std::cout << "\nICP aligning cloud " << i+1 << " to fused reference...\n";
-        
+        std::cout << "\nICP aligning cloud " << i + 1 << " to fused reference...\n";
+
         PointCloud srcSub = PlyUtils::subsample(clouds[i], icpSamples, rng);
-        PointCloud tgtSub = PlyUtils::subsample(fused,     icpSamples, rng);
+        PointCloud tgtSub = PlyUtils::subsample(fused, icpSamples, rng);
         ICP::align(srcSub, tgtSub, 30);
 
         ICP::align(clouds[i], fused, 20);

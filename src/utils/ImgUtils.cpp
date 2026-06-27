@@ -1,7 +1,6 @@
 #include "ImgUtils.hpp"
 
-
-cv::Mat toCvMat(const Eigen::Matrix3d& M)
+cv::Mat toCvMat(const Eigen::Matrix3d &M)
 {
     cv::Mat out(3, 3, CV_64F);
     for (int i = 0; i < 3; ++i)
@@ -10,7 +9,7 @@ cv::Mat toCvMat(const Eigen::Matrix3d& M)
     return out;
 }
 
-cv::Mat toGray(const FreeImageB& fi)
+cv::Mat toGray(const FreeImageB &fi)
 {
     cv::Mat rgba(fi.h, fi.w, CV_8UC4, fi.data);
     cv::Mat gray;
@@ -18,7 +17,14 @@ cv::Mat toGray(const FreeImageB& fi)
     return gray;
 }
 
-cv::Mat toBGR(const FreeImageB& fi)
+cv::Mat toGray(const cv::Mat &img)
+{
+    cv::Mat gray;
+    cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
+    return gray;
+}
+
+cv::Mat toBGR(const FreeImageB &fi)
 {
     cv::Mat rgba(fi.h, fi.w, CV_8UC4, fi.data);
     cv::Mat bgr;
