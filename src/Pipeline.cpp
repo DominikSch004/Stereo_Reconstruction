@@ -63,6 +63,8 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
     std::vector<bool> inlierMask;
     Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
     cv::Mat F_cv = toCvMat(F_eigen);
+    res.inlierMask = inlierMask;
+
     if (F_cv.empty())
         return false;
 
@@ -88,6 +90,11 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
     cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
     cv::Mat R, t;
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
+
+    // save result for evaluation
+    res.R_est = R.clone();
+    res.t_est = t.clone();
+    res.E = E.clone();
 
     res.inPtsL.clear();
     res.inPtsR.clear();
