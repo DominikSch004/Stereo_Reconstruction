@@ -10,7 +10,8 @@
  */
 enum class FundamentalMethod {
     CustomRANSAC,  // Custom hand-rolled 8-point RANSAC loop with Sampson distance refitting
-    OpenCVRANSAC   // Native, multi-threaded OpenCV robust solver baseline
+    OpenCVRANSAC,   // Native, multi-threaded OpenCV robust solver baseline
+    CustomMAGSAC    // Custom implementation of the MAGSAC robust estimator
 };
 
 /**
@@ -131,4 +132,21 @@ private:
      * * Where K_left and K_right are the camera intrinsic calibration matrices.
      * Ensure this step is completed before initiating triangulation.
      */
+
+
+static Eigen::Matrix3d computeWeighted8Point(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    const std::vector<double>& weights
+);
+
+static Eigen::Matrix3d computeCustomMAGSAC(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    std::vector<bool>& inlierMask,
+    double sigmaMax,
+    int maxIter
+);
+
+
 };

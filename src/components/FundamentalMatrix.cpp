@@ -122,8 +122,10 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
 {
     if (method == FundamentalMethod::CustomRANSAC)
         return computeCustomRANSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
-    else
+    else if (method == FundamentalMethod::OpenCVRANSAC)
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
+    else
+        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
 }
 
 Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
@@ -236,4 +238,160 @@ Eigen::Matrix3d FundamentalMatrix::computeOpenCVRANSAC(
         }
     }
     return F_eigen;
+}
+
+
+
+
+
+Eigen::Matrix3d FundamentalMatrix::computeWeighted8Point(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    const std::vector<double>& weights)
+{
+    std::vector<cv::Point2f> Ln, Rn;
+    Eigen::Matrix3d Tl = normalizePoints(ptsL, Ln);
+    Eigen::Matrix3d Tr = normalizePoints(ptsR, Rn);
+
+    const int n = (int)Ln.size();
+    Eigen::MatrixXd A(n, 9);
+
+    for (int i = 0; i < n; ++i) {
+        double xl = Ln[i].x, yl = Ln[i].y;
+        double xr = Rn[i].x, yr = Rn[i].y;
+
+        double w = std::sqrt(std::max(weights[i], 1e-12));
+
+        A.row(i) << w * xr * xl,
+                    w * xr * yl,
+                    w * xr,
+                    w * yr * xl,
+                    w * yr * yl,
+                    w * yr,
+                    w * xl,
+                    w * yl,
+                    w;
+    }
+
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeFullV);
+    Eigen::VectorXd f = svd.matrixV().col(8);
+
+    Eigen::Matrix3d F;
+    F << f(0), f(1), f(2),
+         f(3), f(4), f(5),
+         f(6), f(7), f(8);
+
+    Eigen::JacobiSVD<Eigen::Matrix3d> svdF(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Vector3d s = svdF.singularValues();
+    s(2) = 0.0;
+
+    F = svdF.matrixU() * s.asDiagonal() * svdF.matrixV().transpose();
+
+    Eigen::Matrix3d Fdenorm = Tr.transpose() * F * Tl;
+
+    if (std::abs(Fdenorm(2,2)) > 1e-10) {
+        Fdenorm /= Fdenorm(2,2);
+    }
+
+    return Fdenorm;
+}
+
+
+
+
+Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    std::vector<bool>& inlierMask,
+    double sigmaMax,
+    int maxIter)
+{
+    const int N = (int)ptsL.size();
+
+    Eigen::Matrix3d bestF = Eigen::Matrix3d::Identity();
+    double bestScore = -1.0;
+
+    inlierMask.assign(N, false);
+
+    std::mt19937 rng(42);
+    std::uniform_int_distribution<int> dist(0, N - 1);
+
+    const int sampleSize = 8;
+
+    for (int it = 0; it < maxIter; ++it) {
+
+        std::vector<int> idx;
+
+        while ((int)idx.size() < sampleSize) {
+            int r = dist(rng);
+            if (std::find(idx.begin(), idx.end(), r) == idx.end()) {
+                idx.push_back(r);
+            }
+        }
+
+        std::vector<cv::Point2f> sL(sampleSize), sR(sampleSize);
+
+        for (int i = 0; i < sampleSize; ++i) {
+            sL[i] = ptsL[idx[i]];
+            sR[i] = ptsR[idx[i]];
+        }
+
+        Eigen::Matrix3d F = compute8Point(sL, sR);
+
+        double score = 0.0;
+
+        for (int i = 0; i < N; ++i) {
+            double e = sampsonError(F, ptsL[i], ptsR[i]);
+
+            // MAGSAC-style soft truncated Gaussian score
+            if (e < sigmaMax * sigmaMax) {
+                double w = std::exp(-e / (2.0 * sigmaMax * sigmaMax));
+                score += w;
+            }
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestF = F;
+        }
+    }
+
+    std::vector<double> weights(N, 0.0);
+
+    for (int i = 0; i < N; ++i) {
+        double e = sampsonError(bestF, ptsL[i], ptsR[i]);
+
+        if (e < sigmaMax * sigmaMax) {
+            weights[i] = std::exp(-e / (2.0 * sigmaMax * sigmaMax));
+        } else {
+            weights[i] = 0.0;
+        }
+    }
+
+    std::vector<cv::Point2f> inL, inR;
+    std::vector<double> inW;
+
+    for (int i = 0; i < N; ++i) {
+        if (weights[i] > 1e-6) {
+            inL.push_back(ptsL[i]);
+            inR.push_back(ptsR[i]);
+            inW.push_back(weights[i]);
+        }
+    }
+
+    if (inL.size() >= 8) {
+        bestF = computeWeighted8Point(inL, inR, inW);
+    }
+
+    inlierMask.assign(N, false);
+
+    for (int i = 0; i < N; ++i) {
+        double e = sampsonError(bestF, ptsL[i], ptsR[i]);
+
+        if (e < sigmaMax * sigmaMax) {
+            inlierMask[i] = true;
+        }
+    }
+
+    return bestF;
 }
