@@ -16,3 +16,9 @@ cv::Mat toGray(const cv::Mat &img);
 
 // Convert FreeImage buffers to OpenCV mats
 cv::Mat toBGR(const FreeImageB &fi);
+
+// Convert 3x3 OpenCV matrix (CV_64F) to Eigen Matrix3d
+Eigen::Matrix3d toEigenMat(const cv::Mat &cvMat);
+
+// Convert 3x1 OpenCV matrix (CV_64F) to Eigen Vector3d
+Eigen::Vector3d toEigenVec(const cv::Mat &cvMat);
