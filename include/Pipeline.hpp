@@ -27,6 +27,7 @@ struct PipelineResult
     cv::Size imgSize;
     cv::Mat denseDisparity; // CV_32F calculated dense correspondence map
     cv::Mat dense3DPoints;  // CV_32FC3 spatial point grid for downstream ICP pipelines
+    float globalConfidence = 1.0f; // ratio of RANSAC inliers to total sparse matches
 };
 
 /**

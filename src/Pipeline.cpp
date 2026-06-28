@@ -100,6 +100,15 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
         }
     }
 
+    int inlierCount = static_cast<int>(res.inPtsL.size());
+    if (!inL.empty())
+        res.globalConfidence = static_cast<float>(inlierCount) / static_cast<float>(inL.size());
+    else
+        res.globalConfidence = 0.0f;
+
+    std::cout << "Global Pair Confidence: " << res.globalConfidence
+              << " (" << inlierCount << "/" << inL.size() << " inliers)\n";
+
     // Track frame origin mappings back to left camera reference
     res.camToWorld = cv::Mat::zeros(3, 4, CV_64F);
     cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)));
@@ -213,6 +222,15 @@ bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, con
             res.inPtsR.push_back(inR[i]);
         }
     }
+
+    int inlierCount = static_cast<int>(res.inPtsL.size());
+    if (!inL.empty())
+        res.globalConfidence = static_cast<float>(inlierCount) / static_cast<float>(inL.size());
+    else
+        res.globalConfidence = 0.0f;
+
+    std::cout << "Global Pair Confidence: " << res.globalConfidence
+              << " (" << inlierCount << "/" << inL.size() << " inliers)\n";
 
     res.camToWorld = cv::Mat::zeros(3, 4, CV_64F);
     cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)));
