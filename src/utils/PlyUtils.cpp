@@ -4,6 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <opencv2/imgproc.hpp>
 
 bool PlyUtils::buildAndSavePLY(
     const std::string& path,
@@ -50,6 +51,13 @@ PointCloud PlyUtils::buildPointCloud(
     cv::Mat pts3D = Triangulation::reprojectDisparityTo3D(disp32f, Q, P1r, P2r, method);
     if (pts3D.empty()) return PointCloud();
 
+    cv::Mat gradX, gradY;
+    cv::Sobel(disp32f, gradX, CV_32F, 1, 0, 3);
+    cv::Sobel(disp32f, gradY, CV_32F, 0, 1, 3);
+
+    cv::Mat gradMag;
+    cv::magnitude(gradX, gradY, gradMag);
+
     PointCloud cloud;
     
     const cv::Matx33d R = camToWorld.colRange(0, 3);
@@ -82,7 +90,15 @@ PointCloud PlyUtils::buildPointCloud(
             float variance = (zSq * zSq) / static_cast<float>(fB * fB) * (sigma_d * sigma_d);
             
             float depthConfidence = 1.0f / (1.0f + variance);
-            float finalWeight = globalConfidence * depthConfidence;
+
+            float edgeGradient = gradMag.at<float>(y, x);
+
+            // Exponential decay: if the disparity gradient is low, edgeWeight is ~1.0.
+            // If the disparity jumps sharply (e.g., > 3 pixels edge gradient), edgeWeight drops toward 0.
+            // The denominator (5.0f) controls the sensitivity to edges.
+            float edgeWeight = std::exp(-edgeGradient / 5.0f);
+
+            float finalWeight = globalConfidence * depthConfidence * edgeGradient;
 
             // Project coordinate elements into the global tracking frame
             cv::Vec3d pointInCam = cv::Vec3d(p[0], p[1], p[2]);
