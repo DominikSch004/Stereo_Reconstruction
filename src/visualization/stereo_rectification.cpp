@@ -64,17 +64,17 @@ int main()
     // yields a poor translation direction and tilts the rectified rows (verified:
     // ~74px vertical residual). findEssentialMat enforces that constraint during
     // RANSAC and recovers a translation matching the ground-truth pose (~0.4px).
-    // cv::Mat poseMask;
-    // cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
-    cv::Mat F_cv = toCvMat(F);
-    cv::Mat E = K.t() * F_cv * K;
-    cv::Mat R, t, poseMask;
+    cv::Mat poseMask;
+    cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
+    //cv::Mat F_cv = toCvMat(F);
+    //cv::Mat E = K.t() * F_cv * K;
+    cv::Mat R, t;
     cv::Mat cvE_mask = cv::Mat::ones(inL.size(), 1, CV_8U);
-    cv::recoverPose(E, inL, inR, K, R, t, cvE_mask);
+    cv::recoverPose(E, inL, inR, K, R, t, poseMask);
 
     // Compute Calibrated Homography mappings
     RectifyResult rect;
-    if (!Rectification::computeCalibrated(K, R, t, grayLeft.size(), grayLeft, grayRight, pair.imageLeft, rect, RectificationMethod::CalibratedOpenCV))
+    if (!Rectification::computeCalibrated(K, R, t, grayLeft.size(), grayLeft, grayRight, pair.imageLeft, rect, RectificationMethod::CalibratedCustom))
     {
         std::cerr << "Stereo Rectification calculations failed\n";
         return -1;
@@ -178,7 +178,7 @@ int main()
     }
 
     // Persist the verification image to disk so it can be inspected without a display.
-    const std::string outPath = "rectification_verification.png";
+    const std::string outPath = "rectification_verification_custom.png";
     if (cv::imwrite(outPath, combined))
         std::cout << "\nSaved verification image to: " << outPath << "\n";
     else

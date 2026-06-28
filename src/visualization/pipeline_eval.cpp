@@ -14,7 +14,7 @@ int main()
     cv::Mat K = loader.loadIntrinsicCV(1);
     // 2. run pipeline, select which one you want to run below.
     bool runOpenCV = true;
-    bool runCustom = true;
+    bool runCustom = false;
     PipelineResult res;
     std::string plyFilename;
 

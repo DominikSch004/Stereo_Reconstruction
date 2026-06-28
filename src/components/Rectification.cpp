@@ -10,7 +10,7 @@ namespace {
 // Warp src into dst using the rectified->original homography H, with hand-rolled
 // bilinear sampling. Replaces cv::remap; cv::Mat is used only as a pixel buffer.
 // Out-of-bounds destinations are left black (constant border).
-void warpInverse(const cv::Mat& src, cv::Mat& dst, const Mat3& H, const cv::Size& size)
+void warpInverse(const cv::Mat& src, cv::Mat& dst, const cv::Matx33d& H, const cv::Size& size)
 {
     const int ch = src.channels();
     dst.create(size, src.type());
@@ -19,10 +19,10 @@ void warpInverse(const cv::Mat& src, cv::Mat& dst, const Mat3& H, const cv::Size
     for (int v = 0; v < size.height; ++v) {
         uchar* drow = dst.ptr<uchar>(v);
         for (int u = 0; u < size.width; ++u) {
-            const double w = H[2][0]*u + H[2][1]*v + H[2][2];
+            const double w = H(2,0)*u + H(2,1)*v + H(2,2);
             if (std::abs(w) < 1e-12) continue;
-            const double sx = (H[0][0]*u + H[0][1]*v + H[0][2]) / w;
-            const double sy = (H[1][0]*u + H[1][1]*v + H[1][2]) / w;
+            const double sx = (H(0,0)*u + H(0,1)*v + H(0,2)) / w;
+            const double sy = (H(1,0)*u + H(1,1)*v + H(1,2)) / w;
             if (sx < 0.0 || sy < 0.0 || sx > src.cols - 1.0 || sy > src.rows - 1.0)
                 continue;
 
@@ -107,9 +107,14 @@ bool Rectification::computeCalibratedCustom(
     // that makes both image planes coplanar with the baseline, turning epipolar
     // lines into image rows.
 
+    // Convert the cv::Mat inputs into fixed-size types for the hand-rolled
+    // linear algebra below (K, R are 3x3 CV_64F; t is 3x1 CV_64F).
+    const cv::Matx33d Kmat = K;
+    const cv::Matx33d Rmat = R;
+    const cv::Vec3d   tvec = t;
+
     // Right camera centre in the left frame: solve R*C + t = 0  =>  C = -R^T t.
-    cv::Mat Rt = R.t();
-    cv::Mat C = -Rt * t;
+    const cv::Vec3d C = -Rmat.t() * tvec;
     const double baseline = cv::norm(C);
     if (baseline < 1e-9) {
         std::cerr << "ERROR: Degenerate baseline; cameras share an optical centre.\n";
@@ -119,33 +124,33 @@ bool Rectification::computeCalibratedCustom(
     // Common rectified orientation. The rows are the new camera axes expressed in
     // left-frame coordinates: x along the baseline, y orthogonal to x and the old
     // optical axis, z completing a right-handed frame.
-    cv::Vec3 e1 = { C[0]/baseline, C[1]/baseline, C[2]/baseline };
-    const cv::Vec3 k  = { 0.0, 0.0, 1.0 };     // old left optical axis
-    cv::Vec3 e2 = k.cross(e1);
-    const double n2 = e2.norm();
+    cv::Vec3d e1 = { C[0]/baseline, C[1]/baseline, C[2]/baseline };
+    const cv::Vec3d k  = { 0.0, 0.0, 1.0 };    // old left optical axis
+    cv::Vec3d e2 = k.cross(e1);
+    const double n2 = cv::norm(e2);
     if (n2 < 1e-9) {
         std::cerr << "ERROR: Baseline parallel to optical axis; cannot rectify.\n";
         return false;
     }
     e2 = { e2[0]/n2, e2[1]/n2, e2[2]/n2 };
-    const cv::Vec3 e3 = e1.cross(e2);
+    const cv::Vec3d e3 = e1.cross(e2);
 
-    const cv::Mat3 Rrect = {{ {e1[0], e1[1], e1[2]},
-                          {e2[0], e2[1], e2[2]},
-                          {e3[0], e3[1], e3[2]} }};
+    const cv::Matx33d Rrect( e1[0], e1[1], e1[2],
+                             e2[0], e2[1], e2[2],
+                             e3[0], e3[1], e3[2] );
 
     // Rectifying rotations: the left camera is already at identity, the right one
     // must be undone (R^T) before applying the shared rotation.
-    const cv::Mat3 R1 = Rrect;
-    const cv::Mat3 R2 = Rrect * R.t();
-    out.R1 = R1;
-    out.R2 = R2;
+    const cv::Matx33d R1 = Rrect;
+    const cv::Matx33d R2 = Rrect * Rmat.t();
+    out.R1 = cv::Mat(R1);
+    out.R2 = cv::Mat(R2);
 
     // Shared rectified intrinsics (reuse K) so both views align row-for-row.
-    const cv::Mat3 Knew = Kmat;
-    const double fx = Knew[0][0];
-    const double cx = Knew[0][2];
-    const double cy = Knew[1][2];
+    const cv::Matx33d Knew = Kmat;
+    const double fx = Knew(0, 0);
+    const double cx = Knew(0, 2);
+    const double cy = Knew(1, 2);
 
     // Rectified projection matrices. In the rectified frame the right camera
     // centre sits at +baseline along x, i.e. Tx = -baseline in OpenCV terms.
@@ -154,8 +159,8 @@ bool Rectification::computeCalibratedCustom(
     out.P2 = cv::Mat::zeros(3, 4, CV_64F);
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j) {
-            out.P1.at<double>(i, j) = Knew[i][j];
-            out.P2.at<double>(i, j) = Knew[i][j];
+            out.P1.at<double>(i, j) = Knew(i, j);
+            out.P2.at<double>(i, j) = Knew(i, j);
         }
     out.P2.at<double>(0, 3) = fx * Tx;     // = -fx * baseline
 
@@ -173,9 +178,9 @@ bool Rectification::computeCalibratedCustom(
 
     // Rectified->original homographies. A rectified pixel's viewing ray is traced
     // back into the original image: src = K * R_rect^T * Knew^{-1} * [u v 1].
-    const cv::Mat3 KnewInv = Knew.inv();
-    const cv::Mat3 Hl = (Kmat * R1.t()) * KnewInv; // rect-left  -> orig-left
-    const cv::Mat3 Hr = (Kmat * R2.t()) * KnewInv; // rect-right -> orig-right
+    const cv::Matx33d KnewInv = Knew.inv();
+    const cv::Matx33d Hl = (Kmat * R1.t()) * KnewInv; // rect-left  -> orig-left
+    const cv::Matx33d Hr = (Kmat * R2.t()) * KnewInv; // rect-right -> orig-right
 
     warpInverse(grayL,  out.rectLeft,  Hl, imageSize);
     warpInverse(grayR,  out.rectRight, Hr, imageSize);
