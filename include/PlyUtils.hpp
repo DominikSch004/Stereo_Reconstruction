@@ -14,6 +14,7 @@
 struct PointCloud {
     std::vector<Eigen::Vector3f> pts;
     std::vector<cv::Vec3b>       colors;
+    std::vector<float> weights;
 };
 
 /**
@@ -37,6 +38,7 @@ public:
         const cv::Mat& camToWorld,
         const cv::Mat& rectColor,
         int minDisp,
+        float globalConfidence,
         TriangulationMethod method = TriangulationMethod::OpenCV
     );
 
@@ -59,6 +61,7 @@ public:
         const cv::Mat& camToWorld,
         const cv::Mat& rectColor,
         int minDisp,
+        float globalConfidence,
         TriangulationMethod method = TriangulationMethod::OpenCV
     );
 

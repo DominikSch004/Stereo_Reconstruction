@@ -40,7 +40,7 @@ int main()
 
         // Extract cloud fields using your pipeline's underlying dense tracking layers
         PointCloud cloud = PlyUtils::buildPointCloud(
-            res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
+            res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, TriangulationMethod::OpenCV);
 
         std::cout << "Cloud " << i << ": " << cloud.pts.size() << " points generated.\n";
         clouds.push_back(std::move(cloud));
@@ -72,6 +72,7 @@ int main()
 
         fused.pts.insert(fused.pts.end(), clouds[i].pts.begin(), clouds[i].pts.end());
         fused.colors.insert(fused.colors.end(), clouds[i].colors.begin(), clouds[i].colors.end());
+        fused.weights.insert(fused.weights.end(), clouds[i].weights.begin(), clouds[i].weights.end());
 
         std::cout << "Current fused cloud size: " << fused.pts.size() << " points\n";
     }

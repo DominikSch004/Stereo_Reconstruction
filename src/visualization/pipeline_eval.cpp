@@ -33,7 +33,7 @@ int main()
         PlyUtils::buildAndSavePLY(
             plyFilename,
             res.denseDisparity, res.Q, res.P1r, res.P2r,
-            res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
+            res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, TriangulationMethod::OpenCV);
     }
 
     if (runCustom)
@@ -51,7 +51,7 @@ int main()
         PlyUtils::buildAndSavePLY(
             plyFilename,
             res.denseDisparity, res.Q, res.P1r, res.P2r,
-            res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
+            res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, TriangulationMethod::OpenCV);
     }
     return 0;
 }
