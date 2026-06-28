@@ -3,6 +3,82 @@
 #include <algorithm>
 #include <opencv2/core/eigen.hpp>
 
+EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
+{
+    EvaluatorRes result;
+    Eigen::Matrix3d R_est;
+    Eigen::Vector3d t_est;
+
+    if (!params.res.R_est.empty() && !params.res.t_est.empty())
+    {
+        cv::cv2eigen(params.res.R_est, R_est);
+        cv::cv2eigen(params.res.t_est, t_est);
+        evaluatePose(R_est, t_est, params.R_gt, params.t_gt,
+                     result.rot_error_deg, result.trans_error_deg);
+    }
+    else
+    {
+        result.rot_error_deg = -1.0;
+        result.trans_error_deg = -1.0;
+    }
+
+    if (!params.res.E.empty() && !params.res.K.empty() && !params.res.inPtsL.empty())
+    {
+        Eigen::Matrix3d E_est, K_est;
+        cv::cv2eigen(params.res.E, E_est);
+        cv::cv2eigen(params.res.K, K_est);
+
+        Eigen::Matrix3d K_inv = K_est.inverse();
+        Eigen::Matrix3d F_est = K_inv.transpose() * E_est * K_inv;
+
+        cv::Mat F_cv;
+        cv::eigen2cv(F_est, F_cv);
+
+        result.epipolar_error = computeSymmetricEpipolarDistance(params.res.inPtsL, params.res.inPtsR, F_cv);
+    }
+    else
+    {
+        result.epipolar_error = -1.0;
+    }
+
+    result.inlier_ratio = computeInlierRatio(params.res.inlierMask);
+
+    return result;
+}
+
+void Evaluator::printMetrics(const EvaluatorRes &res)
+{
+    std::cout << "\n Pipeline Evaluation Metrics \n";
+
+    std::cout << std::fixed << std::setprecision(4);
+
+    if (res.rot_error_deg >= 0)
+    {
+        std::cout << "Geodesic Rotation : " << res.rot_error_deg << " deg\n";
+        std::cout << "Angular Translation: " << res.trans_error_deg << " deg\n";
+    }
+    else
+    {
+        std::cout << "Pose Error        : [Missing / Failed]\n";
+    }
+
+    if (res.epipolar_error >= 0)
+    {
+        std::cout << "Epipolar Error    : " << res.epipolar_error << " px\n";
+    }
+    else
+    {
+        std::cout << "Epipolar Error    : [Missing / Failed]\n";
+    }
+
+    if (res.inlier_ratio >= 0)
+    {
+        std::cout << "Inlier Ratio      : " << res.inlier_ratio << " %\n";
+    }
+
+    std::cout << std::defaultfloat;
+}
+
 void Evaluator::evaluatePose(const Eigen::Matrix3d &R_est, const Eigen::Vector3d &t_est,
                              const Eigen::Matrix3d &R_gt, const Eigen::Vector3d &t_gt,
                              double &rot_error_deg, double &trans_error_deg)

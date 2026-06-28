@@ -2,10 +2,32 @@
 #include <Eigen/Dense>
 #include <opencv2/core.hpp>
 #include <vector>
+#include <Pipeline.hpp>
+
+struct EvaluatorParams
+{
+    PipelineResult &res;
+    Eigen::Matrix3d &R_gt;
+    Eigen::Vector3d &t_gt;
+};
+
+struct EvaluatorRes
+{
+    double rot_error_deg;
+    double trans_error_deg;
+    double epipolar_error;
+    double inlier_ratio;
+};
 
 class Evaluator
 {
 public:
+    // High-level orchestrator for computing all metrics
+    static EvaluatorRes evaluateMetrics(const EvaluatorParams &params);
+
+    // New cleanly formatted print function
+    static void printMetrics(const EvaluatorRes &res);
+
     // Computes the absolute geometric error between an estimated pose and ground truth.
     // Rotation Error: The geodesic distance (angle in degrees) required to align R_est with R_gt.
     // Translation Error: The scale-invariant angular difference between the directional vectors.
