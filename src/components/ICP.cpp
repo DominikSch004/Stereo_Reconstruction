@@ -3,7 +3,7 @@
 #include <vector>
 
 Eigen::Matrix4f ICP::align(PointCloud& source, const PointCloud& target,
-                            int maxIter, float distThresh)
+                            int maxIter, float distThresh, bool useWeights)
 {
     // Build FLANN KD-tree on target point sets
     int n = int(target.pts.size());
@@ -34,11 +34,16 @@ Eigen::Matrix4f ICP::align(PointCloud& source, const PointCloud& target,
 
         // Collect matching tracking pairs within Euclidean distance parameters
         std::vector<Eigen::Vector3f> src, tgt;
+        std::vector<float> srcWeights;
         for (int i = 0; i < m; ++i)
         {
             if (dists.at<float>(i, 0) > distThresh * distThresh) continue;
             src.push_back(source.pts[i]);
             tgt.push_back(target.pts[indices.at<int>(i, 0)]);
+            if (useWeights && i < source.weights.size())
+                srcWeights.push_back(source.weights[i]);
+            else
+                srcWeights.push_back(1.0f);
         }
         if ((int)src.size() < 6) break;
 

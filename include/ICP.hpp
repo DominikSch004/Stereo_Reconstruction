@@ -20,6 +20,7 @@ public:
         PointCloud& source,
         const PointCloud& target,
         int maxIter = 30,
-        float distThresh = 0.1f
+        float distThresh = 0.1f,
+        bool useWeights = true
     );
 };

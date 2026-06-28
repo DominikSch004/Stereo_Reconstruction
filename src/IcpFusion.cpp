@@ -66,9 +66,9 @@ int main()
 
         PointCloud srcSub = PlyUtils::subsample(clouds[i], icpSamples, rng);
         PointCloud tgtSub = PlyUtils::subsample(fused, icpSamples, rng);
-        ICP::align(srcSub, tgtSub, 30);
+        ICP::align(srcSub, tgtSub, 30, 0.1f, true);
 
-        ICP::align(clouds[i], fused, 20);
+        ICP::align(clouds[i], fused, 20, 0.1f, true);
 
         fused.pts.insert(fused.pts.end(), clouds[i].pts.begin(), clouds[i].pts.end());
         fused.colors.insert(fused.colors.end(), clouds[i].colors.begin(), clouds[i].colors.end());
