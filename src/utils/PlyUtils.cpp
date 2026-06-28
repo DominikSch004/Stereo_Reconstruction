@@ -98,7 +98,7 @@ PointCloud PlyUtils::buildPointCloud(
             // The denominator (5.0f) controls the sensitivity to edges.
             float edgeWeight = std::exp(-edgeGradient / 5.0f);
 
-            float finalWeight = globalConfidence * depthConfidence * edgeGradient;
+            float finalWeight = globalConfidence * depthConfidence * edgeWeight;
 
             // Project coordinate elements into the global tracking frame
             cv::Vec3d pointInCam = cv::Vec3d(p[0], p[1], p[2]);

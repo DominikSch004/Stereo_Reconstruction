@@ -66,7 +66,12 @@ int main()
 
         PointCloud srcSub = PlyUtils::subsample(clouds[i], icpSamples, rng);
         PointCloud tgtSub = PlyUtils::subsample(fused, icpSamples, rng);
-        ICP::align(srcSub, tgtSub, 30, 0.1f, true);
+        Eigen::Matrix4f coarseT = ICP::align(srcSub, tgtSub, 30, 0.1f, true);
+
+        for (auto& pt : clouds[i].pts) {
+            Eigen::Vector4f p_h(pt.x(), pt.y(), pt.z(), 1.0f);
+            pt = (coarseT * p_h).head<3>();
+        }
 
         ICP::align(clouds[i], fused, 20, 0.1f, true);
 
