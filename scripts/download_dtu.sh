@@ -35,11 +35,17 @@ echo "Downloading $FILENAME..."
 
 curl -L -C - "$URL" -o "$FILENAME"
 
-echo " Extracting $FILENAME..."
-unzip -q "$FILENAME"
+echo ""
+read -p "Download complete! Do you want to unzip the file now? (y/n): " unzip_choice
 
-echo "Cleaning up zip file to save space..."
-
-rm "$FILENAME"
-
-echo "Done! Data is ready inside the 'data/dtu' folder."
+if [[ "$unzip_choice" =~ ^[Yy]$ ]]; then
+    echo "Extracting $FILENAME..."
+    unzip -q "$FILENAME"
+    
+    echo "Cleaning up zip file to save space..."
+    rm "$FILENAME"
+    
+    echo "Done! Data is ready inside the 'data/dtu' folder."
+else
+    echo "Skipping extraction. Your downloaded zip file is saved in the 'data/dtu' folder."
+fi
