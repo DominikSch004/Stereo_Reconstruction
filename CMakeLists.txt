@@ -38,6 +38,7 @@ add_library(stereo_core STATIC
     src/utils/ImgUtils.cpp
     src/utils/FreeImageHelper.cpp
     src/utils/PlyUtils.cpp
+    src/utils/MeshUtils.cpp
     src/utils/GeometryUtils.cpp
     src/utils/VisualizationUtils.cpp
     benchmark/Evaluator.cpp
@@ -69,6 +70,7 @@ register_visualisation_target(StereoRectification    src/visualization/stereo_re
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
 register_visualisation_target(PipelineOpenCVEvaluation     src/visualization/pipeline_eval.cpp)
 register_visualisation_target(TriangulationVerification     src/visualization/triangulation_verification.cpp)
+register_visualisation_target(MeshReconstruction     src/visualization/mesh_reconstruction.cpp)
 
 add_executable(IcpFusion
     src/IcpFusion.cpp
