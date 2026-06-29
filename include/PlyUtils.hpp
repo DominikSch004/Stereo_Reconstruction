@@ -15,6 +15,8 @@ struct PointCloud {
     std::vector<Eigen::Vector3f> pts;
     std::vector<cv::Vec3b>       colors;
     std::vector<float> weights;
+    std::vector<Eigen::Vector3f> normals; // per-point surface normal
+    std::vector<bool> validNormal;        // true if normals[i] was computed from a well-conditioned local neighborhood
 };
 
 /**

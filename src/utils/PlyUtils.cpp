@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <numeric>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/core/eigen.hpp>
 
 bool PlyUtils::buildAndSavePLY(
     const std::string& path,
@@ -100,6 +101,35 @@ PointCloud PlyUtils::buildPointCloud(
 
             float finalWeight = globalConfidence * depthConfidence * edgeWeight;
 
+            Eigen::Vector3f normalCam = Eigen::Vector3f::Zero();
+            bool normalOk = false;
+            if (y > 0 && y < pts3D.rows - 1 && x > 0 && x < pts3D.cols - 1) {
+                cv::Vec3f pL = pts3D.at<cv::Vec3f>(y, x - 1);
+                cv::Vec3f pR = pts3D.at<cv::Vec3f>(y, x + 1);
+                cv::Vec3f pU = pts3D.at<cv::Vec3f>(y - 1, x);
+                cv::Vec3f pD = pts3D.at<cv::Vec3f>(y + 1, x);
+
+                bool neighborsFinite =
+                    std::isfinite(pL[0]) && std::isfinite(pL[1]) && std::isfinite(pL[2]) &&
+                    std::isfinite(pR[0]) && std::isfinite(pR[1]) && std::isfinite(pR[2]) &&
+                    std::isfinite(pU[0]) && std::isfinite(pU[1]) && std::isfinite(pU[2]) &&
+                    std::isfinite(pD[0]) && std::isfinite(pD[1]) && std::isfinite(pD[2]);
+
+                if (neighborsFinite) {
+                    Eigen::Vector3f dx(pR[0] - pL[0], pR[1] - pL[1], pR[2] - pL[2]);
+                    Eigen::Vector3f dy(pD[0] - pU[0], pD[1] - pU[1], pD[2] - pU[2]);
+                    if (dx.norm() > 1e-5f && dy.norm() > 1e-5f) {
+                        Eigen::Vector3f n = dx.cross(dy);
+                        if (n.norm() > 1e-8f) {
+                            normalCam = n.normalized();
+                            // Convention: normal should point back toward the camera (negative Z in cam frame)
+                            if (normalCam.z() > 0.0f) normalCam = -normalCam;
+                            normalOk = true;
+                        }
+                    }
+                }
+            }
+
             // Project coordinate elements into the global tracking frame
             cv::Vec3d pointInCam = cv::Vec3d(p[0], p[1], p[2]);
             cv::Vec3d w = R * pointInCam + t;
@@ -107,6 +137,16 @@ PointCloud PlyUtils::buildPointCloud(
             cloud.pts.push_back(Eigen::Vector3f((float)w[0], (float)w[1], (float)w[2]));
             cloud.colors.push_back(rectColor.at<cv::Vec3b>(y, x));
             cloud.weights.push_back(finalWeight);
+
+            if (normalOk) {
+                Eigen::Matrix3d R_eigen;
+                cv::cv2eigen(R, R_eigen);
+                cloud.normals.push_back((R_eigen.cast<float>() * normalCam).normalized());
+                cloud.validNormal.push_back(true);
+            } else {
+                cloud.normals.push_back(Eigen::Vector3f::Zero());
+                cloud.validNormal.push_back(false);
+            }
         }
     }
 
@@ -146,10 +186,16 @@ PointCloud PlyUtils::subsample(const PointCloud& cloud, size_t n, std::mt19937& 
     out.pts.reserve(n);
     out.colors.reserve(n);
     out.weights.reserve(n);
+    out.normals.reserve(n);
+    out.validNormal.reserve(n);
     for (size_t i : idx) { 
         out.pts.push_back(cloud.pts[i]); 
         out.colors.push_back(cloud.colors[i]); 
         out.weights.push_back(cloud.weights[i]);
+        if (i < cloud.normals.size())
+            out.normals.push_back(cloud.normals[i]);
+        if (i < cloud.validNormal.size())
+            out.validNormal.push_back(cloud.validNormal[i]);
     }
     return out;
 }

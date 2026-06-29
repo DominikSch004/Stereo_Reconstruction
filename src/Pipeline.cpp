@@ -9,7 +9,20 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 
-bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, PipelineMode mode)
+void Pipeline::rescaleToTrueBaseline(const Eigen::Vector3d &C1, const Eigen::Vector3d &C2, cv::Mat &t)
+{
+    double trueBaseline = (C1 - C2).norm();
+    std::cout << "  [Pipeline] True DTU baseline: " << trueBaseline << " mm -- rescaling t.\n";
+
+    double tNorm = cv::norm(t);
+    if (tNorm > 1e-9) {
+        t = t * (trueBaseline / tNorm);
+    } else {
+        std::cerr << "  [Pipeline] WARNING: recoverPose's t has near-zero norm, cannot rescale.\n";
+    }
+}
+
+bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, PipelineMode mode, const Eigen::Vector3d &C1, const Eigen::Vector3d &C2)
 {
     cv::Mat bgr1 = imgLeft.clone();
     cv::Mat gray1, gray2;
@@ -34,16 +47,16 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     switch (mode)
     {
     case PipelineMode::Custom:
-        return runPipelineCustom(gray1, gray2, bgr1, sz, K, res);
+        return runPipelineCustom(gray1, gray2, bgr1, sz, K, res, C1, C2);
     case PipelineMode::OpenCV:
-        return runPipelineOpenCV(gray1, gray2, bgr1, sz, K, res);
+        return runPipelineOpenCV(gray1, gray2, bgr1, sz, K, res, C1, C2);
     default:
         std::cout << "Failed! Select a valid pipeline";
         return false;
     }
 }
 
-bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, const cv::Mat &bgr1, const cv::Size &sz, const cv::Mat &K, PipelineResult &res)
+bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, const cv::Mat &bgr1, const cv::Size &sz, const cv::Mat &K, PipelineResult &res, const Eigen::Vector3d &C1, const Eigen::Vector3d &C2)
 {
 
     // --- 1. Sparse Feature Matching ---
@@ -89,6 +102,9 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
     cv::Mat R, t;
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
 
+    // Rescale t from recoverPose's unit-norm convention to the true DTU metric baseline
+    rescaleToTrueBaseline(C1, C2, t);
+
     res.inPtsL.clear();
     res.inPtsR.clear();
     for (int i = 0; i < poseMask.rows; ++i)
@@ -109,7 +125,6 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
     std::cout << "Global Pair Confidence: " << res.globalConfidence
               << " (" << inlierCount << "/" << inL.size() << " inliers)\n";
 
-    // Track frame origin mappings back to left camera reference
     res.camToWorld = cv::Mat::zeros(3, 4, CV_64F);
     cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)));
 
@@ -166,7 +181,7 @@ bool Pipeline::runPipelineOpenCV(const cv::Mat &gray1, const cv::Mat &gray2, con
     return true;
 }
 
-bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, const cv::Mat &bgr1, const cv::Size &sz, const cv::Mat &K, PipelineResult &res)
+bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, const cv::Mat &bgr1, const cv::Size &sz, const cv::Mat &K, PipelineResult &res, const Eigen::Vector3d &C1, const Eigen::Vector3d &C2)
 {
 
     // --- 1. Sparse Feature Matching ---
@@ -211,6 +226,9 @@ bool Pipeline::runPipelineCustom(const cv::Mat &gray1, const cv::Mat &gray2, con
     cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
     cv::Mat R, t;
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
+
+    // Rescale t from recoverPose's unit-norm convention to the true DTU metric baseline
+    rescaleToTrueBaseline(C1, C2, t);
 
     res.inPtsL.clear();
     res.inPtsR.clear();

@@ -12,6 +12,8 @@ int main()
     // select by image id, default is dataset 1 (scan1) & illumination 3
     StereoPair pair = loader.loadPair(1, 2);
     cv::Mat K = loader.loadIntrinsicCV(1);
+    CameraPose poseLeft = loader.loadCameraPose(1);
+    CameraPose poseRight = loader.loadCameraPose(2);
     // 2. run pipeline, select which one you want to run below.
     bool runOpenCV = true;
     bool runCustom = true;
@@ -22,7 +24,7 @@ int main()
     {
         std::cout << "=== Running OpenCV Pipeline ===\n";
 
-        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV))
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV, poseLeft.t, poseRight.t))
         {
             std::cerr << "WARNING: OpenCV pipeline tracking tripped/unimplemented\n";
         }
@@ -40,7 +42,7 @@ int main()
     {
         std::cout << "=== Running Custom Pipeline ===\n";
 
-        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::Custom))
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::Custom, poseLeft.t, poseRight.t))
         {
             std::cerr << "WARNING: Custom pipeline tracking tripped/unimplemented\n";
         }

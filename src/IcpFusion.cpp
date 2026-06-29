@@ -11,39 +11,40 @@
 
 int main()
 {
-    const int scanId = 1;
-    const int numPairs = 5;
+    const int numPairs = 3;
     const size_t icpSamples = 4000;
 
     std::mt19937 rng(42);
 
     std::vector<PointCloud> clouds;
+    std::vector<CameraPose> poses; // one DTU calibration pose per view used as first guess
     clouds.reserve(numPairs);
+    poses.reserve(numPairs);
     DTULoader loader("../data/dtu/");
 
     for (int i = 1; i <= numPairs; ++i)
     {
         std::cout << "\n=== Processing Pair (" << i << ", " << i + 1 << ") ===\n";
 
-        // select by image id, default is dataset 1 (scan1) & illumination 3
         StereoPair pair = loader.loadPair(i, i + 1);
-        // get intrinsics of 1st image.
         cv::Mat K = loader.loadIntrinsicCV(i);
+        CameraPose poseLeft = loader.loadCameraPose(i);
+        CameraPose poseRight = loader.loadCameraPose(i + 1);
 
         PipelineResult res;
-        // Standardize onto updated static scope pipeline execution wrappers
-        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV))
+        // Pass both views' camera centers so Pipeline rescales t to the true metric baseline
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV,
+                                    poseLeft.t, poseRight.t))
         {
             std::cerr << "Pipeline failed for pair " << i << "\n";
             continue;
         }
 
-        // Extract cloud fields using your pipeline's underlying dense tracking layers
-        PointCloud cloud = PlyUtils::buildPointCloud(
-            res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, TriangulationMethod::OpenCV);
+        PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, TriangulationMethod::OpenCV);
 
         std::cout << "Cloud " << i << ": " << cloud.pts.size() << " points generated.\n";
         clouds.push_back(std::move(cloud));
+        poses.push_back(poseLeft);
     }
 
     if (clouds.empty())
@@ -52,32 +53,52 @@ int main()
         return -1;
     }
 
-    // Normalization shifts mapped seamlessly onto PlyUtils helpers
+    // Single normalization, derived from cloud 0 only, preserving relative spatial relationship between clouds
     auto [mean0, scale0] = PlyUtils::normalise(clouds[0]);
-    for (size_t i = 1; i < clouds.size(); ++i)
-    {
-        PlyUtils::normalise(clouds[i]);
-    }
+    for (auto& cloud : clouds)
+        for (auto& p : cloud.pts)
+            p = (p - mean0) / scale0;
 
+    // Fuse sequentially, seeding each alignment from DTU's known relative pose
     PointCloud fused = clouds[0];
     for (size_t i = 1; i < clouds.size(); ++i)
     {
         std::cout << "\nICP aligning cloud " << i + 1 << " to fused reference...\n";
 
+        // DTU-derived initial guess: relative transform from view i's pose to view 0's pose
+        Eigen::Matrix3d R_rel = poses[i].R * poses[0].R.transpose();
+        Eigen::Vector3d t_rel = poses[i].R * (poses[0].t - poses[i].t);
+        Eigen::Matrix4f seedT = Eigen::Matrix4f::Identity();
+        seedT.block<3, 3>(0, 0) = R_rel.cast<float>();
+        seedT.block<3, 1>(0, 3) = (t_rel.cast<float>()) / scale0;
+
+        for (auto& pt : clouds[i].pts) {
+            Eigen::Vector4f p_h(pt.x(), pt.y(), pt.z(), 1.0f);
+            pt = (seedT * p_h).head<3>();
+        }
+        for (auto& n : clouds[i].normals) {
+            n = seedT.block<3, 3>(0, 0) * n;
+        }
+
         PointCloud srcSub = PlyUtils::subsample(clouds[i], icpSamples, rng);
         PointCloud tgtSub = PlyUtils::subsample(fused, icpSamples, rng);
-        Eigen::Matrix4f coarseT = ICP::align(srcSub, tgtSub, 30, 0.1f, true);
+        Eigen::Matrix4f coarseT = ICP::align(srcSub, tgtSub, 30, 0.1f, true, ICPMode::PointToPlane);
 
         for (auto& pt : clouds[i].pts) {
             Eigen::Vector4f p_h(pt.x(), pt.y(), pt.z(), 1.0f);
             pt = (coarseT * p_h).head<3>();
         }
+        for (auto& n : clouds[i].normals) {
+            n = coarseT.block<3, 3>(0, 0) * n;
+        }
 
-        ICP::align(clouds[i], fused, 20, 0.1f, true);
+        ICP::align(clouds[i], fused, 20, 0.1f, true, ICPMode::PointToPlane);
 
         fused.pts.insert(fused.pts.end(), clouds[i].pts.begin(), clouds[i].pts.end());
         fused.colors.insert(fused.colors.end(), clouds[i].colors.begin(), clouds[i].colors.end());
         fused.weights.insert(fused.weights.end(), clouds[i].weights.begin(), clouds[i].weights.end());
+        fused.normals.insert(fused.normals.end(), clouds[i].normals.begin(), clouds[i].normals.end());
+        fused.validNormal.insert(fused.validNormal.end(), clouds[i].validNormal.begin(), clouds[i].validNormal.end());
 
         std::cout << "Current fused cloud size: " << fused.pts.size() << " points\n";
     }

@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <opencv2/core.hpp>
+#include <eigen3/Eigen/Dense>
 #include "DTULoader.hpp"
 #include "Triangulation.hpp"
 #include "Disparity.hpp"
@@ -47,7 +48,9 @@ public:
         const cv::Mat &imgRight,
         const cv::Mat &K,
         PipelineResult &res,
-        PipelineMode mode = PipelineMode::OpenCV);
+        PipelineMode mode = PipelineMode::OpenCV,
+        const Eigen::Vector3d &C1 = Eigen::Vector3d::Zero(),
+        const Eigen::Vector3d &C2 = Eigen::Vector3d::Zero());
 
 private:
     /**
@@ -59,7 +62,9 @@ private:
         const cv::Mat &bgr1,
         const cv::Size &sz,
         const cv::Mat &K,
-        PipelineResult &res);
+        PipelineResult &res,
+        const Eigen::Vector3d &C1,
+        const Eigen::Vector3d &C2);
 
     /**
      * @brief Executes the pipeline using your custom hand-rolled mathematical backends.
@@ -71,5 +76,12 @@ private:
         const cv::Mat &bgr1,
         const cv::Size &sz,
         const cv::Mat &K,
-        PipelineResult &res);
+        PipelineResult &res,
+        const Eigen::Vector3d &C1,
+        const Eigen::Vector3d &C2);
+
+    /**
+     * @brief Computes true metric baseline ||C1 - C2|| and rescales t in-place (t = t_unit * trueBaseline)
+     */
+    static void rescaleToTrueBaseline(const Eigen::Vector3d &C1, const Eigen::Vector3d &C2, cv::Mat &t);
 };
