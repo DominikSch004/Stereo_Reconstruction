@@ -1,20 +1,38 @@
 #include "Evaluator.hpp"
+#include "ImgUtils.hpp"
 #include <cmath>
 #include <algorithm>
-#include <opencv2/core/eigen.hpp>
+#include <iostream>
+#include <iomanip>
+#include <opencv2/core.hpp>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/flann.hpp>
 
 EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
 {
     EvaluatorRes result;
-    Eigen::Matrix3d R_est;
-    Eigen::Vector3d t_est;
+    result.reprojection_error = -1.0;
+    result.mean_absolute_distance = -1.0;
+    result.chamfer_accuracy = -1.0;
+    result.chamfer_completeness = -1.0;
 
+    // reprojection error
     if (!params.res.R_est.empty() && !params.res.t_est.empty())
     {
-        cv::cv2eigen(params.res.R_est, R_est);
-        cv::cv2eigen(params.res.t_est, t_est);
+        Eigen::Matrix3d R_est = toEigenMat(params.res.R_est);
+        Eigen::Vector3d t_est = toEigenVec(params.res.t_est);
+
+        // Pose Error
         evaluatePose(R_est, t_est, params.R_gt, params.t_gt,
                      result.rot_error_deg, result.trans_error_deg);
+
+        // Reprojection Error (Triangulation Consistency)
+        if (!params.res.K.empty() && !params.res.inPtsL.empty())
+        {
+            result.reprojection_error = computeReprojectionError(
+                params.res.inPtsL, params.res.inPtsR,
+                params.res.K, params.res.R_est, params.res.t_est);
+        }
     }
     else
     {
@@ -22,26 +40,34 @@ EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
         result.trans_error_deg = -1.0;
     }
 
+    // epipolar error
     if (!params.res.E.empty() && !params.res.K.empty() && !params.res.inPtsL.empty())
     {
-        Eigen::Matrix3d E_est, K_est;
-        cv::cv2eigen(params.res.E, E_est);
-        cv::cv2eigen(params.res.K, K_est);
-
+        Eigen::Matrix3d E_est = toEigenMat(params.res.E);
+        Eigen::Matrix3d K_est = toEigenMat(params.res.K);
         Eigen::Matrix3d K_inv = K_est.inverse();
         Eigen::Matrix3d F_est = K_inv.transpose() * E_est * K_inv;
+        cv::Mat F_cv = toCvMat(F_est);
 
-        cv::Mat F_cv;
-        cv::eigen2cv(F_est, F_cv);
-
-        result.epipolar_error = computeSymmetricEpipolarDistance(params.res.inPtsL, params.res.inPtsR, F_cv);
+        result.epipolar_error = computeSymmetricEpipolarDistance(
+            params.res.inPtsL, params.res.inPtsR, F_cv);
     }
     else
     {
         result.epipolar_error = -1.0;
     }
 
+    // inlier ratio
     result.inlier_ratio = computeInlierRatio(params.res.inlierMask);
+
+    // champfer and mean absolute distance
+    if (!params.res.dense3DPoints.empty() && !params.gt_pointcloud.empty())
+    {
+        computePointCloudMetrics(params.res.dense3DPoints, params.gt_pointcloud,
+                                 result.chamfer_accuracy, result.chamfer_completeness);
+
+        result.mean_absolute_distance = result.chamfer_accuracy;
+    }
 
     return result;
 }
@@ -49,6 +75,8 @@ EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
 void Evaluator::printMetrics(const EvaluatorRes &res)
 {
     std::cout << "\n Pipeline Evaluation Metrics \n";
+
+    std::cout << " 8-Point Metrics \n";
 
     std::cout << std::fixed << std::setprecision(4);
 
@@ -74,6 +102,17 @@ void Evaluator::printMetrics(const EvaluatorRes &res)
     if (res.inlier_ratio >= 0)
     {
         std::cout << "Inlier Ratio      : " << res.inlier_ratio << " %\n";
+    }
+
+    std::cout << " 3D Reconstruction Quality \n";
+    if (res.mean_absolute_distance >= 0)
+    {
+        std::cout << "Mean Abs Dist (Accuracy): " << res.mean_absolute_distance << " units\n";
+        std::cout << "Chamfer (Completeness): " << res.chamfer_completeness << " units\n";
+    }
+    else
+    {
+        std::cout << "Metrics            : [Missing GT or Dense Cloud]\n";
     }
 
     std::cout << std::defaultfloat;
@@ -164,15 +203,115 @@ double Evaluator::evaluateEpipolarError(const Eigen::Matrix3d &F_eigen,
     if (inL.empty())
         return -1.0;
 
-    cv::Mat F_cv;
-    cv::eigen2cv(F_eigen, F_cv);
+    cv::Mat F_cv = toCvMat(F_eigen);
 
     return computeSymmetricEpipolarDistance(inL, inR, F_cv);
 }
+
 double Evaluator::computeInlierRatio(const std::vector<bool> &inlierMask)
 {
     if (inlierMask.empty())
         return 0.0;
     int inlier_count = std::count(inlierMask.begin(), inlierMask.end(), true);
     return ((double)inlier_count / inlierMask.size()) * 100.0;
+}
+
+double Evaluator::computeReprojectionError(const std::vector<cv::Point2f> &ptsL,
+                                           const std::vector<cv::Point2f> &ptsR,
+                                           const cv::Mat &K, const cv::Mat &R, const cv::Mat &t)
+{
+    if (ptsL.empty() || ptsL.size() != ptsR.size())
+        return -1.0;
+
+    // build unrectified projection matrices
+    cv::Mat P1 = cv::Mat::eye(3, 4, CV_64F);
+    cv::Mat P2 = cv::Mat::zeros(3, 4, CV_64F);
+    R.copyTo(P2(cv::Rect(0, 0, 3, 3)));
+    t.copyTo(P2(cv::Rect(3, 0, 1, 3)));
+
+    P1 = K * P1;
+    P2 = K * P2;
+
+    // triangulate points
+    cv::Mat pts4D;
+    cv::triangulatePoints(P1, P2, ptsL, ptsR, pts4D);
+
+    double total_err = 0.0;
+    for (size_t i = 0; i < ptsL.size(); ++i)
+    {
+        cv::Mat X = pts4D.col(i);
+        X /= X.at<double>(3, 0);
+
+        // project back to image 1
+        cv::Mat p1_proj = P1 * X;
+        cv::Point2f pt1_est(p1_proj.at<double>(0, 0) / p1_proj.at<double>(2, 0),
+                            p1_proj.at<double>(1, 0) / p1_proj.at<double>(2, 0));
+
+        // project back to image 2
+        cv::Mat p2_proj = P2 * X;
+        cv::Point2f pt2_est(p2_proj.at<double>(0, 0) / p2_proj.at<double>(2, 0),
+                            p2_proj.at<double>(1, 0) / p2_proj.at<double>(2, 0));
+
+        // accumulate euclidean distance
+        double err1 = cv::norm(pt1_est - ptsL[i]);
+        double err2 = cv::norm(pt2_est - ptsR[i]);
+        total_err += (err1 + err2) / 2.0;
+    }
+
+    return total_err / ptsL.size();
+}
+
+void Evaluator::computePointCloudMetrics(const cv::Mat &est_dense_pts,
+                                         const std::vector<cv::Point3f> &gt_cloud,
+                                         double &mad_accuracy,
+                                         double &completeness)
+{
+    // filter out invalid/background points from the estimated dense matrix
+    std::vector<cv::Point3f> est_cloud;
+    for (int y = 0; y < est_dense_pts.rows; ++y)
+    {
+        for (int x = 0; x < est_dense_pts.cols; ++x)
+        {
+            cv::Vec3f pt = est_dense_pts.at<cv::Vec3f>(y, x);
+            if (std::isfinite(pt[2]) && pt[2] > 0.1 && pt[2] < 10000.0)
+            {
+                est_cloud.push_back(cv::Point3f(pt[0], pt[1], pt[2]));
+            }
+        }
+    }
+
+    if (est_cloud.empty() || gt_cloud.empty())
+    {
+        mad_accuracy = -1.0;
+        completeness = -1.0;
+        return;
+    }
+
+    // convert to raw 2D matrices for FLANN KD-Tree processing
+    cv::Mat est_mat(est_cloud.size(), 3, CV_32F, est_cloud.data());
+    cv::Mat gt_mat(gt_cloud.size(), 3, CV_32F, (void *)gt_cloud.data());
+
+    cv::Mat indices, dists;
+
+    // computing accuracy: how close is the closest point to the GT?
+    cv::flann::Index kdtree_gt(gt_mat, cv::flann::KDTreeIndexParams(4));
+    kdtree_gt.knnSearch(est_mat, indices, dists, 1);
+
+    double acc_sum = 0.0;
+    for (int i = 0; i < dists.rows; ++i)
+    {
+        acc_sum += std::sqrt(dists.at<float>(i, 0));
+    }
+    mad_accuracy = acc_sum / dists.rows;
+
+    // computing completeness: How much of the GT is covered by our estimation?
+    cv::flann::Index kdtree_est(est_mat, cv::flann::KDTreeIndexParams(4));
+    kdtree_est.knnSearch(gt_mat, indices, dists, 1);
+
+    double comp_sum = 0.0;
+    for (int i = 0; i < dists.rows; ++i)
+    {
+        comp_sum += std::sqrt(dists.at<float>(i, 0));
+    }
+    completeness = comp_sum / dists.rows;
 }

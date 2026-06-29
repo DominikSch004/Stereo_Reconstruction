@@ -9,14 +9,22 @@ struct EvaluatorParams
     PipelineResult &res;
     Eigen::Matrix3d &R_gt;
     Eigen::Vector3d &t_gt;
+    const std::vector<cv::Point3f> &gt_pointcloud;
 };
 
 struct EvaluatorRes
 {
+    // 8-point metrics
     double rot_error_deg;
     double trans_error_deg;
     double epipolar_error;
     double inlier_ratio;
+
+    // Point cloud & mesh metrics
+    double reprojection_error;
+    double mean_absolute_distance;
+    double chamfer_accuracy;
+    double chamfer_completeness;
 };
 
 class Evaluator
@@ -49,4 +57,13 @@ public:
 
     // Calculates the percentage of matched points that survived the RANSAC filtering process.
     static double computeInlierRatio(const std::vector<bool> &inlierMask);
+
+    static double computeReprojectionError(const std::vector<cv::Point2f> &ptsL,
+                                           const std::vector<cv::Point2f> &ptsR,
+                                           const cv::Mat &K, const cv::Mat &R, const cv::Mat &t);
+
+    static void computePointCloudMetrics(const cv::Mat &est_dense_pts,
+                                         const std::vector<cv::Point3f> &gt_cloud,
+                                         double &mad_accuracy,
+                                         double &completeness);
 };
