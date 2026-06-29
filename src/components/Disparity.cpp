@@ -2,6 +2,7 @@
 #include "Types.hpp"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
+#include <iostream>
 
 cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, PipelineMode mode)
 {
