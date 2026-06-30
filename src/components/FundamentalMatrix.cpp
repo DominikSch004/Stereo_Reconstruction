@@ -120,14 +120,19 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     double confidence,
     int maxIter)
 {
-    if (method == FundamentalMethod::CustomRANSAC)
+    switch (method) {
+    case FundamentalMethod::CustomRANSAC:
         return computeCustomRANSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
-    else if (method == FundamentalMethod::OpenCVRANSAC)
+    case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
-    else if (method == FundamentalMethod::CustomMAGSAC)
+    case FundamentalMethod::CustomMAGSAC:
         return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
-    else if (method == FundamentalMethod::CustomPROSAC)
+    case FundamentalMethod::CustomPROSAC:
         return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
+    }
+
+    inlierMask.assign(ptsL.size(), false);
+    return Eigen::Matrix3d::Identity();
 }
 
 Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
