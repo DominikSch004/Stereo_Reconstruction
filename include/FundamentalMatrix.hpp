@@ -11,7 +11,8 @@
 enum class FundamentalMethod {
     CustomRANSAC,  // Custom hand-rolled 8-point RANSAC loop with Sampson distance refitting
     OpenCVRANSAC,   // Native, multi-threaded OpenCV robust solver baseline
-    CustomMAGSAC    // Custom implementation of the MAGSAC robust estimator
+    CustomMAGSAC,   // Custom implementation of the MAGSAC robust estimator
+    CustomPROSAC    // Custom implementation of the PROSAC robust estimator
 };
 
 /**
@@ -148,5 +149,13 @@ static Eigen::Matrix3d computeCustomMAGSAC(
     int maxIter
 );
 
+
+static Eigen::Matrix3d computeCustomPROSAC(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    std::vector<bool>& inlierMask,
+    double threshold,
+    int maxIter
+);
 
 };

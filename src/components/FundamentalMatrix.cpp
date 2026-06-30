@@ -124,8 +124,10 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
         return computeCustomRANSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
     else if (method == FundamentalMethod::OpenCVRANSAC)
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
-    else
+    else if (method == FundamentalMethod::CustomMAGSAC)
         return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
+    else if (method == FundamentalMethod::CustomPROSAC)
+        return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
 }
 
 Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
@@ -390,6 +392,99 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
 
         if (e < sigmaMax * sigmaMax) {
             inlierMask[i] = true;
+        }
+    }
+
+    return bestF;
+}
+
+
+
+
+
+
+Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
+    const std::vector<cv::Point2f>& ptsL,
+    const std::vector<cv::Point2f>& ptsR,
+    std::vector<bool>& inlierMask,
+    double threshold,
+    int maxIter)
+{
+    const int N = (int)ptsL.size();
+    const int sampleSize = 8;
+
+    Eigen::Matrix3d bestF = Eigen::Matrix3d::Identity();
+    int bestInliers = 0;
+
+    inlierMask.assign(N, false);
+
+    std::mt19937 rng(42);
+
+    for (int it = 0; it < maxIter; ++it) {
+
+        // PROSAC idea:
+        // start sampling from top-ranked matches only,
+        // then gradually include more matches
+        int poolSize = sampleSize + (N - sampleSize) * it / maxIter;
+        poolSize = std::min(poolSize, N);
+
+        std::uniform_int_distribution<int> dist(0, poolSize - 1);
+
+        std::vector<int> idx;
+
+        while ((int)idx.size() < sampleSize) {
+            int r = dist(rng);
+
+            if (std::find(idx.begin(), idx.end(), r) == idx.end()) {
+                idx.push_back(r);
+            }
+        }
+
+        std::vector<cv::Point2f> sL(sampleSize), sR(sampleSize);
+
+        for (int i = 0; i < sampleSize; ++i) {
+            sL[i] = ptsL[idx[i]];
+            sR[i] = ptsR[idx[i]];
+        }
+
+        Eigen::Matrix3d F = compute8Point(sL, sR);
+
+        std::vector<bool> mask(N, false);
+        int inliers = 0;
+
+        // IMPORTANT:
+        // evaluate on ALL matches, not only poolSize matches
+        for (int i = 0; i < N; ++i) {
+            double e = sampsonError(F, ptsL[i], ptsR[i]);
+
+            if (e < threshold) {
+                mask[i] = true;
+                ++inliers;
+            }
+        }
+
+        if (inliers > bestInliers) {
+            bestInliers = inliers;
+            bestF = F;
+            inlierMask = mask;
+        }
+    }
+
+    // Refit using all geometric inliers
+    std::vector<cv::Point2f> inL, inR;
+
+    for (int i = 0; i < N; ++i) {
+        if (inlierMask[i]) {
+            inL.push_back(ptsL[i]);
+            inR.push_back(ptsR[i]);
+        }
+    }
+
+    if (inL.size() >= 8) {
+        bestF = compute8Point(inL, inR);
+
+        for (int i = 0; i < N; ++i) {
+            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < threshold;
         }
     }
 

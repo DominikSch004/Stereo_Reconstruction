@@ -14,11 +14,11 @@ int main()
     DTULoader loader("../data/dtu/");
 
     // select by image id, default is dataset 1 (scan1) & illumination 3
-    StereoPair pair = loader.loadPair(1, 2);
+    StereoPair pair = loader.loadPair(6, 7);
 
-    cv::Mat K = loader.loadIntrinsicCV(1);
-    CameraPose pose1 = loader.loadCameraPose(1);
-    CameraPose pose2 = loader.loadCameraPose(2);
+    cv::Mat K = loader.loadIntrinsicCV(6);
+    CameraPose pose1 = loader.loadCameraPose(6);
+    CameraPose pose2 = loader.loadCameraPose(7);
     Eigen::Matrix3d R_gt;
     Eigen::Vector3d t_gt;
     DTULoader::getRelativePose(pose1, pose2, R_gt, t_gt);
@@ -35,15 +35,12 @@ int main()
         return -1;
     }
 
-    std::vector<bool> CustomInliers, OpenCVInliers, Custommagsacinliers;
+    std::vector<bool> CustomInliers, OpenCVInliers, Custommagsacinliers, Customprosacinliers;
     
     Eigen::Matrix3d F_custom = FundamentalMatrix::computeFundamental(ptsL, ptsR, CustomInliers, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
     Eigen::Matrix3d F_opencv = FundamentalMatrix::computeFundamental(ptsL, ptsR, OpenCVInliers, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
     Eigen::Matrix3d F_magsac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Custommagsacinliers, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
-
-    std::cout << "Custom 8-Point + RANSAC Fundamental Matrix:\n" << F_custom << "\n";
-    std::cout << "OpenCV 7-Point + RANSAC Fundamental Matrix:\n" << F_opencv << "\n";
-    std::cout << "Custom 8-Point + MAGSAC Fundamental Matrix:\n" << F_magsac << "\n";
+    Eigen::Matrix3d F_prosac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Customprosacinliers, FundamentalMethod::CustomPROSAC, 1.0, 0.99, 1000);
 
 
     Eigen::Matrix3d R_est;
@@ -93,13 +90,27 @@ int main()
     else
     {
         std::cout << "MAGSAC 8-point failed to recover pose.\n";
+    } 
+    
+    double epi_err_prosac = Evaluator::evaluateEpipolarError(F_prosac, ptsL, ptsR, Customprosacinliers);
+    double prosac_ratio = Evaluator::computeInlierRatio(Customprosacinliers);
+    if (GeometryUtils::extractPoseFromFundamental(F_prosac, ptsL, ptsR, Customprosacinliers, K, R_est, t_est))
+    {
+        Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
+        std::cout << "PROSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
+        std::cout << "PROSAC Epipolar Error: " << epi_err_prosac << " px\n";
+        std::cout << "PROSAC Inlier Ratio: " << prosac_ratio << "%\n";
+    }
+    else
+    {
+        std::cout << "PROSAC 8-point failed to recover pose.\n";
     }   
 
     // visualize epipolar matches
     VisualizationUtils::displayEpipolarMatches("Custom 8-Point", grayLeft, grayRight, ptsL, ptsR, CustomInliers, F_custom);
     VisualizationUtils::displayEpipolarMatches("OpenCV Baseline", grayLeft, grayRight, ptsL, ptsR, OpenCVInliers, F_opencv);
     VisualizationUtils::displayEpipolarMatches("MAGSAC", grayLeft, grayRight, ptsL, ptsR, Custommagsacinliers, F_magsac);
-
+    VisualizationUtils::displayEpipolarMatches("PROSAC", grayLeft, grayRight, ptsL, ptsR, Customprosacinliers, F_prosac);
     std::cout << "\nExecution complete! Press any key on the image windows to exit.\n";
     cv::waitKey(0);
 
