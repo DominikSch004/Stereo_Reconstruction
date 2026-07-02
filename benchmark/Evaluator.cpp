@@ -65,7 +65,6 @@ EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
     {
         computePointCloudMetrics(params.res.dense3DPoints, params.gt_pointcloud,
                                  result.chamfer_accuracy, result.chamfer_completeness);
-
         result.mean_absolute_distance = result.chamfer_accuracy;
     }
 
@@ -223,18 +222,25 @@ double Evaluator::computeReprojectionError(const std::vector<cv::Point2f> &ptsL,
     if (ptsL.empty() || ptsL.size() != ptsR.size())
         return -1.0;
 
+    cv::Mat K64, R64, t64;
+    K.convertTo(K64, CV_64F);
+    R.convertTo(R64, CV_64F);
+    t.convertTo(t64, CV_64F);
+
     // build unrectified projection matrices
     cv::Mat P1 = cv::Mat::eye(3, 4, CV_64F);
     cv::Mat P2 = cv::Mat::zeros(3, 4, CV_64F);
     R.copyTo(P2(cv::Rect(0, 0, 3, 3)));
     t.copyTo(P2(cv::Rect(3, 0, 1, 3)));
 
-    P1 = K * P1;
-    P2 = K * P2;
+    P1 = K64 * P1;
+    P2 = K64 * P2;
 
     // triangulate points
     cv::Mat pts4D;
     cv::triangulatePoints(P1, P2, ptsL, ptsR, pts4D);
+
+    pts4D.convertTo(pts4D, CV_64F);
 
     double total_err = 0.0;
     for (size_t i = 0; i < ptsL.size(); ++i)
@@ -266,21 +272,42 @@ void Evaluator::computePointCloudMetrics(const cv::Mat &est_dense_pts,
                                          double &mad_accuracy,
                                          double &completeness)
 {
+    cv::Mat est_pts_float;
+    if (est_dense_pts.type() != CV_32FC3)
+    {
+        est_dense_pts.convertTo(est_pts_float, CV_32FC3);
+    }
+    else
+    {
+        est_pts_float = est_dense_pts;
+    }
+
     // filter out invalid/background points from the estimated dense matrix
     std::vector<cv::Point3f> est_cloud;
-    for (int y = 0; y < est_dense_pts.rows; ++y)
+    for (int y = 0; y < est_pts_float.rows; ++y)
     {
-        for (int x = 0; x < est_dense_pts.cols; ++x)
+        for (int x = 0; x < est_pts_float.cols; ++x)
         {
-            cv::Vec3f pt = est_dense_pts.at<cv::Vec3f>(y, x);
-            if (std::isfinite(pt[2]) && pt[2] > 0.1 && pt[2] < 10000.0)
+            cv::Vec3f pt = est_pts_float.at<cv::Vec3f>(y, x);
+            if (std::isfinite(pt[0]) && std::isfinite(pt[1]) && std::isfinite(pt[2]) &&
+                pt[2] > 0.1 && pt[2] < 10000.0)
             {
                 est_cloud.push_back(cv::Point3f(pt[0], pt[1], pt[2]));
             }
         }
     }
 
-    if (est_cloud.empty() || gt_cloud.empty())
+    std::vector<cv::Point3f> clean_gt;
+    clean_gt.reserve(gt_cloud.size());
+    for (const auto &pt : gt_cloud)
+    {
+        if (std::isfinite(pt.x) && std::isfinite(pt.y) && std::isfinite(pt.z))
+        {
+            clean_gt.push_back(pt);
+        }
+    }
+
+    if (est_cloud.empty() || clean_gt.empty())
     {
         mad_accuracy = -1.0;
         completeness = -1.0;
@@ -289,29 +316,37 @@ void Evaluator::computePointCloudMetrics(const cv::Mat &est_dense_pts,
 
     // convert to raw 2D matrices for FLANN KD-Tree processing
     cv::Mat est_mat(est_cloud.size(), 3, CV_32F, est_cloud.data());
-    cv::Mat gt_mat(gt_cloud.size(), 3, CV_32F, (void *)gt_cloud.data());
+    cv::Mat gt_mat(clean_gt.size(), 3, CV_32F, (void *)clean_gt.data());
 
     cv::Mat indices, dists;
 
     // computing accuracy: how close is the closest point to the GT?
     cv::flann::Index kdtree_gt(gt_mat, cv::flann::KDTreeIndexParams(4));
-    kdtree_gt.knnSearch(est_mat, indices, dists, 1);
+
+    cv::Mat indices_acc(est_mat.rows, 1, CV_32S);
+    cv::Mat dists_acc(est_mat.rows, 1, CV_32F);
+
+    kdtree_gt.knnSearch(est_mat, indices_acc, dists_acc, 1, cv::flann::SearchParams(32));
 
     double acc_sum = 0.0;
-    for (int i = 0; i < dists.rows; ++i)
+    for (int i = 0; i < dists_acc.rows; ++i)
     {
-        acc_sum += std::sqrt(dists.at<float>(i, 0));
+        acc_sum += std::sqrt(dists_acc.at<float>(i, 0));
     }
-    mad_accuracy = acc_sum / dists.rows;
+    mad_accuracy = acc_sum / dists_acc.rows;
 
     // computing completeness: How much of the GT is covered by our estimation?
     cv::flann::Index kdtree_est(est_mat, cv::flann::KDTreeIndexParams(4));
-    kdtree_est.knnSearch(gt_mat, indices, dists, 1);
+
+    cv::Mat indices_comp(gt_mat.rows, 1, CV_32S);
+    cv::Mat dists_comp(gt_mat.rows, 1, CV_32F);
+
+    kdtree_est.knnSearch(gt_mat, indices_comp, dists_comp, 1, cv::flann::SearchParams(32));
 
     double comp_sum = 0.0;
-    for (int i = 0; i < dists.rows; ++i)
+    for (int i = 0; i < dists_comp.rows; ++i)
     {
-        comp_sum += std::sqrt(dists.at<float>(i, 0));
+        comp_sum += std::sqrt(dists_comp.at<float>(i, 0));
     }
-    completeness = comp_sum / dists.rows;
+    completeness = comp_sum / dists_comp.rows;
 }
