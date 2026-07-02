@@ -150,6 +150,8 @@ PointCloud PlyUtils::loadPLY(const std::string &path)
             float xyz[3];
             file.read(reinterpret_cast<char *>(&xyz), 3 * sizeof(float));
             cloud.pts.push_back(Eigen::Vector3f(xyz[0], xyz[1], xyz[2]));
+            // skip normals and rgb values
+            file.seekg(15, std::ios::cur);
         }
     }
     else
