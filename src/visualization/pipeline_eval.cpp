@@ -16,11 +16,11 @@ int main()
 
     // select by image id, default is dataset 1 (scan1) & illumination 3
     StereoPair pair = loader.loadPair(viewLeft, viewRight);
-    // Load full absolute poses for both cameras (Reads from disk ONCE per camera)
+
+    // Load full absolute poses for both cameras
     CameraPose poseLeft = loader.loadCameraPose(viewLeft);
     CameraPose poseRight = loader.loadCameraPose(viewRight);
 
-    // Grab intrinsics directly from the already-loaded pose! No extra disk reads.
     cv::Mat K = toCvMat(poseLeft.K);
 
     // Calculate Ground Truth relative pose
@@ -28,7 +28,19 @@ int main()
     Eigen::Vector3d t_gt;
     DTULoader::getRelativePose(poseLeft, poseRight, R_gt, t_gt);
 
-    // 2. run pipeline, select which one you want to run below.
+    // load point cloud from dataset 1
+    std::vector<cv::Point3f> global_gt_cloud = loader.loadPointCloud();
+    std::vector<cv::Point3f> local_gt_cloud;
+    local_gt_cloud.reserve(global_gt_cloud.size());
+
+    for (const auto &pt : global_gt_cloud)
+    {
+        Eigen::Vector3d pt_global(pt.x, pt.y, pt.z);
+        Eigen::Vector3d pt_local = poseLeft.R * (pt_global - poseLeft.t);
+        local_gt_cloud.push_back(cv::Point3f(pt_local(0), pt_local(1), pt_local(2)));
+    }
+
+    // run pipeline, select which one you want to run below.
     bool runOpenCV = true;
     bool runCustom = true;
     PipelineResult res;
@@ -44,7 +56,7 @@ int main()
         }
         else
         {
-            EvaluatorParams paramsCV = {res, R_gt, t_gt};
+            EvaluatorParams paramsCV = {res, R_gt, t_gt, local_gt_cloud};
             EvaluatorRes metricsCV = Evaluator::evaluateMetrics(paramsCV);
             Evaluator::printMetrics(metricsCV);
 
@@ -68,7 +80,7 @@ int main()
         }
         else
         {
-            EvaluatorParams paramsCustom = {res, R_gt, t_gt};
+            EvaluatorParams paramsCustom = {res, R_gt, t_gt, local_gt_cloud};
             EvaluatorRes metricsCustom = Evaluator::evaluateMetrics(paramsCustom);
             Evaluator::printMetrics(metricsCustom);
 
