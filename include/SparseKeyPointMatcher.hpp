@@ -14,7 +14,8 @@ class SparseKeyPointMatcher {
 public:
     explicit SparseKeyPointMatcher(float ratioThreshold = 0.75f);
 
-    // Detect keypoints, compute descriptors, run ratio-test filtered matching via OpenCV (SIFT + FLANN)
+    // Detect keypoints, compute descriptors, run ratio-test filtered matching.
+    // Detector (SIFT vs ORB) is selected internally in SparseKeyPointMatcher.cpp.
     MatchResult match(const cv::Mat& grayLeft, const cv::Mat& grayRight) const;
 
     // Extract matched point coordinates as parallel float vectors.
@@ -25,4 +26,5 @@ public:
 private:
     float ratioThreshold_;
     cv::Ptr<cv::SIFT> sift_;
+    cv::Ptr<cv::ORB> orb_;
 };
