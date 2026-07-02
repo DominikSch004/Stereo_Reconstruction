@@ -3,12 +3,12 @@
 namespace {
 // Flip this to switch feature detector/matcher used by SparseKeyPointMatcher::match().
 enum class DetectorType { SIFT, ORB };
-constexpr DetectorType kDetectorType = DetectorType::ORB;
+constexpr DetectorType kDetectorType = DetectorType::SIFT;
 }
 
 SparseKeyPointMatcher::SparseKeyPointMatcher(float ratioThreshold)
     : ratioThreshold_(ratioThreshold),
-      sift_(cv::SIFT::create()), orb_(cv::ORB::create(100000))
+      sift_(cv::SIFT::create()), orb_(cv::ORB::create(100000)) // For Sift no cap but for orb there is a default cap of 500
 {
 }
 
