@@ -51,25 +51,10 @@ MatchResult SparseKeyPointMatcher::match(const cv::Mat &grayLeft,
     std::vector<std::pair<float, cv::DMatch>> rankedMatches;
     for (const auto &m : knnMatches)
     { // Lowe's ratio test
-        if (m.size() == 2)
+        if (m.size() == 2 && m[0].distance < ratioThreshold_ * m[1].distance)
         {
-            const float ratio = m[0].distance / m[1].distance;
-            if (ratio < ratioThreshold_)
-            {
-                rankedMatches.emplace_back(ratio, m[0]);
-            }
+            result.matches.push_back(m[0]);
         }
-    }
-
-    std::sort(rankedMatches.begin(), rankedMatches.end(),
-              [](const auto &a, const auto &b) {
-                  return a.first < b.first;
-              });
-
-    result.matches.reserve(rankedMatches.size());
-    for (const auto &ranked : rankedMatches)
-    {
-        result.matches.push_back(ranked.second);
     }
 
     return result;
@@ -89,4 +74,27 @@ void SparseKeyPointMatcher::extractPoints(const MatchResult &result,
         ptsLeft.push_back(result.keypointsLeft[m.queryIdx].pt);
         ptsRight.push_back(result.keypointsRight[m.trainIdx].pt);
     }
+}
+
+void SparseKeyPointMatcher::visualize(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight)
+{
+    std::cout << "Keypoints — left: " << result.keypointsLeft.size()
+              << ", right: " << result.keypointsRight.size() << "\n"
+              << "Matches passed ratio test: " << result.matches.size() << "\n";
+
+    cv::Mat vis;
+    cv::drawMatches(grayLeft, result.keypointsLeft,
+                    grayRight, result.keypointsRight,
+                    result.matches, vis,
+                    cv::Scalar::all(-1), cv::Scalar::all(-1), {},
+                    cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+
+    const std::string outPath = "sparse_matches.png";
+    cv::imwrite(outPath, vis);
+    std::cout << "Saved visualization to " << outPath
+              << " (" << result.matches.size() << " of " << result.matches.size()
+              << " matches drawn)\n";
+
+    cv::imshow("Sparse Key Point Matching correspondences", vis);
+    cv::waitKey(0);
 }

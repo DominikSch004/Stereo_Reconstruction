@@ -1,6 +1,3 @@
-#include <iostream>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/highgui.hpp>
 #include "DTULoader.hpp"
 #include "SparseKeyPointMatcher.hpp"
 #include "ImgUtils.hpp"
@@ -33,24 +30,7 @@ int main(int argc, char **argv)
     SparseKeyPointMatcher matcher(0.75f, config.featureDetector);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
-    std::cout << "Keypoints — left: " << result.keypointsLeft.size()
-              << ", right: " << result.keypointsRight.size() << "\n"
-              << "Matches passed ratio test: " << result.matches.size() << "\n";
+    matcher.visualize(result, grayLeft, grayRight);
 
-    cv::Mat vis;
-    cv::drawMatches(grayLeft, result.keypointsLeft,
-                    grayRight, result.keypointsRight,
-                    result.matches, vis,
-                    cv::Scalar::all(-1), cv::Scalar::all(-1), {},
-                    cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
-
-    const std::string outPath = "sparse_matches.png";
-    cv::imwrite(outPath, vis);
-    std::cout << "Saved visualization to " << outPath
-              << " (" << result.matches.size() << " of " << result.matches.size()
-              << " matches drawn)\n";
-
-    cv::imshow("Sparse Key Point Matching correspondences", vis);
-    cv::waitKey(0);
     return 0;
 }

@@ -1,29 +1,35 @@
 #pragma once
 
+#include <iostream>
 #include <vector>
 #include <opencv2/core.hpp>
 #include <opencv2/features2d.hpp>
+#include <opencv2/highgui.hpp>
 #include "PipelineConfig.hpp"
 
-struct MatchResult {
+struct MatchResult
+{
     std::vector<cv::KeyPoint> keypointsLeft;
     std::vector<cv::KeyPoint> keypointsRight;
-    std::vector<cv::DMatch>   matches;
+    std::vector<cv::DMatch> matches;
 };
 
-class SparseKeyPointMatcher {
+class SparseKeyPointMatcher
+{
 public:
     explicit SparseKeyPointMatcher(float ratioThreshold = 0.75f,
                                    FeatureDetector detector = FeatureDetector::SIFT);
 
     // Detect keypoints, compute descriptors, run ratio-test filtered matching.
     // SIFT uses FLANN matching; ORB uses brute-force Hamming matching.
-    MatchResult match(const cv::Mat& grayLeft, const cv::Mat& grayRight) const;
+    MatchResult match(const cv::Mat &grayLeft, const cv::Mat &grayRight) const;
 
     // Extract matched point coordinates as parallel float vectors.
-    static void extractPoints(const MatchResult& result,
-                              std::vector<cv::Point2f>& ptsLeft,
-                              std::vector<cv::Point2f>& ptsRight);
+    static void extractPoints(const MatchResult &result,
+                              std::vector<cv::Point2f> &ptsLeft,
+                              std::vector<cv::Point2f> &ptsRight);
+
+    static void visualize(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight);
 
 private:
     float ratioThreshold_;
