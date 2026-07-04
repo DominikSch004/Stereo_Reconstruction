@@ -29,6 +29,7 @@ set_target_properties(FreeImage::FreeImage PROPERTIES
 
 add_library(stereo_core STATIC
     src/Pipeline.cpp
+    src/PipelineConfig.cpp
     src/components/SparseKeyPointMatcher.cpp
     src/components/FundamentalMatrix.cpp
     src/components/Rectification.cpp
@@ -64,17 +65,20 @@ function(register_visualisation_target target_name source_path)
     target_link_libraries(${target_name} PRIVATE stereo_core)
 endfunction()
 
+# Main stereo reconstruction pipeline (step backends selected via config.yaml)
+add_executable(StereoReconstruction src/main.cpp)
+target_include_directories(StereoReconstruction PRIVATE include)
+target_link_libraries(StereoReconstruction PRIVATE stereo_core)
+
+# ICP fusion pipeline (runs the stereo pipeline per view pair, then fuses via ICP)
+add_executable(IcpFusion src/IcpFusion.cpp)
+target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
+target_link_libraries(IcpFusion PRIVATE stereo_core glog::glog Ceres::ceres)
+
+# Visualization / verification executables
 register_visualisation_target(SparseKeyPointMatching src/visualization/sparse_key_point_matching.cpp)
 register_visualisation_target(EightPointRansac       src/visualization/8point_ransac.cpp)
 register_visualisation_target(StereoRectification    src/visualization/stereo_rectification.cpp)
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
-register_visualisation_target(PipelineOpenCVEvaluation     src/visualization/pipeline_eval.cpp)
 register_visualisation_target(TriangulationVerification     src/visualization/triangulation_verification.cpp)
 register_visualisation_target(MeshReconstruction     src/visualization/mesh_reconstruction.cpp)
-
-add_executable(IcpFusion
-    src/IcpFusion.cpp
-    src/components/ICP.cpp
-)
-target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
-target_link_libraries(IcpFusion PRIVATE stereo_core glog::glog Ceres::ceres)

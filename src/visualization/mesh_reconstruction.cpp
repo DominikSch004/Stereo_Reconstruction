@@ -30,7 +30,7 @@ int main()
     {
         std::cout << "=== Running OpenCV Pipeline ===\n";
 
-        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV, poseLeft.t, poseRight.t))
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineConfig(), poseLeft.t, poseRight.t))
         {
             std::cerr << "WARNING: OpenCV pipeline tracking tripped/unimplemented\n";
         }
@@ -50,7 +50,11 @@ int main()
     {
         std::cout << "=== Running Custom Pipeline ===\n";
 
-        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::Custom, poseLeft.t, poseRight.t))
+        PipelineConfig customConfig;
+        customConfig.fundamental = FundamentalMethod::CustomRANSAC;
+        customConfig.rectification = RectificationMethod::CalibratedCustom;
+        customConfig.disparity = DisparityMethod::Custom;
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, customConfig, poseLeft.t, poseRight.t))
         {
             std::cerr << "WARNING: Custom pipeline tracking tripped/unimplemented\n";
         }

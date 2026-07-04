@@ -1,0 +1,24 @@
+%YAML:1.0
+# Pipeline step backend configuration.
+# Used by StereoReconstruction and IcpFusion (pass a different path as first CLI argument,
+# default is ../config.yaml relative to the build directory).
+#
+# Steps without an alternative implementation are not configurable:
+#   - sparse feature matching (always OpenCV SIFT + FLANN)
+#   - essential matrix / pose recovery (always cv::findEssentialMat + cv::recoverPose;
+#     see the comment in Pipeline.cpp step 3 for why E-from-F was abandoned)
+
+# opencv | custom | custom_magsac | custom_prosac
+fundamental_matrix: custom_magsac
+
+# opencv | custom  (custom = Loop & Zhang projective rectification)
+rectification: custom
+
+# opencv | custom  (WARNING: custom dense matching is not implemented yet)
+disparity: opencv
+
+# opencv | custom  (custom = per-pixel DLT triangulation)
+triangulation: custom
+
+# point_to_point | point_to_plane  (only used by the IcpFusion executable)
+icp_mode: point_to_point
