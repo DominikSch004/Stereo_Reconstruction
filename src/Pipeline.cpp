@@ -12,6 +12,10 @@
 void Pipeline::rescaleToTrueBaseline(const Eigen::Vector3d &C1, const Eigen::Vector3d &C2, cv::Mat &t)
 {
     double trueBaseline = (C1 - C2).norm();
+    if (trueBaseline < 1e-9) {
+        std::cout << "  [Pipeline] No camera centers provided (baseline = 0) -- keeping unit-norm t, reconstruction is up to scale.\n";
+        return;
+    }
     std::cout << "  [Pipeline] True DTU baseline: " << trueBaseline << " mm -- rescaling t.\n";
 
     double tNorm = cv::norm(t);
