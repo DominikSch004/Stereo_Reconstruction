@@ -1,5 +1,9 @@
 #include "SparseKeyPointMatcher.hpp"
-#include <algorithm>
+#include <iostream>
+#include <iomanip>
+#include <sstream>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
 
 SparseKeyPointMatcher::SparseKeyPointMatcher(float ratioThreshold, FeatureDetector detector)
     : ratioThreshold_(ratioThreshold), detector_(detector),
@@ -78,9 +82,17 @@ void SparseKeyPointMatcher::extractPoints(const MatchResult &result,
 
 void SparseKeyPointMatcher::visualize(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight)
 {
-    std::cout << "Keypoints — left: " << result.keypointsLeft.size()
-              << ", right: " << result.keypointsRight.size() << "\n"
-              << "Matches passed ratio test: " << result.matches.size() << "\n";
+    size_t good_matches = result.matches.size();
+    size_t total_kpts_left = result.keypointsLeft.size();
+    size_t total_kpts_right = result.keypointsRight.size();
+
+    // Retention rate: What percentage of Left keypoints successfully found a unique, unambiguous match?
+    float retention_ratio = total_kpts_left > 0 ? ((float)good_matches / total_kpts_left) * 100.0f : 0.0f;
+
+    std::cout << "Keypoints — left: " << total_kpts_left
+              << ", right: " << total_kpts_right << "\n"
+              << "Matches passed ratio test: " << good_matches
+              << " (" << std::fixed << std::setprecision(1) << retention_ratio << "% retention)\n";
 
     cv::Mat vis;
     cv::drawMatches(grayLeft, result.keypointsLeft,
@@ -89,11 +101,41 @@ void SparseKeyPointMatcher::visualize(const MatchResult &result, const cv::Mat &
                     cv::Scalar::all(-1), cv::Scalar::all(-1), {},
                     cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 
+    // Draw a semi-transparent HUD background box for text readability
+    cv::Mat overlay;
+    vis.copyTo(overlay);
+    cv::Rect hudRect(10, 10, 420, 110);
+
+    // Check if the image is large enough for the HUD
+    if (vis.cols > hudRect.x + hudRect.width && vis.rows > hudRect.y + hudRect.height)
+    {
+        cv::rectangle(overlay, hudRect, cv::Scalar(0, 0, 0), cv::FILLED);
+        cv::addWeighted(overlay, 0.6, vis, 0.4, 0, vis); // 60% opacity black box
+
+        // Prepare metric strings
+        std::string text1 = "# of Correspondences: " + std::to_string(good_matches);
+
+        std::stringstream ss;
+        ss << std::fixed << std::setprecision(1) << retention_ratio;
+        std::string text2 = "Lowe's Retention Rate: " + ss.str() + "%";
+
+        std::string text3 = "Keypoints Detected: L:" + std::to_string(total_kpts_left) + " R:" + std::to_string(total_kpts_right);
+
+        // Print text to image
+        int font = cv::FONT_HERSHEY_SIMPLEX;
+        double scale = 0.6;
+        int thick = 2;
+        cv::Scalar color(255, 255, 255); // White text
+
+        // Make the success count green, and the stats white
+        cv::putText(vis, text1, cv::Point(25, 40), font, scale, cv::Scalar(0, 255, 0), thick);
+        cv::putText(vis, text2, cv::Point(25, 75), font, scale, color, thick);
+        cv::putText(vis, text3, cv::Point(25, 110), font, scale, color, thick);
+    }
+
     const std::string outPath = "sparse_matches.png";
     cv::imwrite(outPath, vis);
-    std::cout << "Saved visualization to " << outPath
-              << " (" << result.matches.size() << " of " << result.matches.size()
-              << " matches drawn)\n";
+    std::cout << "Saved visualization to " << outPath << "\n";
 
     cv::imshow("Sparse Key Point Matching correspondences", vis);
     cv::waitKey(0);
