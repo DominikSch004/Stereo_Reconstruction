@@ -35,9 +35,13 @@ int main()
         return -1;
     }
 
-    std::vector<bool> CustomInliers, OpenCVInliers;
+    std::vector<bool> CustomInliers, OpenCVInliers, Custommagsacinliers, Customprosacinliers;
+    
     Eigen::Matrix3d F_custom = FundamentalMatrix::computeFundamental(ptsL, ptsR, CustomInliers, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
     Eigen::Matrix3d F_opencv = FundamentalMatrix::computeFundamental(ptsL, ptsR, OpenCVInliers, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
+    Eigen::Matrix3d F_magsac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Custommagsacinliers, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
+    Eigen::Matrix3d F_prosac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Customprosacinliers, FundamentalMethod::CustomPROSAC, 1.0, 0.99, 1000);
+
 
     Eigen::Matrix3d R_est;
     Eigen::Vector3d t_est;
@@ -73,10 +77,40 @@ int main()
         std::cout << "OpenCV 8-point failed to recover pose.\n";
     }
 
+    // evaluate MAGSAC
+    double epi_err_magsac = Evaluator::evaluateEpipolarError(F_magsac, ptsL, ptsR, Custommagsacinliers);
+    double magsac_ratio = Evaluator::computeInlierRatio(Custommagsacinliers);
+    if (GeometryUtils::extractPoseFromFundamental(F_magsac, ptsL, ptsR, Custommagsacinliers, K, R_est, t_est))
+    {   
+        Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
+        std::cout << "MAGSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
+        std::cout << "MAGSAC Epipolar Error: " << epi_err_magsac << " px\n";
+        std::cout << "MAGSAC Inlier Ratio: " << magsac_ratio << "%\n";
+    }
+    else
+    {
+        std::cout << "MAGSAC 8-point failed to recover pose.\n";
+    } 
+    
+    double epi_err_prosac = Evaluator::evaluateEpipolarError(F_prosac, ptsL, ptsR, Customprosacinliers);
+    double prosac_ratio = Evaluator::computeInlierRatio(Customprosacinliers);
+    if (GeometryUtils::extractPoseFromFundamental(F_prosac, ptsL, ptsR, Customprosacinliers, K, R_est, t_est))
+    {
+        Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
+        std::cout << "PROSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
+        std::cout << "PROSAC Epipolar Error: " << epi_err_prosac << " px\n";
+        std::cout << "PROSAC Inlier Ratio: " << prosac_ratio << "%\n";
+    }
+    else
+    {
+        std::cout << "PROSAC 8-point failed to recover pose.\n";
+    }   
+
     // visualize epipolar matches
     VisualizationUtils::displayEpipolarMatches("Custom 8-Point", grayLeft, grayRight, ptsL, ptsR, CustomInliers, F_custom);
     VisualizationUtils::displayEpipolarMatches("OpenCV Baseline", grayLeft, grayRight, ptsL, ptsR, OpenCVInliers, F_opencv);
-
+    VisualizationUtils::displayEpipolarMatches("MAGSAC", grayLeft, grayRight, ptsL, ptsR, Custommagsacinliers, F_magsac);
+    VisualizationUtils::displayEpipolarMatches("PROSAC", grayLeft, grayRight, ptsL, ptsR, Customprosacinliers, F_prosac);
     std::cout << "\nExecution complete! Press any key on the image windows to exit.\n";
     cv::waitKey(0);
 

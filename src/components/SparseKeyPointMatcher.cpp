@@ -1,4 +1,5 @@
 #include "SparseKeyPointMatcher.hpp"
+#include <algorithm>
 
 SparseKeyPointMatcher::SparseKeyPointMatcher(float ratioThreshold)
     : ratioThreshold_(ratioThreshold), sift_(cv::SIFT::create())
@@ -25,12 +26,28 @@ MatchResult SparseKeyPointMatcher::match(const cv::Mat &grayLeft,
     std::vector<std::vector<cv::DMatch>> knnMatches;
     flann.knnMatch(descLeft, descRight, knnMatches, 2);
 
+    std::vector<std::pair<float, cv::DMatch>> rankedMatches;
     for (const auto &m : knnMatches)
     { // Lowe's ratio test
-        if (m.size() == 2 && m[0].distance < ratioThreshold_ * m[1].distance)
+        if (m.size() == 2)
         {
-            result.matches.push_back(m[0]);
+            const float ratio = m[0].distance / m[1].distance;
+            if (ratio < ratioThreshold_)
+            {
+                rankedMatches.emplace_back(ratio, m[0]);
+            }
         }
+    }
+
+    std::sort(rankedMatches.begin(), rankedMatches.end(),
+              [](const auto &a, const auto &b) {
+                  return a.first < b.first;
+              });
+
+    result.matches.reserve(rankedMatches.size());
+    for (const auto &ranked : rankedMatches)
+    {
+        result.matches.push_back(ranked.second);
     }
 
     return result;
