@@ -12,7 +12,7 @@
 fundamental_matrix: custom_magsac
 
 # opencv | custom  (custom = Loop & Zhang projective rectification)
-rectification: custom
+rectification: opencv
 
 # opencv | custom  (WARNING: custom dense matching is not implemented yet)
 disparity: opencv

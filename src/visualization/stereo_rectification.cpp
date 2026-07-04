@@ -58,18 +58,16 @@ int main()
     std::cout << "RANSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
 
     // --- 3. Relative Pose Recovery ---
-    // Estimate the essential matrix DIRECTLY from the correspondences rather than
-    // converting from F via E = K^T F K. The latter propagates F's noise and never
-    // enforces the essential-matrix constraint (two equal singular values), which
-    // yields a poor translation direction and tilts the rectified rows (verified:
-    // ~74px vertical residual). findEssentialMat enforces that constraint during
-    // RANSAC and recovers a translation matching the ground-truth pose (~0.4px).
-    cv::Mat poseMask;
-    cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
-    //cv::Mat F_cv = toCvMat(F);
-    //cv::Mat E = K.t() * F_cv * K;
-    cv::Mat R, t;
-    cv::Mat cvE_mask = cv::Mat::ones(inL.size(), 1, CV_8U);
+    cv::Mat R, t, poseMask;
+    cv::Mat F_cv = toCvMat(F);
+    cv::Mat E_hat = K.t() * F_cv * K; // E = K^T * F * K
+    cv::SVD svd(E_hat, cv::SVD::MODIFY_A);
+    // Enforce rank-2 constraint on E
+    svd.w.at<double>(2) = 0.0;
+    float sigma = (svd.w.at<double>(0) + svd.w.at<double>(1)) / 2.0f;
+    svd.w.at<double>(0) = sigma;
+    svd.w.at<double>(1) = sigma;
+    cv::Mat E = svd.u * cv::Mat::diag(svd.w) * svd.vt;
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
 
     // Compute Calibrated Homography mappings

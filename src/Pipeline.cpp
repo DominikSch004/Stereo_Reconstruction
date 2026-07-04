@@ -85,15 +85,17 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
         return false;
 
     // --- 3. Relative Pose Recovery ---
-    // Estimate the essential matrix DIRECTLY rather than converting from F via
-    // E = K^T F K. The latter propagates F's noise and never enforces the
-    // essential-matrix constraint (two equal singular values), yielding a poor
-    // translation direction that tilts the rectified rows (~74px vertical residual
-    // vs ~0.4px with findEssentialMat). See stereo_rectification verification.
-    cv::Mat poseMask;
-    cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
-    cv::Mat R, t;
+    cv::Mat R, t, poseMask;
+    cv::Mat E_hat = K.t() * F_cv * K; // E = K^T * F * K
+    cv::SVD svd(E_hat, cv::SVD::MODIFY_A);
+    // Enforce rank-2 constraint on E
+    svd.w.at<double>(2) = 0.0;
+    float sigma = (svd.w.at<double>(0) + svd.w.at<double>(1)) / 2.0f;
+    svd.w.at<double>(0) = sigma;
+    svd.w.at<double>(1) = sigma;
+    cv::Mat E = svd.u * cv::Mat::diag(svd.w) * svd.vt;
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
+
 
     // Rescale t from recoverPose's unit-norm convention to the true DTU metric baseline
     rescaleToTrueBaseline(C1, C2, t);
