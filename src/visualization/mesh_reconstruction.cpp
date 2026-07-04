@@ -32,7 +32,8 @@ int main()
 
         if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineConfig(), poseLeft.t, poseRight.t))
         {
-            std::cerr << "WARNING: OpenCV pipeline tracking tripped/unimplemented\n";
+            std::cerr << "ERROR: OpenCV pipeline execution failed.\n";
+            return -1;
         }
 
         // 3. Build and export the grid-connectivity mesh for visual inspection
