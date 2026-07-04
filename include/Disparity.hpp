@@ -1,7 +1,16 @@
 #pragma once
 
 #include <opencv2/core.hpp>
-#include "Types.hpp"
+
+/**
+ * @enum DisparityMethod
+ * @brief Selects the dense stereo matching backend.
+ */
+enum class DisparityMethod
+{
+    OpenCVSGBM, // Native OpenCV semi-global block matching
+    Custom      // Custom hand-rolled dense matcher (not implemented yet)
+};
 
 /**
  * @class Disparity
@@ -25,7 +34,7 @@ public:
         int minDisp,
         int numDisp,
         int blockSize,
-        PipelineMode mode);
+        DisparityMethod method);
 
 private:
     /**

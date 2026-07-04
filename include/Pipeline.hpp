@@ -8,7 +8,7 @@
 #include "DTULoader.hpp"
 #include "Triangulation.hpp"
 #include "Disparity.hpp"
-#include "Types.hpp"
+#include "PipelineConfig.hpp"
 
 /**
  * @struct PipelineResult
@@ -39,12 +39,16 @@ struct PipelineResult
  * @class Pipeline
  * @brief Orchestration engine coordinating feature matching, epipolar geometry,
  * stereo rectification, and dense matching search-bound configuration.
+ *
+ * Every step with alternative backends (fundamental matrix, rectification,
+ * disparity, triangulation) is selected via PipelineConfig; sparse matching
+ * and pose recovery have a single implementation.
  */
 class Pipeline
 {
 public:
     /**
-     * @brief High-level entrypoint routing the execution flow based on the chosen mode.
+     * @brief Runs the full stereo reconstruction pipeline with per-step backends taken from config.
      * @return true if the entire orchestration sequence finishes successfully, false otherwise.
      */
     static bool runPipeline(
@@ -52,38 +56,11 @@ public:
         const cv::Mat &imgRight,
         const cv::Mat &K,
         PipelineResult &res,
-        PipelineMode mode = PipelineMode::OpenCV,
+        const PipelineConfig &config = PipelineConfig(),
         const Eigen::Vector3d &C1 = Eigen::Vector3d::Zero(),
         const Eigen::Vector3d &C2 = Eigen::Vector3d::Zero());
 
 private:
-    /**
-     * @brief Executes the pipeline using native OpenCV baseline modules.
-     */
-    static bool runPipelineOpenCV(
-        const cv::Mat &gray1,
-        const cv::Mat &gray2,
-        const cv::Mat &bgr1,
-        const cv::Size &sz,
-        const cv::Mat &K,
-        PipelineResult &res,
-        const Eigen::Vector3d &C1,
-        const Eigen::Vector3d &C2);
-
-    /**
-     * @brief Executes the pipeline using your custom hand-rolled mathematical backends.
-     * @note Placeholder ready for when you substitute parts (like custom RANSAC, 8-point, or custom rectification).
-     */
-    static bool runPipelineCustom(
-        const cv::Mat &gray1,
-        const cv::Mat &gray2,
-        const cv::Mat &bgr1,
-        const cv::Size &sz,
-        const cv::Mat &K,
-        PipelineResult &res,
-        const Eigen::Vector3d &C1,
-        const Eigen::Vector3d &C2);
-
     /**
      * @brief Computes true metric baseline ||C1 - C2|| and rescales t in-place (t = t_unit * trueBaseline)
      */

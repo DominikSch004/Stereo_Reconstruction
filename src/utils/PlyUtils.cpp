@@ -79,9 +79,6 @@ PointCloud PlyUtils::buildPointCloud(
     // This value should be propagated from the stereo matching cost layer 
     // or the geometric sparse RANSAC re-projection error.
     const float sigma_d = 0.5f;
-    for (int y = 0; y < pts3D.rows; ++y) {
-        for (int x = 0; x < pts3D.cols; ++x) {
-            if (disp32f.at<float>(y, x) <= (float)minDisp) continue;
     for (int y = 0; y < pts3D.rows; ++y)
     {
         for (int x = 0; x < pts3D.cols; ++x)

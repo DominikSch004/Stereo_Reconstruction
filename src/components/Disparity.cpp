@@ -1,19 +1,18 @@
 #include "Disparity.hpp"
-#include "Types.hpp"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 #include <iostream>
 
-cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, PipelineMode mode)
+cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method)
 {
-    switch (mode)
+    switch (method)
     {
-    case PipelineMode::OpenCV:
+    case DisparityMethod::OpenCVSGBM:
         return computeSGBMOpenCV(left, right, minDisp, numDisp, blockSize);
-    case PipelineMode::Custom:
+    case DisparityMethod::Custom:
         return computeCustom(left, right, minDisp, numDisp, blockSize);
     default:
-        std::cout << "Failed! Select a valid pipeline";
+        std::cout << "Failed! Select a valid disparity method";
         return cv::Mat();
     }
 }

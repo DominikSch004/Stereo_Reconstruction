@@ -48,7 +48,7 @@ int main()
     cv::Mat K = loader.loadIntrinsicCV(1);
 
     PipelineResult res;
-    if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV))
+    if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res))
     {
         std::cerr << "ERROR: pipeline execution failed.\n";
         return -1;

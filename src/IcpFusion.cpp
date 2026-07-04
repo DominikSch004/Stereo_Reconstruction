@@ -6,11 +6,26 @@
 #include <string>
 #include "DTULoader.hpp"
 #include "Pipeline.hpp"
+#include "PipelineConfig.hpp"
 #include "PlyUtils.hpp"
 #include "ICP.hpp"
 
-int main()
+int main(int argc, char **argv)
 {
+    // Per-step backend selection shared with the main stereo reconstruction pipeline
+    const std::string configPath = (argc > 1) ? argv[1] : "../config.yaml";
+    PipelineConfig config;
+    try
+    {
+        config = PipelineConfig::load(configPath);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << e.what() << "\n";
+        return 1;
+    }
+    config.print();
+
     const int numPairs = 3;
     const size_t icpSamples = 4000;
 
@@ -33,14 +48,14 @@ int main()
 
         PipelineResult res;
         // Pass both views' camera centers so Pipeline rescales t to the true metric baseline
-        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV,
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, config,
                                     poseLeft.t, poseRight.t))
         {
             std::cerr << "Pipeline failed for pair " << i << "\n";
             continue;
         }
 
-        PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, TriangulationMethod::OpenCV);
+        PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, config.triangulation);
 
         std::cout << "Cloud " << i << ": " << cloud.pts.size() << " points generated.\n";
         clouds.push_back(std::move(cloud));
@@ -82,7 +97,7 @@ int main()
 
         PointCloud srcSub = PlyUtils::subsample(clouds[i], icpSamples, rng);
         PointCloud tgtSub = PlyUtils::subsample(fused, icpSamples, rng);
-        Eigen::Matrix4f coarseT = ICP::align(srcSub, tgtSub, 30, 0.1f, true, ICPMode::PointToPlane);
+        Eigen::Matrix4f coarseT = ICP::align(srcSub, tgtSub, 30, 0.1f, true, config.icpMode);
 
         for (auto& pt : clouds[i].pts) {
             Eigen::Vector4f p_h(pt.x(), pt.y(), pt.z(), 1.0f);
@@ -92,7 +107,7 @@ int main()
             n = coarseT.block<3, 3>(0, 0) * n;
         }
 
-        ICP::align(clouds[i], fused, 20, 0.1f, true, ICPMode::PointToPlane);
+        ICP::align(clouds[i], fused, 20, 0.1f, true, config.icpMode);
 
         fused.pts.insert(fused.pts.end(), clouds[i].pts.begin(), clouds[i].pts.end());
         fused.colors.insert(fused.colors.end(), clouds[i].colors.begin(), clouds[i].colors.end());
