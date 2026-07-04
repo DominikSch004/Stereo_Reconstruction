@@ -11,7 +11,8 @@
  * @struct PointCloud
  * @brief Container holding metric 3D point vectors and corresponding RGB texture attributes.
  */
-struct PointCloud {
+struct PointCloud
+{
     std::vector<Eigen::Vector3f> pts;
     std::vector<cv::Vec3b>       colors;
     std::vector<float> weights;
@@ -32,13 +33,13 @@ public:
      * @return true if file writing succeeds, false otherwise.
      */
     static bool buildAndSavePLY(
-        const std::string& path,
-        const cv::Mat& disparity,
-        const cv::Mat& Q,
-        const cv::Mat& P1r,
-        const cv::Mat& P2r,
-        const cv::Mat& camToWorld,
-        const cv::Mat& rectColor,
+        const std::string &path,
+        const cv::Mat &disparity,
+        const cv::Mat &Q,
+        const cv::Mat &P1r,
+        const cv::Mat &P2r,
+        const cv::Mat &camToWorld,
+        const cv::Mat &rectColor,
         int minDisp,
         float globalConfidence,
         TriangulationMethod method = TriangulationMethod::OpenCV
@@ -56,12 +57,12 @@ public:
      * @param method Strategy selected for triangulation calculation.
      */
     static PointCloud buildPointCloud(
-        const cv::Mat& disparity,
-        const cv::Mat& Q,
-        const cv::Mat& P1r,
-        const cv::Mat& P2r,
-        const cv::Mat& camToWorld,
-        const cv::Mat& rectColor,
+        const cv::Mat &disparity,
+        const cv::Mat &Q,
+        const cv::Mat &P1r,
+        const cv::Mat &P2r,
+        const cv::Mat &camToWorld,
+        const cv::Mat &rectColor,
         int minDisp,
         float globalConfidence,
         TriangulationMethod method = TriangulationMethod::OpenCV
@@ -71,23 +72,23 @@ public:
      * @brief Writes point cloud data to an ASCII PLY format target.
      */
     static void savePLY(
-        const std::string& path,
-        const PointCloud& cloud
-    );
+        const std::string &path,
+        const PointCloud &cloud);
+
+    static PointCloud loadPLY(const std::string &path);
 
     /**
      * @brief Subsamples point indices randomly to support real-time ICP requirements.
      */
     static PointCloud subsample(
-        const PointCloud& cloud,
+        const PointCloud &cloud,
         size_t n,
-        std::mt19937& rng
-    );
+        std::mt19937 &rng);
 
     /**
      * @brief Normalizes point spatial attributes to zero-mean and unit variance.
      */
-    static std::pair<Eigen::Vector3f, float> normalise(PointCloud& cloud);
+    static std::pair<Eigen::Vector3f, float> normalise(PointCloud &cloud);
 
     /**
      * @brief Reverts normalization scaling.

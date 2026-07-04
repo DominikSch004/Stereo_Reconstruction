@@ -8,13 +8,13 @@
 #include <opencv2/core/eigen.hpp>
 
 bool PlyUtils::buildAndSavePLY(
-    const std::string& path,
-    const cv::Mat& disparity,
-    const cv::Mat& Q,
-    const cv::Mat& P1r,
-    const cv::Mat& P2r,
-    const cv::Mat& camToWorld,
-    const cv::Mat& rectColor,
+    const std::string &path,
+    const cv::Mat &disparity,
+    const cv::Mat &Q,
+    const cv::Mat &P1r,
+    const cv::Mat &P2r,
+    const cv::Mat &camToWorld,
+    const cv::Mat &rectColor,
     int minDisp,
     float globalConfidence,
     TriangulationMethod method)
@@ -33,12 +33,12 @@ bool PlyUtils::buildAndSavePLY(
 }
 
 PointCloud PlyUtils::buildPointCloud(
-    const cv::Mat& disparity,
-    const cv::Mat& Q,
-    const cv::Mat& P1r,
-    const cv::Mat& P2r,
-    const cv::Mat& camToWorld,
-    const cv::Mat& rectColor,
+    const cv::Mat &disparity,
+    const cv::Mat &Q,
+    const cv::Mat &P1r,
+    const cv::Mat &P2r,
+    const cv::Mat &camToWorld,
+    const cv::Mat &rectColor,
     int minDisp,
     float globalConfidence,
     TriangulationMethod method)
@@ -50,7 +50,8 @@ PointCloud PlyUtils::buildPointCloud(
         disparity.convertTo(disp32f, CV_32F);
 
     cv::Mat pts3D = Triangulation::reprojectDisparityTo3D(disp32f, Q, P1r, P2r, method);
-    if (pts3D.empty()) return PointCloud();
+    if (pts3D.empty())
+        return PointCloud();
 
     cv::Mat gradX, gradY;
     cv::Sobel(disp32f, gradX, CV_32F, 1, 0, 3);
@@ -60,10 +61,10 @@ PointCloud PlyUtils::buildPointCloud(
     cv::magnitude(gradX, gradY, gradMag);
 
     PointCloud cloud;
-    
+
     const cv::Matx33d R = camToWorld.colRange(0, 3);
     const cv::Vec3d t = camToWorld.col(3);
-    
+
     const float zMax = 9000.0f;
 
     // extract f * B from P2r(0, 3) = -f*B
@@ -81,10 +82,18 @@ PointCloud PlyUtils::buildPointCloud(
     for (int y = 0; y < pts3D.rows; ++y) {
         for (int x = 0; x < pts3D.cols; ++x) {
             if (disp32f.at<float>(y, x) <= (float)minDisp) continue;
+    for (int y = 0; y < pts3D.rows; ++y)
+    {
+        for (int x = 0; x < pts3D.cols; ++x)
+        {
+            if (disp32f.at<float>(y, x) <= (float)minDisp)
+                continue;
 
             cv::Vec3f p = pts3D.at<cv::Vec3f>(y, x);
-            if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) continue;
-            if (p[2] <= 0.0f || p[2] > zMax) continue;
+            if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2]))
+                continue;
+            if (p[2] <= 0.0f || p[2] > zMax)
+                continue;
 
             // depth variance = Z^4 / (f * B)^2 * sigma
             float zSq = p[2] * p[2];
@@ -154,10 +163,11 @@ PointCloud PlyUtils::buildPointCloud(
     return cloud;
 }
 
-void PlyUtils::savePLY(const std::string& path, const PointCloud& cloud)
+void PlyUtils::savePLY(const std::string &path, const PointCloud &cloud)
 {
     std::ofstream f(path);
-    if (!f.is_open()) {
+    if (!f.is_open())
+    {
         std::cerr << "ERROR: Failed to open target file path: " << path << "\n";
         return;
     }
@@ -166,17 +176,85 @@ void PlyUtils::savePLY(const std::string& path, const PointCloud& cloud)
       << "property float x\nproperty float y\nproperty float z\n"
       << "property uchar red\nproperty uchar green\nproperty uchar blue\n"
       << "end_header\n";
-      
-    for (size_t i = 0; i < cloud.pts.size(); ++i) {
+
+    for (size_t i = 0; i < cloud.pts.size(); ++i)
+    {
         f << cloud.pts[i].x() << " " << cloud.pts[i].y() << " " << cloud.pts[i].z() << " "
           << (int)cloud.colors[i][2] << " " << (int)cloud.colors[i][1] << " " << (int)cloud.colors[i][0] << "\n";
     }
     std::cout << "Saved " << cloud.pts.size() << " elements to path location: " << path << "\n";
 }
 
-PointCloud PlyUtils::subsample(const PointCloud& cloud, size_t n, std::mt19937& rng)
+PointCloud PlyUtils::loadPLY(const std::string &path)
 {
-    if (cloud.pts.size() <= n) return cloud;
+    PointCloud cloud;
+    std::cout << "[PlyUtils] Loading PLY: " << path << "\n";
+
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open())
+    {
+        std::cerr << "ERROR: Failed to open point cloud file: " << path << "\n";
+        return cloud;
+    }
+
+    std::string line;
+    int vertexCount = 0;
+    bool isBinary = false;
+
+    while (std::getline(file, line))
+    {
+        line.erase(line.find_last_not_of(" \n\r\t") + 1);
+
+        if (line == "end_header")
+            break;
+        if (line.find("format binary") != std::string::npos)
+            isBinary = true;
+        if (line.find("element vertex") != std::string::npos)
+        {
+            sscanf(line.c_str(), "element vertex %d", &vertexCount);
+        }
+    }
+
+    if (vertexCount == 0)
+    {
+        std::cerr << "ERROR: No vertices found in PLY header.\n";
+        return cloud;
+    }
+
+    cloud.pts.reserve(vertexCount);
+
+    if (isBinary)
+    {
+        for (int i = 0; i < vertexCount; ++i)
+        {
+            float xyz[3];
+            file.read(reinterpret_cast<char *>(&xyz), 3 * sizeof(float));
+            cloud.pts.push_back(Eigen::Vector3f(xyz[0], xyz[1], xyz[2]));
+            // skip normals and rgb values
+            file.seekg(15, std::ios::cur);
+        }
+    }
+    else
+    {
+        for (int i = 0; i < vertexCount; ++i)
+        {
+            float x, y, z;
+            file >> x >> y >> z;
+            cloud.pts.push_back(Eigen::Vector3f(x, y, z));
+            file.ignore(256, '\n');
+        }
+    }
+
+    file.close();
+    std::cout << "[PlyUtils] Successfully loaded " << cloud.pts.size() << " points.\n";
+
+    return cloud;
+}
+
+PointCloud PlyUtils::subsample(const PointCloud &cloud, size_t n, std::mt19937 &rng)
+{
+    if (cloud.pts.size() <= n)
+        return cloud;
     std::vector<size_t> idx(cloud.pts.size());
     std::iota(idx.begin(), idx.end(), 0);
     std::shuffle(idx.begin(), idx.end(), rng);
@@ -200,22 +278,27 @@ PointCloud PlyUtils::subsample(const PointCloud& cloud, size_t n, std::mt19937& 
     return out;
 }
 
-std::pair<Eigen::Vector3f, float> PlyUtils::normalise(PointCloud& cloud)
+std::pair<Eigen::Vector3f, float> PlyUtils::normalise(PointCloud &cloud)
 {
     Eigen::Vector3f mean = Eigen::Vector3f::Zero();
-    for (const auto& p : cloud.pts) mean += p;
+    for (const auto &p : cloud.pts)
+        mean += p;
     mean /= float(cloud.pts.size());
 
     float scale = 0.f;
-    for (const auto& p : cloud.pts) scale += (p - mean).squaredNorm();
+    for (const auto &p : cloud.pts)
+        scale += (p - mean).squaredNorm();
     scale = std::sqrt(scale / float(cloud.pts.size()));
-    if (scale < 1e-6f) scale = 1.f;
+    if (scale < 1e-6f)
+        scale = 1.f;
 
-    for (auto& p : cloud.pts) p = (p - mean) / scale;
-    return { mean, scale };
+    for (auto &p : cloud.pts)
+        p = (p - mean) / scale;
+    return {mean, scale};
 }
 
-void PlyUtils::denormalise(PointCloud& cloud, const Eigen::Vector3f& mean, float scale)
+void PlyUtils::denormalise(PointCloud &cloud, const Eigen::Vector3f &mean, float scale)
 {
-    for (auto& p : cloud.pts) p = p * scale + mean;
+    for (auto &p : cloud.pts)
+        p = p * scale + mean;
 }
