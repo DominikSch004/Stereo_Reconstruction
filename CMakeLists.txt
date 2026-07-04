@@ -82,3 +82,4 @@ register_visualisation_target(StereoRectification    src/visualization/stereo_re
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
 register_visualisation_target(TriangulationVerification     src/visualization/triangulation_verification.cpp)
 register_visualisation_target(MeshReconstruction     src/visualization/mesh_reconstruction.cpp)
+register_visualisation_target(PoseRecoveryComparison src/visualization/pose_recovery_comparison.cpp)
