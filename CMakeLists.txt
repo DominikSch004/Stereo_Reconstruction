@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenCV 4.5 REQUIRED COMPONENTS core imgproc highgui calib3d features2d)
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED)
+find_package(glog REQUIRED)
 
 find_path(FREEIMAGE_INCLUDE_DIR
     NAMES FreeImage.h
@@ -37,6 +38,7 @@ add_library(stereo_core STATIC
     src/utils/ImgUtils.cpp
     src/utils/FreeImageHelper.cpp
     src/utils/PlyUtils.cpp
+    src/utils/MeshUtils.cpp
     src/utils/GeometryUtils.cpp
     src/utils/VisualizationUtils.cpp
     benchmark/Evaluator.cpp
@@ -52,6 +54,8 @@ target_link_libraries(stereo_core PUBLIC
     ${OpenCV_LIBS}
     Eigen3::Eigen
     FreeImage::FreeImage
+    glog::glog
+    Ceres::ceres
 )
 
 function(register_visualisation_target target_name source_path)
@@ -66,10 +70,11 @@ register_visualisation_target(StereoRectification    src/visualization/stereo_re
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
 register_visualisation_target(PipelineOpenCVEvaluation     src/visualization/pipeline_eval.cpp)
 register_visualisation_target(TriangulationVerification     src/visualization/triangulation_verification.cpp)
+register_visualisation_target(MeshReconstruction     src/visualization/mesh_reconstruction.cpp)
 
 add_executable(IcpFusion
     src/IcpFusion.cpp
     src/components/ICP.cpp
 )
 target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
-target_link_libraries(IcpFusion PRIVATE stereo_core Ceres::ceres)
+target_link_libraries(IcpFusion PRIVATE stereo_core glog::glog Ceres::ceres)

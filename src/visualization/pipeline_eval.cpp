@@ -50,7 +50,7 @@ int main()
     {
         std::cout << "=== Running OpenCV Pipeline ===\n";
 
-        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV))
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::OpenCV, poseLeft.t, poseRight.t))
         {
             std::cerr << "WARNING: OpenCV pipeline tracking tripped/unimplemented\n";
         }
@@ -60,21 +60,20 @@ int main()
             EvaluatorRes metricsCV = Evaluator::evaluateMetrics(paramsCV);
             Evaluator::printMetrics(metricsCV);
 
-            // Export dense local frame 3D point grids to PLY meshes for cloud inspection
-            plyFilename = "pointcloud_opencv.ply";
-            std::cout << "Saving cloud to: " << plyFilename << "\n";
-            PlyUtils::buildAndSavePLY(
-                plyFilename,
-                res.denseDisparity, res.Q, res.P1r, res.P2r,
-                res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
-        }
+        // 3. Export dense local frame 3D point grids to PLY meshes for cloud inspection
+        plyFilename = "pointcloud_opencv.ply";
+        std::cout << "Saving cloud to: " << plyFilename << "\n";
+        PlyUtils::buildAndSavePLY(
+            plyFilename,
+            res.denseDisparity, res.Q, res.P1r, res.P2r,
+            res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, TriangulationMethod::OpenCV);
     }
 
     if (runCustom)
     {
         std::cout << "=== Running Custom Pipeline ===\n";
 
-        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::Custom))
+        if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, PipelineMode::Custom, poseLeft.t, poseRight.t))
         {
             std::cerr << "WARNING: Custom pipeline tracking tripped/unimplemented\n";
         }
@@ -84,14 +83,13 @@ int main()
             EvaluatorRes metricsCustom = Evaluator::evaluateMetrics(paramsCustom);
             Evaluator::printMetrics(metricsCustom);
 
-            // Export dense local frame 3D point grids to PLY meshes for cloud inspection
-            plyFilename = "pointcloud_custom.ply";
-            std::cout << "Saving cloud to: " << plyFilename << "\n";
-            PlyUtils::buildAndSavePLY(
-                plyFilename,
-                res.denseDisparity, res.Q, res.P1r, res.P2r,
-                res.camToWorld, res.rectColor, res.minDisp, TriangulationMethod::OpenCV);
-        }
+        // 3. Export dense local frame 3D point grids to PLY meshes for cloud inspection
+        plyFilename = "pointcloud_custom.ply";
+        std::cout << "Saving cloud to: " << plyFilename << "\n";
+        PlyUtils::buildAndSavePLY(
+            plyFilename,
+            res.denseDisparity, res.Q, res.P1r, res.P2r,
+            res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, TriangulationMethod::OpenCV);
     }
     return 0;
 }

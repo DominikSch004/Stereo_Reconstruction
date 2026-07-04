@@ -4,6 +4,8 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/core/eigen.hpp>
 
 bool PlyUtils::buildAndSavePLY(
     const std::string &path,
@@ -14,14 +16,14 @@ bool PlyUtils::buildAndSavePLY(
     const cv::Mat &camToWorld,
     const cv::Mat &rectColor,
     int minDisp,
+    float globalConfidence,
     TriangulationMethod method)
 {
     std::cout << "Orchestrating point cloud export to: " << path << "\n";
-
-    PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld, rectColor, minDisp, method);
-
-    if (cloud.pts.empty())
-    {
+    
+    PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld, rectColor, minDisp, globalConfidence, method);
+    
+    if (cloud.pts.empty()) {
         std::cerr << "WARNING: Point cloud generated no points. Aborting file write sequence.\n";
         return false;
     }
@@ -38,6 +40,7 @@ PointCloud PlyUtils::buildPointCloud(
     const cv::Mat &camToWorld,
     const cv::Mat &rectColor,
     int minDisp,
+    float globalConfidence,
     TriangulationMethod method)
 {
     cv::Mat disp32f;
@@ -50,6 +53,13 @@ PointCloud PlyUtils::buildPointCloud(
     if (pts3D.empty())
         return PointCloud();
 
+    cv::Mat gradX, gradY;
+    cv::Sobel(disp32f, gradX, CV_32F, 1, 0, 3);
+    cv::Sobel(disp32f, gradY, CV_32F, 0, 1, 3);
+
+    cv::Mat gradMag;
+    cv::magnitude(gradX, gradY, gradMag);
+
     PointCloud cloud;
 
     const cv::Matx33d R = camToWorld.colRange(0, 3);
@@ -57,6 +67,21 @@ PointCloud PlyUtils::buildPointCloud(
 
     const float zMax = 9000.0f;
 
+    // extract f * B from P2r(0, 3) = -f*B
+    double fB = 1.0;
+    if (!P2r.empty() && P2r.rows >= 1 && P2r.cols >= 4)
+        fB = std::abs(P2r.at<double>(0, 3));
+    else
+        // Fallback safety
+        fB = 1000.0; 
+    
+    // TODO: Currently assuming a baseline sub-pixel matching accuracy of 0.5 pixels. 
+    // This value should be propagated from the stereo matching cost layer 
+    // or the geometric sparse RANSAC re-projection error.
+    const float sigma_d = 0.5f;
+    for (int y = 0; y < pts3D.rows; ++y) {
+        for (int x = 0; x < pts3D.cols; ++x) {
+            if (disp32f.at<float>(y, x) <= (float)minDisp) continue;
     for (int y = 0; y < pts3D.rows; ++y)
     {
         for (int x = 0; x < pts3D.cols; ++x)
@@ -70,12 +95,67 @@ PointCloud PlyUtils::buildPointCloud(
             if (p[2] <= 0.0f || p[2] > zMax)
                 continue;
 
+            // depth variance = Z^4 / (f * B)^2 * sigma
+            float zSq = p[2] * p[2];
+            float variance = (zSq * zSq) / static_cast<float>(fB * fB) * (sigma_d * sigma_d);
+            
+            float depthConfidence = 1.0f / (1.0f + variance);
+
+            float edgeGradient = gradMag.at<float>(y, x);
+
+            // Exponential decay: if the disparity gradient is low, edgeWeight is ~1.0.
+            // If the disparity jumps sharply (e.g., > 3 pixels edge gradient), edgeWeight drops toward 0.
+            // The denominator (5.0f) controls the sensitivity to edges.
+            float edgeWeight = std::exp(-edgeGradient / 5.0f);
+
+            float finalWeight = globalConfidence * depthConfidence * edgeWeight;
+
+            Eigen::Vector3f normalCam = Eigen::Vector3f::Zero();
+            bool normalOk = false;
+            if (y > 0 && y < pts3D.rows - 1 && x > 0 && x < pts3D.cols - 1) {
+                cv::Vec3f pL = pts3D.at<cv::Vec3f>(y, x - 1);
+                cv::Vec3f pR = pts3D.at<cv::Vec3f>(y, x + 1);
+                cv::Vec3f pU = pts3D.at<cv::Vec3f>(y - 1, x);
+                cv::Vec3f pD = pts3D.at<cv::Vec3f>(y + 1, x);
+
+                bool neighborsFinite =
+                    std::isfinite(pL[0]) && std::isfinite(pL[1]) && std::isfinite(pL[2]) &&
+                    std::isfinite(pR[0]) && std::isfinite(pR[1]) && std::isfinite(pR[2]) &&
+                    std::isfinite(pU[0]) && std::isfinite(pU[1]) && std::isfinite(pU[2]) &&
+                    std::isfinite(pD[0]) && std::isfinite(pD[1]) && std::isfinite(pD[2]);
+
+                if (neighborsFinite) {
+                    Eigen::Vector3f dx(pR[0] - pL[0], pR[1] - pL[1], pR[2] - pL[2]);
+                    Eigen::Vector3f dy(pD[0] - pU[0], pD[1] - pU[1], pD[2] - pU[2]);
+                    if (dx.norm() > 1e-5f && dy.norm() > 1e-5f) {
+                        Eigen::Vector3f n = dx.cross(dy);
+                        if (n.norm() > 1e-8f) {
+                            normalCam = n.normalized();
+                            // Convention: normal should point back toward the camera (negative Z in cam frame)
+                            if (normalCam.z() > 0.0f) normalCam = -normalCam;
+                            normalOk = true;
+                        }
+                    }
+                }
+            }
+
             // Project coordinate elements into the global tracking frame
             cv::Vec3d pointInCam = cv::Vec3d(p[0], p[1], p[2]);
             cv::Vec3d w = R * pointInCam + t;
 
             cloud.pts.push_back(Eigen::Vector3f((float)w[0], (float)w[1], (float)w[2]));
             cloud.colors.push_back(rectColor.at<cv::Vec3b>(y, x));
+            cloud.weights.push_back(finalWeight);
+
+            if (normalOk) {
+                Eigen::Matrix3d R_eigen;
+                cv::cv2eigen(R, R_eigen);
+                cloud.normals.push_back((R_eigen.cast<float>() * normalCam).normalized());
+                cloud.validNormal.push_back(true);
+            } else {
+                cloud.normals.push_back(Eigen::Vector3f::Zero());
+                cloud.validNormal.push_back(false);
+            }
         }
     }
 
@@ -183,10 +263,17 @@ PointCloud PlyUtils::subsample(const PointCloud &cloud, size_t n, std::mt19937 &
     PointCloud out;
     out.pts.reserve(n);
     out.colors.reserve(n);
-    for (size_t i : idx)
-    {
-        out.pts.push_back(cloud.pts[i]);
-        out.colors.push_back(cloud.colors[i]);
+    out.weights.reserve(n);
+    out.normals.reserve(n);
+    out.validNormal.reserve(n);
+    for (size_t i : idx) { 
+        out.pts.push_back(cloud.pts[i]); 
+        out.colors.push_back(cloud.colors[i]); 
+        out.weights.push_back(cloud.weights[i]);
+        if (i < cloud.normals.size())
+            out.normals.push_back(cloud.normals[i]);
+        if (i < cloud.validNormal.size())
+            out.validNormal.push_back(cloud.validNormal[i]);
     }
     return out;
 }
