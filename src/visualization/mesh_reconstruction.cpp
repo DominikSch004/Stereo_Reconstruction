@@ -57,7 +57,8 @@ int main()
         customConfig.disparity = DisparityMethod::Custom;
         if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, customConfig, poseLeft.t, poseRight.t))
         {
-            std::cerr << "WARNING: Custom pipeline tracking tripped/unimplemented\n";
+            std::cerr << "ERROR: Custom pipeline execution failed.\n";
+            return -1;
         }
 
         // 3. Build and export the grid-connectivity mesh for visual inspection
