@@ -1,7 +1,8 @@
 #include "SparseKeyPointMatcher.hpp"
+#include <algorithm>
 
 namespace {
-// Flip this to switch feature detector/matcher used by SparseKeyPointMatcher::match().
+// Change this to switch feature detector/matcher used by SparseKeyPointMatcher::match().
 enum class DetectorType { SIFT, ORB };
 constexpr DetectorType kDetectorType = DetectorType::SIFT;
 }
@@ -53,12 +54,28 @@ MatchResult SparseKeyPointMatcher::match(const cv::Mat &grayLeft,
         flann.knnMatch(descLeft, descRight, knnMatches, 2);
     }
 
+    std::vector<std::pair<float, cv::DMatch>> rankedMatches;
     for (const auto &m : knnMatches)
     { // Lowe's ratio test
-        if (m.size() == 2 && m[0].distance < ratioThreshold_ * m[1].distance)
+        if (m.size() == 2)
         {
-            result.matches.push_back(m[0]);
+            const float ratio = m[0].distance / m[1].distance;
+            if (ratio < ratioThreshold_)
+            {
+                rankedMatches.emplace_back(ratio, m[0]);
+            }
         }
+    }
+
+    std::sort(rankedMatches.begin(), rankedMatches.end(),
+              [](const auto &a, const auto &b) {
+                  return a.first < b.first;
+              });
+
+    result.matches.reserve(rankedMatches.size());
+    for (const auto &ranked : rankedMatches)
+    {
+        result.matches.push_back(ranked.second);
     }
 
     return result;
