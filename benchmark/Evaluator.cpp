@@ -230,8 +230,8 @@ double Evaluator::computeReprojectionError(const std::vector<cv::Point2f> &ptsL,
     // build unrectified projection matrices
     cv::Mat P1 = cv::Mat::eye(3, 4, CV_64F);
     cv::Mat P2 = cv::Mat::zeros(3, 4, CV_64F);
-    R.copyTo(P2(cv::Rect(0, 0, 3, 3)));
-    t.copyTo(P2(cv::Rect(3, 0, 1, 3)));
+    R64.copyTo(P2(cv::Rect(0, 0, 3, 3)));
+    t64.copyTo(P2(cv::Rect(3, 0, 1, 3)));
 
     P1 = K64 * P1;
     P2 = K64 * P2;
