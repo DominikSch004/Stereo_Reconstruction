@@ -4,7 +4,9 @@
 namespace {
 // Change this to switch feature detector/matcher used by SparseKeyPointMatcher::match().
 enum class DetectorType { SIFT, ORB };
+// Change here to switch feature detector/matcher used by SparseKeyPointMatcher::match().
 constexpr DetectorType kDetectorType = DetectorType::SIFT;
+//constexpr DetectorType kDetectorType = DetectorType::SIFT;
 }
 
 SparseKeyPointMatcher::SparseKeyPointMatcher(float ratioThreshold)
