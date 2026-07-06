@@ -196,9 +196,17 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     for (auto &d : dirs)
         aggregateDirection(costVolume, S, rows, cols, numDisp, d[0], d[1], P1, P2);
 
-    // Cost volume + 16-direction aggregation for now -- zeroed placeholder until WTA
-    // selection is added on top of it.
     cv::Mat disparity = cv::Mat::zeros(rows, cols, CV_32F);
+    for (int r = 0; r < rows; ++r)
+    {
+        for (int c = 0; c < cols; ++c)
+        {
+            int idx = (r * cols + c) * numDisp;
+            auto minCost = std::min_element(&S[idx], &S[idx + numDisp]); // minimum aggregated cost
+            int bestDispIdx = static_cast<int>(std::distance(&S[idx], minCost)); // index of best disparity
+            disparity.at<float>(r, c) = static_cast<float>(minDisp + bestDispIdx);
+        }
+    }
 
     return disparity;
 }
