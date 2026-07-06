@@ -1,6 +1,8 @@
 #pragma once
 
 #include <opencv2/core.hpp>
+#include <cstdint>
+#include <vector>
 
 /**
  * @enum DisparityMethod
@@ -37,9 +39,11 @@ public:
         DisparityMethod method);
 
 private:
-    /**
-     * @brief metric from OpenCV implementation
-     */
+     // OpenCV and custom SGM backend implementations
     static cv::Mat computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
     static cv::Mat computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
+
+    // Custom SGM helpers (Birchfield-Tomasi cost volume)
+    static void computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &Imax);
+    static std::vector<uint16_t> computeCostVolume(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp);
 };
