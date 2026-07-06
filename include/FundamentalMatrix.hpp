@@ -177,6 +177,7 @@ private:
         const std::vector<cv::Point2f>& ptsR,
         std::vector<bool>& inlierMask,
         double threshold,
+        double confidence,
         int maxIter);
 
     /**

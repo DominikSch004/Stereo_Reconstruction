@@ -128,7 +128,7 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     case FundamentalMethod::CustomMAGSAC:
         return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
     case FundamentalMethod::CustomPROSAC:
-        return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
+        return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
     }
 
     inlierMask.assign(ptsL.size(), false);
@@ -413,6 +413,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     const std::vector<cv::Point2f>& ptsR,
     std::vector<bool>& inlierMask,
     double threshold,
+    double confidence,
     int maxIter)
 {
     const int N = (int)ptsL.size();
@@ -423,9 +424,15 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
 
     inlierMask.assign(N, false);
 
+    int thresholdSq = threshold * threshold;
+
     std::mt19937 rng(42);
 
-    for (int it = 0; it < maxIter; ++it) {
+    // dynamic iterator to impl maximility condition following the PROSAC paper
+    int dynamicMaxIter = maxIter;
+
+    for (int it = 0; it < maxIter; ++it)
+    {
 
         // PROSAC idea:
         // start sampling from top-ranked matches only,
@@ -437,10 +444,12 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
 
         std::vector<int> idx;
 
-        while ((int)idx.size() < sampleSize) {
+        while ((int)idx.size() < sampleSize)
+        {
             int r = dist(rng);
 
-            if (std::find(idx.begin(), idx.end(), r) == idx.end()) {
+            if (std::find(idx.begin(), idx.end(), r) == idx.end())
+            {
                 idx.push_back(r);
             }
         }
@@ -455,23 +464,81 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         Eigen::Matrix3d F = compute8Point(sL, sR);
 
         std::vector<bool> mask(N, false);
-        int inliers = 0;
+        int inliers_total = 0;
+        int inliers_pool = 0;
 
         // IMPORTANT:
         // evaluate on ALL matches, not only poolSize matches
         for (int i = 0; i < N; ++i) {
             double e = sampsonError(F, ptsL[i], ptsR[i]);
 
-            if (e < threshold) {
+            if (e < thresholdSq) {
                 mask[i] = true;
-                ++inliers;
+                ++inliers_total;
+
+                // Assuming ptsL/ptsR are sorted by quality, check if it's in the current pool
+                if (i < poolSize)
+                {
+                    ++inliers_pool;
+                }
             }
         }
 
-        if (inliers > bestInliers) {
-            bestInliers = inliers;
+        if (inliers_total > bestInliers)
+        {
+            bestInliers = inliers_total;
             bestF = F;
             inlierMask = mask;
+        }
+
+        // non-randomness check
+
+        const double beta = 0.05;
+        int n_prime = poolSize - sampleSize;     // Trials
+        int i_prime = inliers_pool - sampleSize; // Successes
+
+        bool non_random = false;
+
+        if (n_prime > 0)
+        {
+            // normal approximation of the binomial distribution
+            double mu = n_prime * beta;
+            double sigma = std::sqrt(n_prime * beta * (1.0 - beta));
+
+            // if our successes exceed the expected random noise:
+            if (i_prime > mu + 1.645 * sigma)
+            {
+                non_random = true;
+            }
+        }
+
+        // ensure big enough poolSize
+        bool pool_is_diverse = poolSize >= (0.15 * N);
+
+        if (non_random && pool_is_diverse)
+        {
+            // calculate maximality condition
+            double w = (double)bestInliers / (double)N;
+            double p_fail = 1.0 - std::pow(w, sampleSize);
+
+            // prevent log(0)
+            p_fail = std::max(std::numeric_limits<double>::epsilon(), p_fail);
+            p_fail = std::min(1.0 - std::numeric_limits<double>::epsilon(), p_fail);
+
+            double log_prob = std::log(1.0 - confidence);
+            double log_fail = std::log(p_fail);
+
+            int iter_needed = (int)(log_prob / log_fail);
+
+            dynamicMaxIter = std::min(maxIter, iter_needed);
+        }
+
+        // stopping criterion
+        if (it >= dynamicMaxIter)
+        {
+            std::cout << "[PROSAC] Early termination triggered at iteration " << it
+                      << " (Inliers: " << bestInliers << "/" << N << ")\n";
+            break;
         }
     }
 
@@ -488,8 +555,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     if (inL.size() >= 8) {
         bestF = compute8Point(inL, inR);
 
-        for (int i = 0; i < N; ++i) {
-            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < threshold;
+        for (int i = 0; i < N; ++i)
+        {
+            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < thresholdSq;
         }
     }
 
