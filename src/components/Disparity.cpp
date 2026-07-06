@@ -212,7 +212,28 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
             int idx = (r * cols + c) * numDisp;
             auto minCost = std::min_element(&S[idx], &S[idx + numDisp]); // minimum aggregated cost
             int bestDispIdx = static_cast<int>(std::distance(&S[idx], minCost)); // index of best disparity
-            disparity.at<float>(r, c) = static_cast<float>(minDisp + bestDispIdx);
+
+            // Subpixel refinement:
+            // fit a parabola through  the neighboring costs, that is, at the next
+            // higher and lower disparity (bestDispIdx-1, bestDispIdx+1),
+            // and the position of the minimum is calculated (take its vertex as a sub-integer correction)
+            // Skipped at the search range's edges
+            float subpixelOffset = 0.0f;
+            if (bestDispIdx > 0 && bestDispIdx < numDisp - 1)
+            {
+                float cMinus = static_cast<float>(S[idx + bestDispIdx - 1]);
+                float cZero = static_cast<float>(S[idx + bestDispIdx]);
+                float cPlus = static_cast<float>(S[idx + bestDispIdx + 1]);
+                // y(x) = ax^2 + bx + c = 0
+                // cMinus = y(-1) = a - b + c; cZero = y(0) = c cPlus = y(1) = a + b + c 
+                //so c = cZero, b = (cPlus - cMinus)/2, a = (cMinus + cPlus - 2*cZero)/2
+                // x = -b/(2a) = (cMinus - cPlus) / (2 * (cMinus + cPlus - 2*cZero))
+                float denom = cMinus + cPlus - 2.0f * cZero ; // 2a; >= 0 since cZero is the min of the three costs
+                if (denom > 0.0f)
+                    subpixelOffset = 0.5f * (cMinus - cPlus) / denom; // vertex of the parabola               
+            }
+
+            disparity.at<float>(r, c) = static_cast<float>(minDisp + bestDispIdx) + subpixelOffset;
         }
     }
 
@@ -221,6 +242,7 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
 
 cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize)
 {
+    // blockSize is not used as BT cost volume is computer per-pixel and not within a window
     const int P1 = 8;  // smoothness penalty for disparity change of 1
     const int P2 = 32; // smoothness penalty for disparity change greater than
     const int rows = left.rows;
