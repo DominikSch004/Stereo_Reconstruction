@@ -50,6 +50,29 @@ PipelineConfig PipelineConfig::load(const std::string &path)
 
     PipelineConfig cfg;
 
+    // Dataset fields
+    cv::FileNode node = fs["dataset_id"];
+    cfg.datasetId = node.empty() ? 1 : static_cast<int>(node);
+
+    node = fs["image_left_id"];
+    cfg.imageLeftId = node.empty() ? 1 : static_cast<int>(node);
+
+    node = fs["image_right_id"];
+    cfg.imageRightId = node.empty() ? 2 : static_cast<int>(node);
+
+    node = fs["illumination_id"];
+    cfg.illuminationId = node.empty() ? 3 : static_cast<int>(node);
+
+    node = fs["ratio_threshold"];
+    cfg.ratioThreshold = node.empty() ? 0.75f : static_cast<float>(node);
+
+    // FLANN ratio
+    if (cfg.ratioThreshold < 0.01f || cfg.ratioThreshold > 1.0f)
+    {
+        std::cout << "[Config] WARNING: ratio_threshold out of range. Defaulting to 0.75\n";
+        cfg.ratioThreshold = 0.75f;
+    }
+
     std::string v = readKey(fs, "feature_detector", "sift");
     if (v == "sift")
         cfg.featureDetector = FeatureDetector::SIFT;
@@ -128,6 +151,16 @@ void PipelineConfig::print() const
 {
     auto name = [](bool isOpenCV)
     { return isOpenCV ? "opencv" : "custom"; };
+
+    std::cout << "\n Image pair config: \n"
+              << " selected dataset:     scan" << datasetId << "\n"
+              << "  image_pair:         (" << imageLeftId << ", " << imageRightId << ")\n"
+              << "  illumination:       " << illuminationId << "\n";
+
+    auto name = [](bool isOpenCV)
+    { return isOpenCV ? "opencv" : "custom"; };
+
+    std::cout << "\n FLANNs ratio_threshold:    " << ratioThreshold << "\n";
 
     std::cout << "[Config] Pipeline step backends:\n"
               << "  feature_detector:   " << (featureDetector == FeatureDetector::SIFT ? "sift" : "orb") << "\n"

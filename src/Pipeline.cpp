@@ -56,7 +56,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     res.K = K.clone();
 
     // --- 1. Sparse Feature Matching ---
-    SparseKeyPointMatcher matcher(0.75f, config.featureDetector);
+    SparseKeyPointMatcher matcher(config.ratioThreshold, config.featureDetector);
     MatchResult matchRes = matcher.match(gray1, gray2);
 
     std::vector<cv::Point2f> ptsL, ptsR;
@@ -105,11 +105,18 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     // The projection was also hurting the Evaluator's Epipolar Error
     // metric: 0.538px with it vs 0.211px without,
     // since we're now using the E that best fits the inlier correspondences,
-    // without constraining it unnecessarily. Confirmed via Evaluator.cpp with 
+    // without constraining it unnecessarily. Confirmed via Evaluator.cpp with
     // pose_refinement=false as refinePose overwrites E.
-    
+
     // TODO: clean up these comments later before final delivery
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
+
+    // Rescale t from recoverPose's unit-norm convention to the true DTU metric baseline
+    rescaleToTrueBaseline(C1, C2, t);
+    // save result for evaluation
+    res.R_est = R.clone();
+    res.t_est = t.clone();
+    res.E = E.clone();
 
     res.inPtsL.clear();
     res.inPtsR.clear();
@@ -129,8 +136,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     {
         GeometryUtils::refinePose(K, res.inPtsL, res.inPtsR, R, t);
         // Recompute E = [t]x * R from the new pose as its used for evaluation
-        cv::Mat tx = (cv::Mat_<double>(3, 3) <<
-                      0, -t.at<double>(2), t.at<double>(1),
+        cv::Mat tx = (cv::Mat_<double>(3, 3) << 0, -t.at<double>(2), t.at<double>(1),
                       t.at<double>(2), 0, -t.at<double>(0),
                       -t.at<double>(1), t.at<double>(0), 0);
         E = tx * R;

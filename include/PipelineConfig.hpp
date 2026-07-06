@@ -38,6 +38,14 @@ struct PipelineConfig
     // This flag is just for initial comparision and should later be removed
     bool refinePose = false;
 
+    // dataset and image selection
+    int datasetId = 1;
+    int imageLeftId = 1;
+    int imageRightId = 2;
+    int illuminationId = 3;
+
+    // threshold for FLANN after SIFT
+    float ratioThreshold = 0.75f;
     /**
      * @brief Loads a config from a YAML file (parsed with cv::FileStorage).
      * @throws std::runtime_error if the file cannot be opened or a key holds an unknown value.

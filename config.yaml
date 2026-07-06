@@ -35,3 +35,12 @@ icp_mode: point_to_plane
 # true | false non-linear refinement of (R, t) directly on the essential-matrix 
 # space after recoverPose
 pose_refinement: false
+
+# select dataset and image pairs
+dataset_id: 1
+image_left_id: 1
+image_right_id: 2
+illumination_id: 3
+
+# select ratio threshold for FLANN after SIFT.
+ratio_threshold: 0.75
