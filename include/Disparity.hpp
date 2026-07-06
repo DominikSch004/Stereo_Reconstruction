@@ -46,4 +46,5 @@ private:
     // Custom SGM helpers (Birchfield-Tomasi cost volume)
     static void computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &Imax);
     static std::vector<uint16_t> computeCostVolume(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp);
+    static std::vector<uint16_t> aggregateCost(const std::vector<uint16_t> &C, int rows, int cols, int numDisp, int P1, int P2);
 };

@@ -114,18 +114,70 @@ std::vector<uint16_t> Disparity::computeCostVolume(const cv::Mat &left, const cv
     return costVolume;
 }
 
+std::vector<uint16_t> Disparity::aggregateCost(const std::vector<uint16_t> &C, int rows, int cols, int numDisp, int P1, int P2)
+{
+    std::vector<uint16_t> S(rows * cols * numDisp, 0); // aggregated cost volume
+    std::vector<int> prev(numDisp, 0); // previous pixel's Lr values along the path
+    std::vector<int> curr(numDisp, 0); // this pixel's Lr values, computed from prev
+
+    for (int r = 0; r < rows; ++r)
+    {
+        for (int c = 0; c < cols; ++c)
+        {
+            int minPrev = *std::min_element(prev.begin(), prev.end()); // minimum cost from the previous pixel in the path
+
+            for (int d = 0; d < numDisp; ++d)
+            {
+                int idx = (r * cols + c) * numDisp + d;
+
+                if (c == 0) // first pixel in the row, no predecessor: Lr(p, d) = C(p, d)
+                {
+                    curr[d] = static_cast<int>(C[idx]);
+                    S[idx] = static_cast<uint16_t>(curr[d]);
+                }
+                else
+                {
+                    // Lr(p, d) = C(p, d)
+                    //            + min(
+                    //                Lr(p-r, d),           // same disparity - no penalty
+                    //                Lr(p-r, d-1) + P1,     // disparity change of 1
+                    //                Lr(p-r, d+1) + P1,     // disparity change of 1
+                    //                min_k Lr(p-r, k) + P2  // any larger change
+                    //              )
+                    //            - min_k Lr(p-r, k)         // subtract to keep values bounded (16-bit safe)
+                    int best = prev[d];                             // Lr(p-r, d) - same disparity, no penalty
+                    if (d > 0)
+                        best = std::min(best, prev[d - 1] + P1);    // Lr(p-r, d-1) + P1 - disparity change of 1
+                    if (d < numDisp - 1)
+                        best = std::min(best, prev[d + 1] + P1);    // Lr(p-r, d+1) + P1 - disparity change of 1
+                    best = std::min(best, minPrev + P2);            // min_k Lr(p-r, k) + P2 - any larger change
+
+                    int cost = static_cast<int>(C[idx]);            // C(p, d)
+                    curr[d] = cost + best - minPrev;                // ... - min_k Lr(p-r, k)
+                    S[idx] = static_cast<uint16_t>(curr[d]);
+                }
+            }
+            prev = curr;
+        }
+    }
+
+    return S;
+}
+
+
 cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize)
 {
-    // TODO: Disparity custom calculation
-    std::cout << "Disparity not yet implemented \n";
+    const int P1 = 8;  // smoothness penalty for disparity change of 1
+    const int P2 = 32; // smoothness penalty for disparity change greater than
 
     cv::Mat leftF, rightF;
     left.convertTo(leftF, CV_32F);
     right.convertTo(rightF, CV_32F);
 
     std::vector<uint16_t> costVolume = computeCostVolume(leftF, rightF, minDisp, numDisp);
+    std::vector<uint16_t> aggregatedCost = aggregateCost(costVolume, left.rows, left.cols, numDisp, P1, P2);
 
-    // Cost volume only for now 
+    // Cost volume
     cv::Mat disparity = cv::Mat::zeros(left.rows, left.cols, CV_32F);
 
     return disparity;
