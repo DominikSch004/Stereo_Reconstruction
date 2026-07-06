@@ -44,7 +44,8 @@ private:
     static cv::Mat computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
 
     // Custom SGM helpers (Birchfield-Tomasi cost volume)
+    static std::vector<uint16_t> computeCostVolume(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, bool rightBase = false);
     static void computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &Imax);
-    static std::vector<uint16_t> computeCostVolume(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp);
     static void aggregateDirection(const std::vector<uint16_t> &C, std::vector<uint16_t> &S, int rows, int cols, int numDisp, int dx, int dy, int P1, int P2);
+    static cv::Mat computeWTADisparity(const cv::Mat &left, const cv::Mat &right, int rows, int cols, int minDisp, int numDisp, int P1, int P2, bool rightBase);
 };
