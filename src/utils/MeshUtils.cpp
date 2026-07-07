@@ -39,7 +39,7 @@ Mesh MeshUtils::buildMesh(
     else
         disparity.convertTo(disp32f, CV_32F);
 
-    cv::Mat pts3D = Triangulation::reprojectDisparityTo3D(disp32f, Q, P1r, P2r, method);
+    cv::Mat pts3D = Triangulation::reprojectDisparityTo3D(disp32f, Q, P1r, P2r, minDisp, method);
     if (pts3D.empty()) return mesh;
 
     const int width  = pts3D.cols;

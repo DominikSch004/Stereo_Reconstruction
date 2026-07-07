@@ -179,7 +179,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
 
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(
-        res.denseDisparity, res.Q, res.P1r, res.P2r, config.triangulation);
+        res.denseDisparity, res.Q, res.P1r, res.P2r, res.minDisp, config.triangulation);
 
     std::cout << "[Pipeline] End-to-End Execution Completed Successfully.\n";
     return true;

@@ -37,6 +37,10 @@ public:
      * @param Q The 4x4 disparity-to-depth re-projection matrix.
      * @param P1r The 3x4 rectified left projection matrix (required for Manual method).
      * @param P2r The 3x4 rectified right projection matrix (required for Manual method).
+     * @param minDisp Disparity search range start; disp32f values <= minDisp are the
+     *        invalid/no-match indicator (both OpenCV's SGBM and the custom disparity
+     *        implementations use minDisp - 1) and must not be triangulated (required for
+     *        Manual method only as OpenCV's own reprojectImageTo3D handles this internally).
      * @param method Selection between OpenCV baseline and custom per-pixel DLT loops.
      * @return CV_32FC3 matrix containing local spatial camera frame positions.
      */
@@ -45,6 +49,7 @@ public:
         const cv::Mat& Q,
         const cv::Mat& P1r,
         const cv::Mat& P2r,
+        int minDisp,
         TriangulationMethod method = TriangulationMethod::OpenCV
     );
 
@@ -76,6 +81,7 @@ private:
     static cv::Mat reprojectManual(
         const cv::Mat& disp32f,
         const cv::Mat& P1r,
-        const cv::Mat& P2r
+        const cv::Mat& P2r,
+        int minDisp
     );
 };

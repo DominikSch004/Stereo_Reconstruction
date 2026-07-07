@@ -156,8 +156,8 @@ int main()
 
     // --- Dense OpenCV (Q) vs Manual (DLT) reconstruction: are the two triangulation
     //     backends equivalent? The PLY export uses Manual; the pipeline stores OpenCV. ---
-    cv::Mat dOpenCV = Triangulation::reprojectDisparityTo3D(res.denseDisparity, res.Q, res.P1r, res.P2r, TriangulationMethod::OpenCV);
-    cv::Mat dManual = Triangulation::reprojectDisparityTo3D(res.denseDisparity, res.Q, res.P1r, res.P2r, TriangulationMethod::Manual);
+    cv::Mat dOpenCV = Triangulation::reprojectDisparityTo3D(res.denseDisparity, res.Q, res.P1r, res.P2r, res.minDisp, TriangulationMethod::OpenCV);
+    cv::Mat dManual = Triangulation::reprojectDisparityTo3D(res.denseDisparity, res.Q, res.P1r, res.P2r, res.minDisp, TriangulationMethod::Manual);
     double dsum = 0; long dn = 0;
     for (int y = 0; y < dOpenCV.rows; ++y)
         for (int x = 0; x < dOpenCV.cols; ++x)
