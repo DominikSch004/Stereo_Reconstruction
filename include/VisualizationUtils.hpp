@@ -16,6 +16,9 @@ namespace VisualizationUtils
                                 const std::vector<cv::Point2f> &ptsR,
                                 const std::vector<bool> &inlierMask,
                                 const Eigen::Matrix3d &F,
+                                double rotErrorDeg,
+                                double transErrorDeg,
+                                double epipolarErrorPx,
                                 int maxDrawn = 20);
 
     void visualizeOutliers(const std::vector<cv::Point2f> &ptsL,
@@ -32,4 +35,10 @@ namespace VisualizationUtils
         const VisualizationData &visualize,
         const std::string &windowName,
         int pauseInterval = 0);
+
+    void fundamentalComparison(
+        const Eigen::Matrix3d &F,
+        const Eigen::Matrix3d R_gt,
+        const Eigen::Vector3d t_gt,
+        const cv::Mat K);
 }

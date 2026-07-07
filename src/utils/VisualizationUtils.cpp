@@ -1,4 +1,5 @@
 #include "VisualizationUtils.hpp"
+#include "Evaluator.hpp"
 #include <iostream>
 #include <fstream>
 #include <opencv2/imgproc.hpp>
@@ -16,6 +17,9 @@ namespace VisualizationUtils
                                 const std::vector<cv::Point2f> &ptsR,
                                 const std::vector<bool> &inlierMask,
                                 const Eigen::Matrix3d &F,
+                                double rotErrorDeg,
+                                double transErrorDeg,
+                                double epipolarErrorPx,
                                 int maxDrawn)
     {
         // Clone and convert to color for drawing
@@ -65,6 +69,31 @@ namespace VisualizationUtils
 
         cv::Mat combined;
         cv::hconcat(vizL, vizR, combined);
+
+        // Add metrics overlay
+        std::vector<std::string> metrics = {
+            "Metrics:",
+            "Rot Error:   " + std::to_string(rotErrorDeg).substr(0, 5) + " deg",
+            "Trans Error: " + std::to_string(transErrorDeg).substr(0, 5) + " deg",
+            "Epi Error:   " + std::to_string(epipolarErrorPx).substr(0, 5) + " px"};
+
+        int font = cv::FONT_HERSHEY_SIMPLEX;
+        double fontScale = 0.8;
+        int thickness = 2;
+        int baseline = 0;
+        int y_offset = 35;
+        int x_offset = 20;
+
+        cv::Mat overlay = combined.clone();
+        cv::rectangle(overlay, cv::Point(10, 10), cv::Point(350, 160), cv::Scalar(0, 0, 0), cv::FILLED);
+        cv::addWeighted(overlay, 0.6, combined, 0.4, 0, combined); // 60% opacity
+
+        for (size_t i = 0; i < metrics.size(); ++i)
+        {
+            cv::putText(combined, metrics[i],
+                        cv::Point(x_offset, y_offset + (i * 30)),
+                        font, fontScale, cv::Scalar(0, 255, 0), thickness, cv::LINE_AA);
+        }
 
         cv::namedWindow(windowTitle, cv::WINDOW_NORMAL);
         cv::imshow(windowTitle, combined);
@@ -202,5 +231,64 @@ namespace VisualizationUtils
 
         std::cout << "\nFinal " << windowName << " Sampson Error: " << visualize.final_sampson_err << " px.\n";
         std::cout << "Final " << windowName << " Inlier Count: " << visualize.final_inlier_count << "\n";
+    }
+
+    void fundamentalComparison(
+        const Eigen::Matrix3d &F,
+        const Eigen::Matrix3d R_gt,
+        const Eigen::Vector3d t_gt,
+        const cv::Mat K_cv)
+    {
+        // 1. Convert OpenCV Intrinsic Matrix (K) to Eigen::Matrix3d
+        // Note: Assuming K_cv is of type CV_64F (double).
+        Eigen::Matrix3d K;
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 3; ++j)
+            {
+                K(i, j) = K_cv.at<double>(i, j);
+            }
+        }
+
+        // 2. Compute Ground Truth Essential Matrix (E_gt)
+        // Create skew-symmetric matrix for t_gt
+        Eigen::Matrix3d t_x;
+        t_x << 0, -t_gt(2), t_gt(1),
+            t_gt(2), 0, -t_gt(0),
+            -t_gt(1), t_gt(0), 0;
+
+        Eigen::Matrix3d E_gt = t_x * R_gt;
+
+        // 3. Compute Ground Truth Fundamental Matrix (F_gt)
+        Eigen::Matrix3d K_inv = K.inverse();
+        Eigen::Matrix3d F_gt = K_inv.transpose() * E_gt * K_inv;
+
+        // 4. Normalize both matrices by F(2,2)
+        Eigen::Matrix3d F_norm = F / F(2, 2);
+        Eigen::Matrix3d F_gt_norm = F_gt / F_gt(2, 2);
+
+        // 5. Handle Sign Ambiguity
+        // If subtracting them yields a larger error than adding them, the sign is flipped.
+        if ((F_norm - F_gt_norm).norm() > (F_norm + F_gt_norm).norm())
+        {
+            F_gt_norm = -F_gt_norm;
+        }
+
+        Eigen::IOFormat SciFmt(4, 0, ", ", "\n", "[", "]");
+
+        std::cout << "\n       Fundamental Matrix Comparison        \n";
+
+        std::cout << std::scientific;
+
+        std::cout << "[Estimated F]:\n"
+                  << F_norm.format(SciFmt) << "\n\n";
+        std::cout << "[Ground Truth F]:\n"
+                  << F_gt_norm.format(SciFmt) << "\n\n";
+
+        std::cout << std::defaultfloat;
+
+        double frobenius_error = (F_norm - F_gt_norm).norm();
+        std::cout << "--> Frobenius Distance Error: " << frobenius_error << "\n";
+        std::cout << "\n";
     }
 }
