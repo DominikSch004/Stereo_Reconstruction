@@ -4,6 +4,143 @@
 #include <iostream>
 #include <vector>
 #include <cstdint>
+#include <limits>
+#include <algorithm>
+
+// For each pixel, the nearest valid (> minDisp) disparity found by walking strictly in
+// direction (dx,dy) from that pixel (NaN if the walk reaches the image border without
+// finding one). Implemented as a single pass per direction: pixels are visited
+// in the order opposite to (dx,dy) so that, by the time a pixel is reached, the answer for
+// its (dx,dy) neighbor is already known and can just be carried forward.
+cv::Mat Disparity::nearestValidInDirection(const cv::Mat &disp, int minDisp, int rows, int cols, int dx, int dy)
+{
+    const float NA = std::numeric_limits<float>::quiet_NaN();
+    cv::Mat result(rows, cols, CV_32F, cv::Scalar(NA));
+    auto isValid = [minDisp](float v) { return v > static_cast<float>(minDisp); };
+
+    if (dy == 0)
+    {
+        // horizontal: state resets every row
+        for (int y = 0; y < rows; ++y)
+        {
+            float nextValid = NA;
+            if (dx > 0)
+            {
+                for (int x = cols - 1; x >= 0; --x)
+                {
+                    result.at<float>(y, x) = nextValid;
+                    float v = disp.at<float>(y, x);
+                    if (isValid(v))
+                        nextValid = v;
+                }
+            }
+            else
+            {
+                for (int x = 0; x < cols; ++x)
+                {
+                    result.at<float>(y, x) = nextValid;
+                    float v = disp.at<float>(y, x);
+                    if (isValid(v))
+                        nextValid = v;
+                }
+            }
+        }
+    }
+    else if (dx == 0)
+    {
+        // vertical: state persists per-column across rows
+        std::vector<float> nextValid(cols, NA);
+        if (dy > 0)
+        {
+            for (int y = rows - 1; y >= 0; --y)
+            {
+                for (int x = 0; x < cols; ++x)
+                {
+                    result.at<float>(y, x) = nextValid[x];
+                    float v = disp.at<float>(y, x);
+                    if (isValid(v)) nextValid[x] = v;
+                }
+            }
+        } else
+        {
+            for (int y = 0; y < rows; ++y)
+            {
+                for (int x = 0; x < cols; ++x)
+                {
+                    result.at<float>(y, x) = nextValid[x];
+                    float v = disp.at<float>(y, x);
+                    if (isValid(v)) nextValid[x] = v;
+                }
+            }
+        }
+    }
+    else if (dx == dy)
+    {
+        // main diagonal (1,1) or (-1,-1): state persists per diagonal k = x - y
+        std::vector<float> nextValid(rows + cols - 1, NA);
+        auto k = [rows](int x, int y) { return x - y + (rows - 1); };
+        if (dx > 0)
+        {
+            for (int y = rows - 1; y >= 0; --y)
+            {
+                for (int x = cols - 1; x >= 0; --x)
+                {
+                    int i = k(x, y);
+                    result.at<float>(y, x) = nextValid[i];
+                    float v = disp.at<float>(y, x);
+                    if (isValid(v)) nextValid[i] = v;
+                }
+            }
+        }
+        else
+        {
+            for (int y = 0; y < rows; ++y)
+            {
+                for (int x = 0; x < cols; ++x)
+                {
+                    int i = k(x, y);
+                    result.at<float>(y, x) = nextValid[i];
+                    float v = disp.at<float>(y, x);
+                    if (isValid(v)) nextValid[i] = v;
+                }
+            }
+        }
+    }
+    else
+    {
+        // anti-diagonal (1,-1) or (-1,1): state persists per anti-diagonal s = x + y
+        std::vector<float> nextValid(rows + cols - 1, NA);
+        auto s = [](int x, int y) { return x + y; };
+        if (dx > 0) // (1,-1): predecessor (x+1,y-1) is on an earlier row -> scan y ascending
+        {
+            for (int y = 0; y < rows; ++y)
+            {
+                for (int x = 0; x < cols; ++x)
+                {
+                    int i = s(x, y);
+                    result.at<float>(y, x) = nextValid[i];
+                    float v = disp.at<float>(y, x);
+                    if (isValid(v)) nextValid[i] = v;
+                }
+            }
+        }
+        else // (-1,1): predecessor (x-1,y+1) is on a later row -> scan y descending
+        {
+            for (int y = rows - 1; y >= 0; --y)
+            {
+                for (int x = 0; x < cols; ++x)
+                {
+                    int i = s(x, y);
+                    result.at<float>(y, x) = nextValid[i];
+                    float v = disp.at<float>(y, x);
+                    if (isValid(v)) nextValid[i] = v;
+                }
+            }
+        }
+    }
+
+    return result;
+}
 
 cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method)
 {
@@ -240,6 +377,116 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
     return disparity;
 }
 
+cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, int minDisp, int numDisp)
+{
+    // Hirschmuller 2008, Sec 2.5.3
+    static const int dirs[8][2] = {
+        {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+        {1, 1}, {-1, -1}, {1, -1}, {-1, 1}
+    };
+
+    const int rows = disparity.rows;
+    const int cols = disparity.cols;
+
+    // 1: nearest valid disparity along each of the 8 directions, one full-image pass each.
+    cv::Mat neighbors[8];
+    for (int i = 0; i < 8; ++i)
+        neighbors[i] = nearestValidInDirection(disparity, minDisp, rows, cols, dirs[i][0], dirs[i][1]);
+
+    cv::Mat filled = disparity.clone();
+    cv::Mat wasInvalid = cv::Mat::zeros(rows, cols, CV_8U);
+
+    for (int y = 0; y < rows; ++y)
+    {
+        for (int x = 0; x < cols; ++x)
+        {
+            float d = disparity.at<float>(y, x);
+            if (d > static_cast<float>(minDisp))
+                continue; // already valid, nothing to fill
+
+            wasInvalid.at<uchar>(y, x) = 255;
+
+            // 2: classify as occlusion or mismatch by checking whether p's row in the
+            // right-base disparity map contains any pixel consistent with a hypothesized d.
+            // If D_right(x - d, y) == d for some d in range, a match exists elsewhere along
+            // the epipolar line -> mismatch. Otherwise no candidate match exists -> occlusion.
+            bool isMismatch = false;
+            for (int dd = 0; dd < numDisp; ++dd)
+            {
+                int actualDisp = dd + minDisp;
+                int qx = x - actualDisp;
+                if (qx < 0 || qx >= cols) continue;
+                if (std::abs(dispRight.at<float>(y, qx) - static_cast<float>(actualDisp)) <= 1.0f)
+                {
+                    isMismatch = true;
+                    break;
+                }
+            }
+
+            // Step 2 (cont.): collect the values found in each of the 8 directions.
+            std::vector<float> v;
+            v.reserve(8);
+            for (int i = 0; i < 8; ++i)
+            {
+                float nv = neighbors[i].at<float>(y, x);
+                if (std::isfinite(nv))
+                    v.push_back(nv);
+            }
+            if (v.empty())
+                continue; // no valid disparity in any direction - leave invalid
+
+            std::sort(v.begin(), v.end());
+
+            // Step 3: occlusions extrapolate from the background (second-lowest disparity,
+            // i.e. the more distant of the two nearest surfaces) to avoid pulling in the
+            // occluder; mismatches take the median of all directions (unbiased fill).
+            float fillValue;
+            if (isMismatch)
+            {
+                size_t n = v.size();
+                fillValue = (n % 2 == 1) ? v[n / 2] : 0.5f * (v[n / 2 - 1] + v[n / 2]);
+            }
+            else
+            {
+                fillValue = (v.size() >= 2) ? v[1] : v[0];
+            }
+
+            filled.at<float>(y, x) = fillValue;
+        }
+    }
+
+    // Step 4: optional 3x3 median filter, applied only to the pixels that were just filled
+    // in, to smooth out remaining outliers without disturbing already-consistent matches.
+    cv::Mat result = filled.clone();
+    for (int y = 0; y < rows; ++y)
+    {
+        for (int x = 0; x < cols; ++x)
+        {
+            if (!wasInvalid.at<uchar>(y, x))
+                continue;
+
+            std::vector<float> window;
+            window.reserve(9);
+            for (int oy = -1; oy <= 1; ++oy)
+                for (int ox = -1; ox <= 1; ++ox)
+                {
+                    int ny = y + oy, nx = x + ox;
+                    if (ny < 0 || ny >= rows || nx < 0 || nx >= cols) continue;
+                    float v = filled.at<float>(ny, nx);
+                    if (v > static_cast<float>(minDisp))
+                        window.push_back(v);
+                }
+            if (window.empty())
+                continue;
+
+            std::sort(window.begin(), window.end());
+            result.at<float>(y, x) = window[window.size() / 2];
+        }
+    }
+
+    return result;
+}
+
 cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize)
 {
     // blockSize is not used as BT cost volume is computer per-pixel and not within a window
@@ -274,5 +521,10 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
         }
     }
 
-    return disparity;
+    // Gap interpolation (Hirschmuller 2008, Sec 2.5.3): pushes coverage to 100% but currently
+    // worsens accuracy (mean error 31->34px, photometric MAE 3.9->34.2) as >80% of
+    // pixels start invalid. This should be used to fill small gaps not going to help with such
+    // low coverage. Kept available but disabled by default.
+    const bool useGapFill = false;
+    return useGapFill ? interpolateGaps(disparity, dispRight, minDisp, numDisp) : disparity;
 }
