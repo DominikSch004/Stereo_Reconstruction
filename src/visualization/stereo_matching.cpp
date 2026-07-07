@@ -47,8 +47,10 @@ int main()
     StereoPair pair = loader.loadPair(1, 2);
     cv::Mat K = loader.loadIntrinsicCV(1);
 
+    PipelineConfig cfg;
+    cfg.disparity = DisparityMethod::Custom;
     PipelineResult res;
-    if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res))
+    if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, cfg))
     {
         std::cerr << "ERROR: pipeline execution failed.\n";
         return -1;
@@ -198,7 +200,7 @@ int main()
     cv::Mat combined;
     cv::hconcat(std::vector<cv::Mat>{vizL, vizDisp, vizErr}, combined);
 
-    const std::string outPath = "disparity_verification.png";
+    const std::string outPath = "disparity_verification_custom.png";
     if (cv::imwrite(outPath, combined))
         std::cout << "\nSaved verification image to: " << outPath << "\n";
     else
