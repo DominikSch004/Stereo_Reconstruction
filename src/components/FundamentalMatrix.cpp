@@ -122,7 +122,7 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
 {
     switch (method) {
     case FundamentalMethod::CustomRANSAC:
-        return computeCustomRANSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
+        return computeCustomRANSAC(ptsL, ptsR, inlierMask, confidence, threshold, maxIter);
     case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
     case FundamentalMethod::CustomMAGSAC:
@@ -136,9 +136,10 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
 }
 
 Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
-    const std::vector<cv::Point2f>& ptsL,
-    const std::vector<cv::Point2f>& ptsR,
-    std::vector<bool>& inlierMask,
+    const std::vector<cv::Point2f> &ptsL,
+    const std::vector<cv::Point2f> &ptsR,
+    std::vector<bool> &inlierMask,
+    double confidence,
     double threshold,
     int maxIter)
 {
@@ -157,6 +158,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     // Setup random number generator
     std::mt19937 rng(42);
     std::uniform_int_distribution<int> dist(0, N - 1);
+
+    // dynamically calculate stopping criterion.
+    int dynamicMaxIter = maxIter;
 
     // RANSAC Sampling Loop
     for (int it = 0; it < maxIter; ++it) {
@@ -191,6 +195,16 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
             bestInliers = inliers;
             bestF = F;
             inlierMask = mask;
+
+            int iter_needed = calculateRequiredIterations(bestInliers, N, 8, confidence);
+            dynamicMaxIter = std::min(dynamicMaxIter, iter_needed);
+        }
+
+        if (it >= dynamicMaxIter)
+        {
+            std::cout << "[RANSAC] Early termination triggered at iteration " << it
+                      << " (Inliers: " << bestInliers << "/" << N << ")\n";
+            break;
         }
     }
 
@@ -517,19 +531,8 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
 
         if (non_random && pool_is_diverse)
         {
-            // calculate maximality condition
-            double w = (double)bestInliers / (double)N;
-            double p_fail = 1.0 - std::pow(w, sampleSize);
-
-            // prevent log(0)
-            p_fail = std::max(std::numeric_limits<double>::epsilon(), p_fail);
-            p_fail = std::min(1.0 - std::numeric_limits<double>::epsilon(), p_fail);
-
-            double log_prob = std::log(1.0 - confidence);
-            double log_fail = std::log(p_fail);
-
-            int iter_needed = (int)(log_prob / log_fail);
-
+            // maximality constraint
+            int iter_needed = calculateRequiredIterations(bestInliers, N, sampleSize, confidence);
             dynamicMaxIter = std::min(maxIter, iter_needed);
         }
 
@@ -562,4 +565,22 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     }
 
     return bestF;
+}
+
+int FundamentalMatrix::calculateRequiredIterations(int bestInliers, int N, int sampleSize, double confidence)
+{
+    if (N == 0)
+        return std::numeric_limits<int>::max();
+
+    double w = (double)bestInliers / (double)N;
+    double p_fail = 1.0 - std::pow(w, sampleSize);
+
+    // Prevent log(0) bounds
+    p_fail = std::max(std::numeric_limits<double>::epsilon(), p_fail);
+    p_fail = std::min(1.0 - std::numeric_limits<double>::epsilon(), p_fail);
+
+    double log_prob = std::log(1.0 - confidence);
+    double log_fail = std::log(p_fail);
+
+    return (int)(log_prob / log_fail);
 }

@@ -101,9 +101,10 @@ private:
      * @return Refined 3x3 Fundamental Matrix.
      */
     static Eigen::Matrix3d computeCustomRANSAC(
-        const std::vector<cv::Point2f>& ptsL,
-        const std::vector<cv::Point2f>& ptsR,
-        std::vector<bool>& inlierMask,
+        const std::vector<cv::Point2f> &ptsL,
+        const std::vector<cv::Point2f> &ptsR,
+        std::vector<bool> &inlierMask,
+        double confidence,
         double threshold = 1.0,
         int maxIter = 1000);
 
@@ -179,6 +180,15 @@ private:
         double threshold,
         double confidence,
         int maxIter);
+
+    /**
+     * @brief Helper function to calculate dynamic U-SAC iterations.
+     */
+    static int calculateRequiredIterations(
+        int bestInliers,
+        int N,
+        int sampleSize,
+        double confidence);
 
     /**
      * NOTE ON THE ESSENTIAL MATRIX (E):
