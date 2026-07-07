@@ -168,6 +168,13 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     res.minDisp = dMin;
     res.numDisp = std::max(16, ((dMax - dMin + 15) / 16) * 16);
 
+    // Disparity cannot exceed image width; clamp to valid range
+    res.minDisp = std::max(res.minDisp, 0);
+    res.numDisp = std::min(res.numDisp, sz.width - res.minDisp - 1);
+    res.numDisp = std::max(res.numDisp, 16); // minimum meaningful search range
+    // OpenCV SGBM requires numDisp divisible by 16
+    res.numDisp = (res.numDisp / 16) * 16;
+
     // --- 6. Dense Stereo Matching ---
     const int blockSize = 7;
     res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity);
