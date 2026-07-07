@@ -12,8 +12,8 @@ namespace GeometryUtils
                                     const std::vector<cv::Point2f> &ptsR,
                                     const std::vector<bool> &inlierMask,
                                     const cv::Mat &K,
-                                    Eigen::Matrix3d &R_est,
-                                    Eigen::Vector3d &t_est);
+                                    cv::Mat &R_est,
+                                    cv::Mat &t_est);
 
     // Non-linear refinement of (R, t) minimizing Sampson error over the inlier
     // correspondences directly on the essential-matrix space. t's direction is 
