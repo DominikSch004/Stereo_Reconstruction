@@ -17,6 +17,16 @@ enum class FundamentalMethod
     CustomPROSAC  // Custom implementation of the PROSAC robust estimator
 };
 
+struct VisualizationData
+{
+    std::vector<std::vector<cv::Point2f>> history_L;
+    std::vector<std::vector<cv::Point2f>> history_R;
+    std::vector<int> inLierCount;
+    std::vector<int> currBestInlier;
+    double final_sampson_err;
+    int final_inlier_count;
+};
+
 /**
  * @class FundamentalMatrix
  * @brief Handles epipolar geometry estimation between two unrectified views.
@@ -43,6 +53,7 @@ public:
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
         std::mt19937 &rng,
+        VisualizationData &visualize,
         FundamentalMethod method = FundamentalMethod::OpenCVRANSAC,
         double threshold = 1.0,
         double confidence = 0.99,
@@ -107,6 +118,7 @@ private:
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
         std::mt19937 &rng,
+        VisualizationData &visualize,
         double threshold = 1.0,
         double confidence = 0.99,
         int maxIter = 1000);
@@ -183,6 +195,7 @@ private:
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
         std::mt19937 &rng,
+        VisualizationData &visualize,
         double threshold,
         double confidence,
         int maxIter);

@@ -3,6 +3,7 @@
 #include "SparseKeyPointMatcher.hpp"
 #include "ImgUtils.hpp"
 #include "PipelineConfig.hpp"
+#include "VisualizationUtils.hpp"
 
 int main(int argc, char **argv)
 {
@@ -39,6 +40,19 @@ int main(int argc, char **argv)
     matcher.visualize(result, grayLeft, grayRight);
 
     // 8-point algorithm
+    std::vector<cv::Point2f> ptsL, ptsR;
+    SparseKeyPointMatcher::extractPoints(result, ptsL, ptsR);
+    if (ptsL.size() < 8)
+    {
+        return -1;
+    }
 
-    return 0;
+    std::vector<bool> inliers;
+    VisualizationData visualization;
+
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, inliers, visualization, config.fundamental, 1.0, 0.99, 1000);
+
+    VisualizationUtils::fundamentalExplorationVideo(grayLeft, grayRight, visualization, "U-SAC Method", 1);
+
+        return 0;
 }

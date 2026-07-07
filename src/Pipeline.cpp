@@ -68,9 +68,11 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
         return false;
     }
 
+    VisualizationData visualize;
+
     // --- 2. Epipolar Geometry & Fundamental Matrix Estimation ---
     std::vector<bool> inlierMask;
-    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, config.fundamental, 1.0, 0.99, 1000);
+    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, visualize, config.fundamental, 1.0, 0.99, 1000);
     cv::Mat F_cv = toCvMat(F_eigen);
     res.inlierMask = inlierMask;
 

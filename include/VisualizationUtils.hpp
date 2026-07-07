@@ -3,6 +3,7 @@
 #include <Eigen/Dense>
 #include <vector>
 #include <string>
+#include <FundamentalMatrix.hpp>
 
 namespace VisualizationUtils
 {
@@ -25,4 +26,10 @@ namespace VisualizationUtils
                            const std::string &leftWindowTitle,
                            const std::string &rightWindowTitle);
 
+    void fundamentalExplorationVideo(
+        const cv::Mat &imgL,
+        const cv::Mat &imgR,
+        const VisualizationData &visualize,
+        const std::string &windowName,
+        int pauseInterval = 0);
 }
