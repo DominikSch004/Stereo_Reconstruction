@@ -506,7 +506,7 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
 
     // L-R consistency check: a left pixel's disparity is only trusted if walking to
     // its claimed match in the right image and reading D_right there gives
-    // (about - 1px tolerance) the same disparity back.
+    // (about - 1.5px tolerance) the same disparity back.
     // Disagreement -> occlusion or a bad match -> invalidate
     cv::Mat disparity(rows, cols, CV_32F);
     for (int r = 0; r < rows; ++r)
@@ -516,7 +516,7 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
             float d = dispLeft.at<float>(r, c);
             int qx = cvRound(c - d); // corresponding x in the right image
 
-            bool consistent = (qx >= 0 && qx < cols) && (std::abs(d - dispRight.at<float>(r, qx)) <= 1.0f);
+            bool consistent = (qx >= 0 && qx < cols) && (std::abs(d - dispRight.at<float>(r, qx)) <= 1.5f);
             disparity.at<float>(r, c) = consistent ? d : static_cast<float>(minDisp - 1);
         }
     }
