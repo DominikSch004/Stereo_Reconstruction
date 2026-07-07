@@ -123,6 +123,9 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
 
     std::cout << "Global Pair Confidence: " << res.globalConfidence
               << " (" << inlierCount << "/" << inL.size() << " inliers)\n";
+    if (res.globalConfidence < 0.5f)
+        std::cout << "WARNING: low RANSAC confidence (" << (res.globalConfidence * 100.0f)
+                  << "%), disparity search range may be unreliable.\n";
 
     res.camToWorld = cv::Mat::zeros(3, 4, CV_64F);
     cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)));
