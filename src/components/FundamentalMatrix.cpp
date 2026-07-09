@@ -467,33 +467,61 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
 
     inlierMask.assign(N, false);
 
-    int thresholdSq = threshold * threshold;
-
     std::mt19937 rng(42);
 
-    // dynamic iterator to impl maximility condition following the PROSAC paper
-    int dynamicMaxIter = maxIter;
+    int thresholdSq = threshold * threshold;
 
-    for (int it = 0; it < maxIter; ++it)
+    // dynamic iterator T_N (stopping criterion)
+    int dynamicIter = maxIter;
+    int pool_size = sampleSize;
+    // T_n
+    double schedule_expander = 1.0;
+
+    // Calculate inital T_n = T_8
+    for (int i = 0; i < sampleSize; ++i)
     {
+        schedule_expander *= static_cast<double>(sampleSize - i) / static_cast<double>(N - i);
+    }
 
-        // PROSAC idea:
-        // start sampling from top-ranked matches only,
-        // then gradually include more matches
-        int poolSize = sampleSize + (N - sampleSize) * it / maxIter;
-        poolSize = std::min(poolSize, N);
+    schedule_expander *= maxIter;
 
-        std::uniform_int_distribution<int> dist(0, poolSize - 1);
+    for (int t = 1; t <= maxIter; ++t)
+    {
+        while (t > schedule_expander && pool_size < N)
+        {
+            schedule_expander *= static_cast<double>(pool_size + 1) / static_cast<double>(pool_size + 1 - sampleSize);
+            pool_size++;
+        }
 
         std::vector<int> idx;
+        idx.reserve(sampleSize);
 
-        while ((int)idx.size() < sampleSize)
+        // base case: m = n = 8
+        if (pool_size == sampleSize)
         {
-            int r = dist(rng);
-
-            if (std::find(idx.begin(), idx.end(), r) == idx.end())
+            for (int i = 0; i < sampleSize; ++i)
             {
-                idx.push_back(r);
+                idx.push_back(i);
+            }
+        }
+        else
+        {
+            // constraint sampling
+            // force to draw new sample n+1
+            idx.push_back(pool_size - 1);
+
+            // draw the remaining 7 points uniformly from the older points
+            std::uniform_int_distribution<int> dist(0, pool_size - 2);
+
+            while ((int)idx.size() < sampleSize)
+            {
+                int r = dist(rng);
+
+                // Ensure we don't pick duplicates
+                if (std::find(idx.begin(), idx.end(), r) == idx.end())
+                {
+                    idx.push_back(r);
+                }
             }
         }
 
@@ -523,7 +551,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
                 ++inliers_total;
 
                 // Assuming ptsL/ptsR are sorted by quality, check if it's in the current pool
-                if (i < poolSize)
+                if (i < pool_size)
                 {
                     ++inliers_pool;
                 }
@@ -540,7 +568,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         // non-randomness check
 
         const double beta = 0.05;
-        int n_prime = poolSize - sampleSize;     // Trials
+        int n_prime = pool_size - sampleSize;    // Trials
         int i_prime = inliers_pool - sampleSize; // Successes
 
         bool non_random = false;
@@ -558,20 +586,17 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
             }
         }
 
-        // ensure big enough poolSize
-        bool pool_is_diverse = poolSize >= (0.15 * N);
-
-        if (non_random && pool_is_diverse)
+        if (non_random)
         {
             // maximality constraint
             int iter_needed = calculateRequiredIterations(bestInliers, N, sampleSize, confidence);
-            dynamicMaxIter = std::min(maxIter, iter_needed);
+            dynamicIter = std::min(maxIter, iter_needed);
         }
 
         // stopping criterion
-        if (it >= dynamicMaxIter)
+        if (t >= dynamicIter)
         {
-            std::cout << "[PROSAC] Early termination triggered at iteration " << it
+            std::cout << "[PROSAC] Early termination triggered at iteration " << t
                       << " (Inliers: " << bestInliers << "/" << N << ")\n";
             break;
         }
