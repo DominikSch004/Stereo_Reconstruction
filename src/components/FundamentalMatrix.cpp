@@ -134,7 +134,7 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
     case FundamentalMethod::CustomMAGSAC:
-        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, maxIter);
+        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
     case FundamentalMethod::CustomPROSAC:
         return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
     }
@@ -362,19 +362,31 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     double sigmaMax,
+    double confidence,
     int maxIter)
 {
     const int N = (int)ptsL.size();
 
     Eigen::Matrix3d bestF = Eigen::Matrix3d::Identity();
     double bestScore = -1.0;
+    int bestInliers = 0;
+    int bestEffectiveInliers = 0;
 
     inlierMask.assign(N, false);
+
+    if (ptsR.size() != ptsL.size() || N < 8 || sigmaMax <= 0.0 ||
+        confidence <= 0.0 || confidence >= 1.0 || maxIter <= 0)
+    {
+        return bestF;
+    }
 
     std::mt19937 rng(42);
     std::uniform_int_distribution<int> dist(0, N - 1);
 
     const int sampleSize = 8;
+    const int minIterations = std::min(maxIter, 200);
+    const double thresholdSq = sigmaMax * sigmaMax;
+    int dynamicMaxIter = maxIter;
 
     for (int it = 0; it < maxIter; ++it)
     {
@@ -401,6 +413,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         Eigen::Matrix3d F = compute8Point(sL, sR);
 
         double score = 0.0;
+        int inliers = 0;
 
         for (int i = 0; i < N; ++i)
         {
@@ -410,12 +423,36 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             double w = magsacWeight(e, sigmaMax);
 
             score += w;
+
+            if (e < thresholdSq)
+            {
+                ++inliers;
+            }
         }
 
         if (score > bestScore)
         {
             bestScore = score;
             bestF = F;
+            bestInliers = inliers;
+            bestEffectiveInliers = std::min(
+                bestInliers, static_cast<int>(std::floor(bestScore)));
+
+            // Approximate the soft consensus as an equivalent integer support.
+            // Clamping it by the hard support prevents small positive weights
+            // from distant outliers from making the stopping rule optimistic.
+            int iterNeeded = calculateRequiredIterations(
+                bestEffectiveInliers, N, sampleSize, confidence);
+            dynamicMaxIter = std::min(
+                maxIter, std::max(minIterations, iterNeeded));
+        }
+
+        if (it >= dynamicMaxIter)
+        {
+            std::cout << "[MAGSAC-inspired] Early termination triggered at iteration " << it
+                      << " (Effective support: " << bestEffectiveInliers << "/" << N
+                      << ", Inliers: " << bestInliers << "/" << N << ")\n";
+            break;
         }
     }
 
@@ -453,7 +490,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     {
         double e = sampsonError(bestF, ptsL[i], ptsR[i]);
 
-        if (e < sigmaMax * sigmaMax)
+        if (e < thresholdSq)
         {
             inlierMask[i] = true;
         }

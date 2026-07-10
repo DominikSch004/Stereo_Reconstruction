@@ -12,7 +12,7 @@ enum class FundamentalMethod
 {
     CustomRANSAC, // Custom hand-rolled 8-point RANSAC loop with Sampson distance refitting
     OpenCVRANSAC, // Native, multi-threaded OpenCV robust solver baseline
-    CustomMAGSAC, // MAGSAC++ through OpenCV's configurable USAC backend
+    CustomMAGSAC, // Custom MAGSAC-inspired estimator with soft scale weighting
     CustomPROSAC  // Custom implementation of the PROSAC robust estimator
 };
 
@@ -127,14 +127,30 @@ private:
         double confidence = 0.99);
 
     /**
-     * @brief Estimates F using OpenCV's MAGSAC++ implementation in the USAC framework.
-     * @details Uses uniform sampling, MAGSAC scoring, sigma-consensus local
-     * optimization, deterministic random sampling, and confidence-based termination.
+     * @brief Weighted variant of the normalized 8-point solver.
+     * @details Scales each correspondence row by sqrt(weight) before solving.
+     */
+    static Eigen::Matrix3d computeWeighted8Point(
+        const std::vector<cv::Point2f> &ptsL,
+        const std::vector<cv::Point2f> &ptsR,
+        const std::vector<double> &weights);
+
+    /**
+     * @brief Approximates a scale-marginalized Gaussian correspondence weight.
+     */
+    static double magsacWeight(double e, double sigmaMax);
+
+    /**
+     * @brief Estimates F using a custom MAGSAC-inspired RANSAC loop.
+     * @details Scores random 8-point hypotheses with approximate scale-marginalized
+     * Gaussian weights, refines the best model with weighted 8-point fitting, and
+     * uses conservative soft effective support for confidence-based early termination
+     * after a minimum exploration budget of 200 hypotheses.
      * @param ptsL All matched features in the left image.
      * @param ptsR All matched features in the right image.
      * @param[out] inlierMask Array tracking true/false status for each input pair.
-     * @param sigmaMax Loose upper bound on the image noise scale in pixels.
-     * @param confidence Desired probability that a valid model is found.
+     * @param sigmaMax Maximum noise scale and final inlier threshold in pixels.
+     * @param confidence Desired probability of drawing an all-inlier sample.
      * @param maxIter Maximum allocation of sampling loop generations.
      * @return Refined 3x3 Fundamental Matrix.
      */
