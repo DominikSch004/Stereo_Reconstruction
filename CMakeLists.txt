@@ -39,6 +39,8 @@ add_library(stereo_core STATIC
     src/utils/ImgUtils.cpp
     src/utils/FreeImageHelper.cpp
     src/utils/PlyUtils.cpp
+    src/utils/NearestNeighborSearch.cpp
+    src/utils/IcpUtils.cpp
     src/utils/MeshUtils.cpp
     src/utils/GeometryUtils.cpp
     src/utils/VisualizationUtils.cpp
@@ -74,6 +76,16 @@ target_link_libraries(StereoReconstruction PRIVATE stereo_core)
 add_executable(IcpFusion src/IcpFusion.cpp)
 target_include_directories(IcpFusion PRIVATE include ${CERES_INCLUDE_DIRS})
 target_link_libraries(IcpFusion PRIVATE stereo_core glog::glog Ceres::ceres)
+
+# Synthetic ICP verification (known-transform recovery, exit code 0 = all checks pass)
+add_executable(IcpVerification benchmark/IcpVerification.cpp)
+target_include_directories(IcpVerification PRIVATE include)
+target_link_libraries(IcpVerification PRIVATE stereo_core)
+
+# DTU ICP benchmark (unweighted vs confidence-weighted, chamfer vs GT scan)
+add_executable(IcpBenchmark benchmark/IcpBenchmark.cpp)
+target_include_directories(IcpBenchmark PRIVATE include)
+target_link_libraries(IcpBenchmark PRIVATE stereo_core)
 
 # Visualization / verification executables
 register_visualisation_target(SparseKeyPointMatching src/visualization/sparse_key_point_matching.cpp)

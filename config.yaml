@@ -21,4 +21,4 @@ disparity: opencv
 triangulation: custom
 
 # point_to_point | point_to_plane  (only used by the IcpFusion executable)
-icp_mode: point_to_point
+icp_mode: point_to_plane
