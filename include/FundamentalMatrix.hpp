@@ -12,7 +12,7 @@ enum class FundamentalMethod
 {
     CustomRANSAC, // Custom hand-rolled 8-point RANSAC loop with Sampson distance refitting
     OpenCVRANSAC, // Native, multi-threaded OpenCV robust solver baseline
-    CustomMAGSAC, // Custom implementation of the MAGSAC robust estimator
+    CustomMAGSAC, // MAGSAC++ through OpenCV's configurable USAC backend
     CustomPROSAC  // Custom implementation of the PROSAC robust estimator
 };
 
@@ -127,30 +127,14 @@ private:
         double confidence = 0.99);
 
     /**
-     * @brief Weighted variant of the normalized 8-point solver.
-     * @details Builds the same linear epipolar system as compute8Point(), but
-     * scales each correspondence row by sqrt(weight). Used by MAGSAC after
-     * soft inlier scoring so stronger correspondences influence the final SVD
-     * estimate more than weak ones.
-     * @param ptsL Matched points from the left image.
-     * @param ptsR Matched points from the right image.
-     * @param weights Per-correspondence reliability weights.
-     * @return Rank-2 constrained 3x3 Fundamental Matrix.
-     */
-    static Eigen::Matrix3d computeWeighted8Point(
-        const std::vector<cv::Point2f> &ptsL,
-        const std::vector<cv::Point2f> &ptsR,
-        const std::vector<double> &weights);
-
-    /**
-     * @brief Custom APPROACH : Estimates F using a MAGSAC-style robust loop.
-     * @details Samples 8-point hypotheses, scores each candidate with a soft
-     * truncated Gaussian function of the Sampson error, and refits the final
-     * model with weighted 8-point estimation over the retained correspondences.
+     * @brief Estimates F using OpenCV's MAGSAC++ implementation in the USAC framework.
+     * @details Uses uniform sampling, MAGSAC scoring, sigma-consensus local
+     * optimization, deterministic random sampling, and confidence-based termination.
      * @param ptsL All matched features in the left image.
      * @param ptsR All matched features in the right image.
      * @param[out] inlierMask Array tracking true/false status for each input pair.
-     * @param sigmaMax Maximum assumed noise scale for soft scoring.
+     * @param sigmaMax Loose upper bound on the image noise scale in pixels.
+     * @param confidence Desired probability that a valid model is found.
      * @param maxIter Maximum allocation of sampling loop generations.
      * @return Refined 3x3 Fundamental Matrix.
      */
@@ -159,6 +143,7 @@ private:
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
         double sigmaMax,
+        double confidence,
         int maxIter);
 
     /**

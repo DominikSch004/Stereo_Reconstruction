@@ -4,6 +4,7 @@
 #include <random>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 double FundamentalMatrix::sampsonError(
     const Eigen::Matrix3d &F,
@@ -284,6 +285,24 @@ Eigen::Matrix3d FundamentalMatrix::computeOpenCVRANSAC(
     return F_eigen;
 }
 
+double FundamentalMatrix::magsacWeight(double e, double sigmaMax)
+{
+    const int steps = 50;
+    double integral = 0.0;
+    double dSigma = sigmaMax / steps;
+
+    for (int k = 1; k <= steps; ++k) {
+        double sigma = k * dSigma;
+        double sigma2 = sigma * sigma;
+
+        double probability = std::exp(-e / (2.0 * sigma2));
+
+        integral += probability * dSigma;
+    }
+
+    return integral / sigmaMax;
+}
+
 Eigen::Matrix3d FundamentalMatrix::computeWeighted8Point(
     const std::vector<cv::Point2f> &ptsL,
     const std::vector<cv::Point2f> &ptsR,
@@ -387,12 +406,10 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         {
             double e = sampsonError(F, ptsL[i], ptsR[i]);
 
-            // MAGSAC-style soft truncated Gaussian score
-            if (e < sigmaMax * sigmaMax)
-            {
-                double w = std::exp(-e / (2.0 * sigmaMax * sigmaMax));
-                score += w;
-            }
+            // MAGSAC-style marginalization over sigma
+            double w = magsacWeight(e, sigmaMax);
+
+            score += w;
         }
 
         if (score > bestScore)
@@ -402,21 +419,15 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         }
     }
 
+    //Sigma-consensus refinement
     std::vector<double> weights(N, 0.0);
 
     for (int i = 0; i < N; ++i)
     {
         double e = sampsonError(bestF, ptsL[i], ptsR[i]);
-
-        if (e < sigmaMax * sigmaMax)
-        {
-            weights[i] = std::exp(-e / (2.0 * sigmaMax * sigmaMax));
-        }
-        else
-        {
-            weights[i] = 0.0;
-        }
+        weights[i] = magsacWeight(e, sigmaMax);
     }
+    
 
     std::vector<cv::Point2f> inL, inR;
     std::vector<double> inW;
