@@ -36,6 +36,7 @@ add_library(stereo_core STATIC
     src/components/Disparity.cpp
     src/components/Triangulation.cpp
     src/components/ICP.cpp
+    src/components/PoissonReconstruction.cpp
     src/utils/ImgUtils.cpp
     src/utils/FreeImageHelper.cpp
     src/utils/PlyUtils.cpp
@@ -94,4 +95,5 @@ register_visualisation_target(StereoRectification    src/visualization/stereo_re
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
 register_visualisation_target(TriangulationVerification     src/visualization/triangulation_verification.cpp)
 register_visualisation_target(MeshReconstruction     src/visualization/mesh_reconstruction.cpp)
+register_visualisation_target(PoissonReconstruction  src/visualization/poisson_reconstruction.cpp)
 register_visualisation_target(PoseRecoveryComparison src/visualization/pose_recovery_comparison.cpp)

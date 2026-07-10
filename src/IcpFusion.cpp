@@ -11,6 +11,8 @@
 #include "PlyUtils.hpp"
 #include "ICP.hpp"
 #include "IcpUtils.hpp"
+#include "PoissonReconstruction.hpp"
+#include "MeshUtils.hpp"
 
 int main(int argc, char **argv)
 {
@@ -186,5 +188,25 @@ int main(int argc, char **argv)
     PlyUtils::savePLY("pointcloud_fused.ply", fused);
 
     std::cout << "\nFusion complete. Saved to pointcloud_fused.ply\n";
+
+    // Surface reconstruction: screened Poisson indicator function -> marching cubes.
+    // The fused cloud is back in the metric (mm) world frame and already carries the
+    // oriented per-point normals accumulated above, so Poisson consumes them directly
+    // (no PCA normal estimation). Raise Config::resolution for a finer mesh at the cost
+    // of a larger linear solve.
+    std::cout << "\n=== Surface reconstruction (Poisson + marching cubes) ===\n";
+    PoissonReconstruction poisson;
+    IndicatorField field = poisson.computeIndicator(fused);
+    if (!field.values.empty())
+    {
+        Mesh mesh = poisson.extractMesh(field);
+        MeshUtils::saveMeshPLY("mesh_fused.ply", mesh);
+        std::cout << "Surface reconstruction complete. Saved to mesh_fused.ply\n";
+    }
+    else
+    {
+        std::cerr << "Poisson reconstruction produced no indicator field; skipping mesh.\n";
+    }
+
     return 0;
 }
