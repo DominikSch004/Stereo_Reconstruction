@@ -14,8 +14,8 @@ int main()
     DTULoader loader("../data/dtu/");
 
     // select by image id, default is dataset 1 (scan1) & illumination 3
-    int imgL = 5;
-    int imgR = 6;
+    int imgL = 1;
+    int imgR = 2;
     StereoPair pair = loader.loadPair(imgL, imgR);
 
     cv::Mat K = loader.loadIntrinsicCV(imgL);
