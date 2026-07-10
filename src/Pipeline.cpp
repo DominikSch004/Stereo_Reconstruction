@@ -123,6 +123,9 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
 
     std::cout << "Global Pair Confidence: " << res.globalConfidence
               << " (" << inlierCount << "/" << inL.size() << " inliers)\n";
+    if (res.globalConfidence < 0.5f)
+        std::cout << "WARNING: low RANSAC confidence (" << (res.globalConfidence * 100.0f)
+                  << "%), disparity search range may be unreliable.\n";
 
     res.camToWorld = cv::Mat::zeros(3, 4, CV_64F);
     cv::Mat(cv::Mat::eye(3, 3, CV_64F)).copyTo(res.camToWorld(cv::Rect(0, 0, 3, 3)));
@@ -167,6 +170,13 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
 
     res.minDisp = dMin;
     res.numDisp = std::max(16, ((dMax - dMin + 15) / 16) * 16);
+
+    // Disparity cannot exceed image width; clamp to valid range
+    res.minDisp = std::max(res.minDisp, 0);
+    res.numDisp = std::min(res.numDisp, sz.width - res.minDisp - 1);
+    res.numDisp = std::max(res.numDisp, 16); // minimum meaningful search range
+    // OpenCV SGBM requires numDisp divisible by 16
+    res.numDisp = (res.numDisp / 16) * 16;
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = 7;
