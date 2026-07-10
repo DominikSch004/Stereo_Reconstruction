@@ -133,8 +133,11 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
         return computeCustomRANSAC(ptsL, ptsR, inlierMask, confidence, threshold, maxIter);
     case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
-    case FundamentalMethod::CustomMAGSAC:
-        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
+    case FundamentalMethod::OpenCVMAGSAC:
+        return computeOpenCVMAGSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
+    case FundamentalMethod::CustomMAGSACInspiredEstimator:
+        return computeCustomMAGSACInspiredEstimator(
+            ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
     case FundamentalMethod::CustomPROSAC:
         return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
     }
@@ -285,6 +288,55 @@ Eigen::Matrix3d FundamentalMatrix::computeOpenCVRANSAC(
     return F_eigen;
 }
 
+Eigen::Matrix3d FundamentalMatrix::computeOpenCVMAGSAC(
+    const std::vector<cv::Point2f> &ptsL,
+    const std::vector<cv::Point2f> &ptsR,
+    std::vector<bool> &inlierMask,
+    double threshold,
+    double confidence,
+    int maxIter)
+{
+    const size_t N = ptsL.size();
+    inlierMask.assign(N, false);
+
+    if (ptsR.size() != N || N < 8 || threshold <= 0.0 ||
+        confidence <= 0.0 || confidence >= 1.0 || maxIter <= 0)
+    {
+        return Eigen::Matrix3d::Identity();
+    }
+
+    cv::Mat cvInlierMask;
+    cv::Mat Fcv = cv::findFundamentalMat(
+        ptsL, ptsR, cv::USAC_MAGSAC, threshold, confidence, maxIter, cvInlierMask);
+
+    if (Fcv.empty() || Fcv.rows != 3 || Fcv.cols != 3)
+    {
+        return Eigen::Matrix3d::Identity();
+    }
+
+    if (cvInlierMask.total() == N)
+    {
+        for (size_t i = 0; i < N; ++i)
+        {
+            inlierMask[i] = cvInlierMask.at<uchar>(static_cast<int>(i)) != 0;
+        }
+    }
+
+    cv::Mat F64;
+    Fcv.convertTo(F64, CV_64F);
+
+    Eigen::Matrix3d F;
+    for (int r = 0; r < 3; ++r)
+    {
+        for (int c = 0; c < 3; ++c)
+        {
+            F(r, c) = F64.at<double>(r, c);
+        }
+    }
+
+    return F;
+}
+
 double FundamentalMatrix::magsacWeight(double e, double sigmaMax)
 {
     const int steps = 50;
@@ -357,7 +409,7 @@ Eigen::Matrix3d FundamentalMatrix::computeWeighted8Point(
     return Fdenorm;
 }
 
-Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
+Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSACInspiredEstimator(
     const std::vector<cv::Point2f> &ptsL,
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,

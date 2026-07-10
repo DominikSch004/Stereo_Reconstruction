@@ -12,7 +12,8 @@ enum class FundamentalMethod
 {
     CustomRANSAC, // Custom hand-rolled 8-point RANSAC loop with Sampson distance refitting
     OpenCVRANSAC, // Native, multi-threaded OpenCV robust solver baseline
-    CustomMAGSAC, // Custom MAGSAC-inspired estimator with soft scale weighting
+    OpenCVMAGSAC, // OpenCV USAC MAGSAC++ implementation
+    CustomMAGSACInspiredEstimator, // Custom soft scale-weighted RANSAC variant
     CustomPROSAC  // Custom implementation of the PROSAC robust estimator
 };
 
@@ -127,6 +128,24 @@ private:
         double confidence = 0.99);
 
     /**
+     * @brief OpenCV APPROACH: Estimates F with the USAC MAGSAC++ backend.
+     * @param ptsL All matched features in the left image.
+     * @param ptsR All matched features in the right image.
+     * @param[out] inlierMask Vector tracking true/false status for each input pair.
+     * @param threshold Loose upper bound on the image noise scale in pixels.
+     * @param confidence Desired probability that a valid model is found.
+     * @param maxIter Maximum number of robust sampling iterations.
+     * @return Converted Eigen::Matrix3d representation of OpenCV's computed F.
+     */
+    static Eigen::Matrix3d computeOpenCVMAGSAC(
+        const std::vector<cv::Point2f> &ptsL,
+        const std::vector<cv::Point2f> &ptsR,
+        std::vector<bool> &inlierMask,
+        double threshold = 1.0,
+        double confidence = 0.99,
+        int maxIter = 1000);
+
+    /**
      * @brief Weighted variant of the normalized 8-point solver.
      * @details Scales each correspondence row by sqrt(weight) before solving.
      */
@@ -154,7 +173,7 @@ private:
      * @param maxIter Maximum allocation of sampling loop generations.
      * @return Refined 3x3 Fundamental Matrix.
      */
-    static Eigen::Matrix3d computeCustomMAGSAC(
+    static Eigen::Matrix3d computeCustomMAGSACInspiredEstimator(
         const std::vector<cv::Point2f> &ptsL,
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,

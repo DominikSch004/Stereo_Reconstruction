@@ -126,12 +126,13 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // Same F estimator as the pipeline config (custom_magsac); every variant
+        // Same F estimator as the pipeline config (custom_magsac_inspired); every variant
         // below sees the identical F / inlier set, so differences are purely
         // attributable to the pose-recovery step.
         std::vector<bool> mask;
         Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(
-            ptsL, ptsR, mask, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
+            ptsL, ptsR, mask, FundamentalMethod::CustomMAGSACInspiredEstimator,
+            1.0, 0.99, 1000);
         cv::Mat F_cv = toCvMat(F);
 
         std::vector<cv::Point2f> inL, inR;

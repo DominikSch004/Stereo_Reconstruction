@@ -44,12 +44,15 @@ PipelineConfig PipelineConfig::load(const std::string &path)
         cfg.fundamental = FundamentalMethod::OpenCVRANSAC;
     else if (v == "custom")
         cfg.fundamental = FundamentalMethod::CustomRANSAC;
-    else if (v == "custom_magsac")
-        cfg.fundamental = FundamentalMethod::CustomMAGSAC;
+    else if (v == "opencv_magsac")
+        cfg.fundamental = FundamentalMethod::OpenCVMAGSAC;
+    else if (v == "custom_magsac_inspired" || v == "custom_magsac")
+        cfg.fundamental = FundamentalMethod::CustomMAGSACInspiredEstimator;
     else if (v == "custom_prosac")
         cfg.fundamental = FundamentalMethod::CustomPROSAC;
     else
-        invalidValue("fundamental_matrix", v, "opencv | custom | custom_magsac | custom_prosac");
+        invalidValue("fundamental_matrix", v,
+                     "opencv | opencv_magsac | custom | custom_magsac_inspired | custom_prosac");
 
     v = readKey(fs, "rectification", "opencv");
     if (v == "opencv")
@@ -93,8 +96,9 @@ void PipelineConfig::print() const
     std::cout << "[Config] Pipeline step backends:\n"
               << "  fundamental_matrix: "
               << (fundamental == FundamentalMethod::OpenCVRANSAC ? "opencv"
+                  : fundamental == FundamentalMethod::OpenCVMAGSAC ? "opencv_magsac"
                   : fundamental == FundamentalMethod::CustomRANSAC ? "custom"
-                  : fundamental == FundamentalMethod::CustomMAGSAC ? "custom_magsac"
+                  : fundamental == FundamentalMethod::CustomMAGSACInspiredEstimator ? "custom_magsac_inspired"
                                                                    : "custom_prosac")
               << "\n"
               << "  rectification:      " << name(rectification == RectificationMethod::CalibratedOpenCV) << "\n"
