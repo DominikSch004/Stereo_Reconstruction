@@ -14,11 +14,13 @@ int main()
     DTULoader loader("../data/dtu/");
 
     // select by image id, default is dataset 1 (scan1) & illumination 3
-    StereoPair pair = loader.loadPair(1, 2);
+    int imgL = 3;
+    int imgR = 4;
+    StereoPair pair = loader.loadPair(imgL, imgR);
 
-    cv::Mat K = loader.loadIntrinsicCV(1);
-    CameraPose pose1 = loader.loadCameraPose(1);
-    CameraPose pose2 = loader.loadCameraPose(2);
+    cv::Mat K = loader.loadIntrinsicCV(imgL);
+    CameraPose pose1 = loader.loadCameraPose(imgL);
+    CameraPose pose2 = loader.loadCameraPose(imgR);
     Eigen::Matrix3d R_gt;
     Eigen::Vector3d t_gt;
     DTULoader::getRelativePose(pose1, pose2, R_gt, t_gt);
