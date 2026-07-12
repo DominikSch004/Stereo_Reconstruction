@@ -11,6 +11,9 @@
 # opencv | custom | custom_magsac | custom_prosac
 fundamental_matrix: custom_magsac
 
+# 42 | -1 for true randomness
+rng_seed: 42
+
 # opencv | custom  (custom = Loop & Zhang projective rectification)
 rectification: opencv
 

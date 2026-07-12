@@ -12,16 +12,20 @@
 void Pipeline::rescaleToTrueBaseline(const Eigen::Vector3d &C1, const Eigen::Vector3d &C2, cv::Mat &t)
 {
     double trueBaseline = (C1 - C2).norm();
-    if (trueBaseline < 1e-9) {
+    if (trueBaseline < 1e-9)
+    {
         std::cout << "  [Pipeline] No camera centers provided (baseline = 0) -- keeping unit-norm t, reconstruction is up to scale.\n";
         return;
     }
     std::cout << "  [Pipeline] True DTU baseline: " << trueBaseline << " mm -- rescaling t.\n";
 
     double tNorm = cv::norm(t);
-    if (tNorm > 1e-9) {
+    if (tNorm > 1e-9)
+    {
         t = t * (trueBaseline / tNorm);
-    } else {
+    }
+    else
+    {
         std::cerr << "  [Pipeline] WARNING: recoverPose's t has near-zero norm, cannot rescale.\n";
     }
 }
@@ -65,7 +69,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
 
     // --- 2. Epipolar Geometry & Fundamental Matrix Estimation ---
     std::vector<bool> inlierMask;
-    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.fundamental, 1.0, 0.99, 1000);
+    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, config.fundamental, 1.0, 0.99, 1000);
     cv::Mat F_cv = toCvMat(F_eigen);
     res.inlierMask = inlierMask;
 
@@ -95,7 +99,6 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     svd.w.at<double>(1) = sigma;
     cv::Mat E = svd.u * cv::Mat::diag(svd.w) * svd.vt;
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
-
 
     // Rescale t from recoverPose's unit-norm convention to the true DTU metric baseline
     rescaleToTrueBaseline(C1, C2, t);
