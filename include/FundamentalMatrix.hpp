@@ -203,4 +203,8 @@ private:
      * * Where K_left and K_right are the camera intrinsic calibration matrices.
      * Ensure this step is completed before initiating triangulation.
      */
+
+    // Add the planar degeneracy filter
+    static bool isCoplanar(const std::vector<cv::Point2f> &sL,
+                           const std::vector<cv::Point2f> &sR, const double ransacThreshold = 1.5);
 };

@@ -172,6 +172,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     // dynamically calculate stopping criterion.
     int dynamicMaxIter = maxIter;
 
+    int degenerateFails = 0;
+    const int MAX_FAILS = maxIter * 10;
+
     // RANSAC Sampling Loop
     for (int it = 0; it < maxIter; ++it)
     {
@@ -191,6 +194,18 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
         {
             sL[i] = ptsL[idx[i]];
             sR[i] = ptsR[idx[i]];
+        }
+
+        if (isCoplanar(sL, sR, 1.5))
+        {
+            degenerateFails++;
+            // Refund the iteration so we don't waste our budget on planes,
+            // but cap it so we don't infinite-loop on flat walls.
+            if (degenerateFails < MAX_FAILS)
+            {
+                --it;
+            }
+            continue;
         }
 
         // matrix hypothesis
@@ -220,7 +235,8 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
         if (it >= minIter && it >= dynamicMaxIter)
         {
             std::cout << "[RANSAC] Early termination triggered at iteration " << it
-                      << " (Inliers: " << bestInliers << "/" << N << ")\n";
+                      << ". Number of degenerate samplings rejected: " << degenerateFails
+                      << ". (Inliers: " << bestInliers << "/" << N << ")\n";
             break;
         }
     }
@@ -368,11 +384,13 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
 
     int dynamicMaxIter = maxIter;
 
+    int degenerateFails = 0;
+    const int MAX_FAILS = maxIter * 10;
+
     std::vector<int> idx;
     idx.reserve(sampleSize);
     std::vector<cv::Point2f> sL(sampleSize), sR(sampleSize);
 
-    // RANSAC Loop
     int it;
     for (it = 0; it < dynamicMaxIter; ++it)
     {
@@ -392,6 +410,18 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         {
             sL[i] = ptsL[idx[i]];
             sR[i] = ptsR[idx[i]];
+        }
+
+        if (isCoplanar(sL, sR, 1.5))
+        {
+            degenerateFails++;
+            // Refund the iteration so we don't waste our budget on planes,
+            // but cap it so we don't infinite-loop on flat walls.
+            if (degenerateFails < MAX_FAILS)
+            {
+                --it;
+            }
+            continue;
         }
 
         Eigen::Matrix3d F = compute8Point(sL, sR);
@@ -493,8 +523,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         }
     }
 
-    std::cout << "[MAGSAC] Early termination triggered at iteration " << it
-              << " (Inliers: " << bestInliers << "/" << N << ")\n";
+    std::cout << "[MAGSAC] Terminated after " << it
+              << ". Number of degenerate samplings rejected: " << degenerateFails
+              << ". (Inliers: " << bestInliers << "/" << N << ")\n";
 
     return polishedF;
 }
@@ -517,6 +548,8 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     inlierMask.assign(N, false);
 
     std::mt19937 rng(42);
+
+    int degenerateCount = 0;
 
     int thresholdSq = threshold * threshold;
 
@@ -580,6 +613,13 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         {
             sL[i] = ptsL[idx[i]];
             sR[i] = ptsR[idx[i]];
+        }
+
+        if (isCoplanar(sL, sR, 2.5))
+        {
+            // Do NOT update F, do NOT count inliers, do NOT update dynamicIter.
+            degenerateCount++;
+            continue;
         }
 
         Eigen::Matrix3d F = compute8Point(sL, sR);
@@ -648,7 +688,8 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         if (t >= dynamicIter)
         {
             std::cout << "[PROSAC] Early termination triggered at iteration " << t
-                      << " (Inliers: " << bestInliers << "/" << N << ")\n";
+                      << ". Number of degenerate samples rejected: " << degenerateCount
+                      << ". (Inliers: " << bestInliers << "/" << N << ")\n";
             break;
         }
     }
@@ -694,4 +735,24 @@ int FundamentalMatrix::calculateRequiredIterations(int bestInliers, int N, int s
     double log_fail = std::log(p_fail);
 
     return (int)(log_prob / log_fail);
+}
+
+bool FundamentalMatrix::isCoplanar(const std::vector<cv::Point2f> &sL,
+                                   const std::vector<cv::Point2f> &sR, const double ransacThreshold)
+{
+    std::vector<uchar> mask;
+    cv::Mat H = cv::findHomography(sL, sR, cv::RANSAC, ransacThreshold, mask);
+
+    if (H.empty())
+        return true;
+
+    int inlierCount = 0;
+    for (uchar m : mask)
+    {
+        if (m)
+            inlierCount++;
+    }
+
+    // If 6 or more of the 8 points fit a perfect flat plane, it's a degenerate sample.
+    return inlierCount >= 5;
 }
