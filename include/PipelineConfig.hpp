@@ -17,12 +17,14 @@
  */
 struct PipelineConfig
 {
+
     FundamentalMethod fundamental = FundamentalMethod::OpenCVRANSAC;
     RectificationMethod rectification = RectificationMethod::CalibratedOpenCV;
     DisparityMethod disparity = DisparityMethod::OpenCVSGBM;
     TriangulationMethod triangulation = TriangulationMethod::OpenCV;
     ICPMode icpMode = ICPMode::PointToPlane; // used by the ICP fusion pipeline only
-
+    int rngSeed = 42;
+    mutable std::mt19937 rng;
     /**
      * @brief Loads a config from a YAML file (parsed with cv::FileStorage).
      * @throws std::runtime_error if the file cannot be opened or a key holds an unknown value.

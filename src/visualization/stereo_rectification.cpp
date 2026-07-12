@@ -40,7 +40,9 @@ int main()
 
     // Compute Robust Fundamental Matrix via OpenCV RANSAC pipeline
     std::vector<bool> mask;
-    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
+
+    std::mt19937 rng(42);
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
 
     std::vector<cv::Point2f> inL, inR;
     for (size_t i = 0; i < ptsL.size(); ++i)
@@ -136,10 +138,13 @@ int main()
     }
 
     // Map a vertical error to a colour: green (good) -> yellow -> red (bad).
-    auto errColor = [](double e) -> cv::Scalar {
-        if (e <= 1.0) return {0, 255, 0};     // <= 1px : aligned
-        if (e <= 3.0) return {0, 255, 255};   // <= 3px : borderline
-        return {0, 0, 255};                    // > 3px : misaligned
+    auto errColor = [](double e) -> cv::Scalar
+    {
+        if (e <= 1.0)
+            return {0, 255, 0}; // <= 1px : aligned
+        if (e <= 3.0)
+            return {0, 255, 255}; // <= 3px : borderline
+        return {0, 0, 255};       // > 3px : misaligned
     };
 
     // Draw the rectified correspondences on each panel.

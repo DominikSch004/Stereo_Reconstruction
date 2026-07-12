@@ -3,6 +3,7 @@
 #include <vector>
 #include <opencv2/core.hpp>
 #include <Eigen/Dense>
+#include <random>
 
 /**
  * @enum FundamentalMethod
@@ -41,6 +42,7 @@ public:
         const std::vector<cv::Point2f> &ptsL,
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
+        std::mt19937 &rng,
         FundamentalMethod method = FundamentalMethod::OpenCVRANSAC,
         double threshold = 1.0,
         double confidence = 0.99,
@@ -104,6 +106,7 @@ private:
         const std::vector<cv::Point2f> &ptsL,
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
+        std::mt19937 &rng,
         double threshold = 1.0,
         double confidence = 0.99,
         int maxIter = 1000);
@@ -158,6 +161,7 @@ private:
         const std::vector<cv::Point2f> &ptsL,
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
+        std::mt19937 &rng,
         double sigmaMax,
         double confidence,
         int maxIter);
@@ -178,6 +182,7 @@ private:
         const std::vector<cv::Point2f> &ptsL,
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
+        std::mt19937 &rng,
         double threshold,
         double confidence,
         int maxIter);

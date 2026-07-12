@@ -2,7 +2,6 @@
 #include "Magsac.hpp"
 #include <opencv2/calib3d.hpp>
 #include <Eigen/SVD>
-#include <random>
 #include <algorithm>
 #include <cmath>
 
@@ -122,6 +121,7 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     const std::vector<cv::Point2f> &ptsL,
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
+    std::mt19937 &rng,
     FundamentalMethod method,
     double threshold,
     double confidence,
@@ -130,13 +130,13 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     switch (method)
     {
     case FundamentalMethod::CustomRANSAC:
-        return computeCustomRANSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
+        return computeCustomRANSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
     case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
     case FundamentalMethod::CustomMAGSAC:
-        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
+        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
     case FundamentalMethod::CustomPROSAC:
-        return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
+        return computeCustomPROSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
     }
 
     inlierMask.assign(ptsL.size(), false);
@@ -147,6 +147,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     const std::vector<cv::Point2f> &ptsL,
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
+    std::mt19937 &rng,
     double threshold,
     double confidence,
     int maxIter)
@@ -163,8 +164,6 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     // convention so custom vs. OpenCV stay comparable at any threshold value.
     const double thresholdSq = threshold * threshold;
 
-    // Setup random number generator
-    std::mt19937 rng(42);
     std::uniform_int_distribution<int> dist(0, N - 1);
 
     // dynamically calculate stopping criterion.
@@ -359,6 +358,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     const std::vector<cv::Point2f> &ptsL,
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
+    std::mt19937 &rng,
     double sigmaMax,
     double confidence,
     int maxIter)
@@ -370,7 +370,6 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     double bestTotalLoss = std::numeric_limits<double>::max();
 
     inlierMask.assign(N, false);
-    std::mt19937 rng(42);
     std::uniform_int_distribution<int> dist(0, N - 1);
 
     const int sampleSize = 8;
@@ -530,6 +529,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     const std::vector<cv::Point2f> &ptsL,
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
+    std::mt19937 &rng,
     double threshold,
     double confidence,
     int maxIter)
@@ -541,8 +541,6 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     int bestInliers = 0;
 
     inlierMask.assign(N, false);
-
-    std::mt19937 rng(42);
 
     int degenerateCount = 0;
 
@@ -562,7 +560,10 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
 
     schedule_expander *= maxIter;
 
-    for (int t = 1; t <= maxIter; ++t)
+    int validEvaluations = 0;
+    int t = 1;
+
+    while (validEvaluations < dynamicIter && validEvaluations <= maxIter)
     {
         while (t > schedule_expander && pool_size < N)
         {
@@ -612,8 +613,8 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
 
         if (isCoplanar(sL, sR, 2.5))
         {
-            // Do NOT update F, do NOT count inliers, do NOT update dynamicIter.
             degenerateCount++;
+            t++; // Advance the PROSAC schedule to grow the pool out of the plane
             continue;
         }
 
@@ -677,15 +678,14 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
             dynamicIter = std::min(maxIter, iter_needed);
         }
 
-        // stopping criterion
-        if (t >= dynamicIter)
-        {
-            std::cout << "[PROSAC] Early termination triggered at iteration " << t
-                      << ". Number of degenerate samples rejected: " << degenerateCount
-                      << ". (Inliers: " << bestInliers << "/" << N << ")\n";
-            break;
-        }
+        validEvaluations++;
+        t++;
     }
+
+    std::cout << "[PROSAC] Terminated. Evaluated: " << validEvaluations
+              << ", Degenerate rejected: " << degenerateCount
+              << ", Final Pool Size: " << pool_size
+              << " (Inliers: " << bestInliers << "/" << N << ")\n";
 
     // Refit using all geometric inliers
     std::vector<cv::Point2f> inL, inR;
