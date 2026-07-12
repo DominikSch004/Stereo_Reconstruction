@@ -4,6 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <unordered_map>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/core/eigen.hpp>
 
@@ -17,11 +18,13 @@ bool PlyUtils::buildAndSavePLY(
     const cv::Mat &rectColor,
     int minDisp,
     float globalConfidence,
-    TriangulationMethod method)
+    TriangulationMethod method,
+    const cv::Mat &disparityConfidence)
 {
     std::cout << "Orchestrating point cloud export to: " << path << "\n";
     
-    PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld, rectColor, minDisp, globalConfidence, method);
+    PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld, rectColor,
+                                       minDisp, globalConfidence, method, disparityConfidence);
     
     if (cloud.pts.empty()) {
         std::cerr << "WARNING: Point cloud generated no points. Aborting file write sequence.\n";
@@ -41,7 +44,8 @@ PointCloud PlyUtils::buildPointCloud(
     const cv::Mat &rectColor,
     int minDisp,
     float globalConfidence,
-    TriangulationMethod method)
+    TriangulationMethod method,
+    const cv::Mat &disparityConfidence)
 {
     cv::Mat disp32f;
     if (disparity.type() == CV_32F)
@@ -75,10 +79,36 @@ PointCloud PlyUtils::buildPointCloud(
         // Fallback safety
         fB = 1000.0; 
     
-    // TODO: Currently assuming a baseline sub-pixel matching accuracy of 0.5 pixels. 
-    // This value should be propagated from the stereo matching cost layer 
-    // or the geometric sparse RANSAC re-projection error.
+    // Baseline sub-pixel precision. Pixel-specific reliability is supplied separately
+    // by the left/right and photometric consistency map.
     const float sigma_d = 0.5f;
+
+    // Normalize inverse depth variance by the median valid measurement variance.
+    // This preserves the statistically useful relative precision while avoiding a
+    // unit-dependent expression such as 1/(1 + variance_mm2).
+    std::vector<float> variances;
+    variances.reserve(static_cast<size_t>(pts3D.total() / 2));
+    for (int y = 0; y < pts3D.rows; ++y)
+        for (int x = 0; x < pts3D.cols; ++x)
+        {
+            if (disp32f.at<float>(y, x) <= static_cast<float>(minDisp)) continue;
+            const cv::Vec3f p = pts3D.at<cv::Vec3f>(y, x);
+            if (!std::isfinite(p[2]) || p[2] <= 0.0f || p[2] > zMax) continue;
+            const float zSq = p[2] * p[2];
+            variances.push_back((zSq * zSq) / static_cast<float>(fB * fB) *
+                                (sigma_d * sigma_d));
+        }
+    float medianVariance = 1.0f;
+    if (!variances.empty())
+    {
+        auto mid = variances.begin() + variances.size() / 2;
+        std::nth_element(variances.begin(), mid, variances.end());
+        medianVariance = std::max(*mid, 1e-12f);
+    }
+
+    const bool havePixelConfidence = !disparityConfidence.empty() &&
+                                     disparityConfidence.type() == CV_32F &&
+                                     disparityConfidence.size() == disp32f.size();
     for (int y = 0; y < pts3D.rows; ++y)
     {
         for (int x = 0; x < pts3D.cols; ++x)
@@ -96,7 +126,10 @@ PointCloud PlyUtils::buildPointCloud(
             float zSq = p[2] * p[2];
             float variance = (zSq * zSq) / static_cast<float>(fB * fB) * (sigma_d * sigma_d);
             
-            float depthConfidence = 1.0f / (1.0f + variance);
+            // Precision relative to a median-depth point, clamped to prevent a few
+            // close points from dominating the normal equations.
+            float depthConfidence = std::min(100.0f, medianVariance /
+                                                       std::max(variance, medianVariance * 0.01f));
 
             float edgeGradient = gradMag.at<float>(y, x);
 
@@ -105,7 +138,10 @@ PointCloud PlyUtils::buildPointCloud(
             // The denominator (5.0f) controls the sensitivity to edges.
             float edgeWeight = std::exp(-edgeGradient / 5.0f);
 
-            float finalWeight = globalConfidence * depthConfidence * edgeWeight;
+            const float stereoConfidence = havePixelConfidence
+                                         ? std::clamp(disparityConfidence.at<float>(y, x), 0.0f, 1.0f)
+                                         : 1.0f;
+            float finalWeight = globalConfidence * depthConfidence * edgeWeight * stereoConfidence;
 
             Eigen::Vector3f normalCam = Eigen::Vector3f::Zero();
             bool normalOk = false;
@@ -115,7 +151,16 @@ PointCloud PlyUtils::buildPointCloud(
                 cv::Vec3f pU = pts3D.at<cv::Vec3f>(y - 1, x);
                 cv::Vec3f pD = pts3D.at<cv::Vec3f>(y + 1, x);
 
-                bool neighborsFinite =
+                const float d0 = disp32f.at<float>(y, x);
+                const float dL = disp32f.at<float>(y, x - 1);
+                const float dR = disp32f.at<float>(y, x + 1);
+                const float dU = disp32f.at<float>(y - 1, x);
+                const float dD = disp32f.at<float>(y + 1, x);
+                const bool disparitiesValid = dL > minDisp && dR > minDisp &&
+                                              dU > minDisp && dD > minDisp;
+                const bool sameSurface = std::max({std::abs(dL - d0), std::abs(dR - d0),
+                                                   std::abs(dU - d0), std::abs(dD - d0)}) <= 3.0f;
+                bool neighborsFinite = disparitiesValid && sameSurface &&
                     std::isfinite(pL[0]) && std::isfinite(pL[1]) && std::isfinite(pL[2]) &&
                     std::isfinite(pR[0]) && std::isfinite(pR[1]) && std::isfinite(pR[2]) &&
                     std::isfinite(pU[0]) && std::isfinite(pU[1]) && std::isfinite(pU[2]) &&
@@ -158,6 +203,82 @@ PointCloud PlyUtils::buildPointCloud(
 
     std::cout << "Dense extraction sequence finalized. Points compiled: " << cloud.pts.size() << "\n";
     return cloud;
+}
+
+PointCloud PlyUtils::voxelDownsample(const PointCloud &cloud, float voxelSize)
+{
+    if (voxelSize <= 0.0f || cloud.pts.empty()) return cloud;
+
+    struct Key { int x, y, z; bool operator==(const Key &o) const { return x == o.x && y == o.y && z == o.z; } };
+    struct Hash { size_t operator()(const Key &k) const {
+        size_t h = std::hash<int>{}(k.x);
+        h ^= std::hash<int>{}(k.y) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int>{}(k.z) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
+    }};
+    struct Accum {
+        Eigen::Vector3d p = Eigen::Vector3d::Zero();
+        Eigen::Vector3d n = Eigen::Vector3d::Zero();
+        Eigen::Vector3d color = Eigen::Vector3d::Zero();
+        double w = 0.0;
+        size_t count = 0;
+        bool anyNormal = false;
+    };
+
+    std::unordered_map<Key, Accum, Hash> voxels;
+    voxels.reserve(cloud.pts.size());
+    const float inv = 1.0f / voxelSize;
+    for (size_t i = 0; i < cloud.pts.size(); ++i)
+    {
+        const auto &p = cloud.pts[i];
+        Key key{static_cast<int>(std::floor(p.x() * inv)),
+                static_cast<int>(std::floor(p.y() * inv)),
+                static_cast<int>(std::floor(p.z() * inv))};
+        float wf = (i < cloud.weights.size() && std::isfinite(cloud.weights[i]))
+                 ? std::max(cloud.weights[i], 1e-6f) : 1.0f;
+        Accum &a = voxels[key];
+        a.p += wf * p.cast<double>();
+        a.w += wf;
+        ++a.count;
+        if (i < cloud.colors.size())
+            a.color += wf * Eigen::Vector3d(cloud.colors[i][0], cloud.colors[i][1], cloud.colors[i][2]);
+        if (i < cloud.normals.size() &&
+            (i >= cloud.validNormal.size() || cloud.validNormal[i]) &&
+            cloud.normals[i].squaredNorm() > 1e-12f)
+        {
+            Eigen::Vector3f n = cloud.normals[i];
+            if (a.anyNormal && a.n.dot(n.cast<double>()) < 0.0) n = -n;
+            a.n += wf * n.cast<double>();
+            a.anyNormal = true;
+        }
+    }
+
+    PointCloud out;
+    out.pts.reserve(voxels.size()); out.colors.reserve(voxels.size());
+    out.weights.reserve(voxels.size()); out.normals.reserve(voxels.size());
+    out.validNormal.reserve(voxels.size());
+    for (const auto &[key, a] : voxels)
+    {
+        (void)key;
+        const double w = std::max(a.w, 1e-12);
+        out.pts.push_back((a.p / w).cast<float>());
+        Eigen::Vector3d c = a.color / w;
+        out.colors.emplace_back(cv::saturate_cast<uchar>(c.x()),
+                                cv::saturate_cast<uchar>(c.y()),
+                                cv::saturate_cast<uchar>(c.z()));
+        out.weights.push_back(static_cast<float>(a.w / std::max<size_t>(a.count, 1)));
+        if (a.anyNormal && a.n.squaredNorm() > 1e-20)
+        {
+            out.normals.push_back(a.n.normalized().cast<float>());
+            out.validNormal.push_back(true);
+        }
+        else
+        {
+            out.normals.push_back(Eigen::Vector3f::Zero());
+            out.validNormal.push_back(false);
+        }
+    }
+    return out;
 }
 
 void PlyUtils::savePLY(const std::string &path, const PointCloud &cloud)

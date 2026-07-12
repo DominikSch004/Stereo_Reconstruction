@@ -42,6 +42,7 @@ add_library(stereo_core STATIC
     src/utils/PlyUtils.cpp
     src/utils/NearestNeighborSearch.cpp
     src/utils/IcpUtils.cpp
+    src/utils/VoxelFusion.cpp
     src/utils/MeshUtils.cpp
     src/utils/GeometryUtils.cpp
     src/utils/VisualizationUtils.cpp

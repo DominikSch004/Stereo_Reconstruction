@@ -17,6 +17,17 @@ std::string readKey(const cv::FileStorage &fs, const std::string &key, const std
     return static_cast<std::string>(node);
 }
 
+template <typename T>
+T readScalar(const cv::FileStorage &fs, const std::string &key, T def)
+{
+    cv::FileNode node = fs[key];
+    if (node.empty())
+        return def;
+    T value{};
+    node >> value;
+    return value;
+}
+
 [[noreturn]] void invalidValue(const std::string &key, const std::string &value, const std::string &allowed)
 {
     throw std::runtime_error("[Config] Invalid value '" + value + "' for key '" + key + "'. Allowed: " + allowed);
@@ -83,6 +94,22 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     else
         invalidValue("icp_mode", v, "point_to_point | point_to_plane");
 
+    cfg.stereoConfidenceFilter = readScalar<int>(fs, "stereo_confidence_filter", 1) != 0;
+    cfg.stereoLRMaxDiff = readScalar<float>(fs, "stereo_lr_max_diff", 1.5f);
+    cfg.stereoPhotometricScale = readScalar<float>(fs, "stereo_photometric_scale", 25.0f);
+    cfg.icpRobust = readScalar<int>(fs, "icp_robust", 1) != 0;
+    cfg.icpReciprocal = readScalar<int>(fs, "icp_reciprocal", 1) != 0;
+    cfg.icpTrimFraction = readScalar<float>(fs, "icp_trim_fraction", 0.80f);
+    cfg.fusionVoxelSize = readScalar<float>(fs, "fusion_voxel_size", 0.01f);
+    cfg.fusionOutlierFactor = readScalar<float>(fs, "fusion_outlier_factor", 1.5f);
+
+    if (cfg.stereoLRMaxDiff <= 0.0f || cfg.stereoPhotometricScale <= 0.0f)
+        throw std::runtime_error("[Config] Stereo confidence scales must be positive.");
+    if (cfg.icpTrimFraction <= 0.0f || cfg.icpTrimFraction > 1.0f)
+        throw std::runtime_error("[Config] icp_trim_fraction must be in (0,1].");
+    if (cfg.fusionVoxelSize <= 0.0f || cfg.fusionOutlierFactor <= 0.0f)
+        throw std::runtime_error("[Config] Fusion voxel parameters must be positive.");
+
     return cfg;
 }
 
@@ -101,5 +128,12 @@ void PipelineConfig::print() const
               << "  disparity:          " << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
               << "  triangulation:      " << name(triangulation == TriangulationMethod::OpenCV) << "\n"
               << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane")
+              << "\n  stereo_confidence: " << (stereoConfidenceFilter ? "on" : "off")
+              << " (LR=" << stereoLRMaxDiff << " px, photo_scale=" << stereoPhotometricScale << ")"
+              << "\n  icp_robust:         " << (icpRobust ? "on" : "off")
+              << ", reciprocal=" << (icpReciprocal ? "on" : "off")
+              << ", trim=" << icpTrimFraction
+              << "\n  fusion_voxel_size:  " << fusionVoxelSize
+              << ", outlier_factor=" << fusionOutlierFactor
               << "\n";
 }

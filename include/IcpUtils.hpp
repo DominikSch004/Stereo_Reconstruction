@@ -71,13 +71,13 @@ bool orderPair(DTULoader &loader, int a, int b,
                CameraPose &poseLeft, CameraPose &poseRight);
 
 /**
- * @brief Confidence cull: drops points whose per-point weight is below @p keepFrac
- *        of the cloud's maximum weight, keeping every per-point attribute array
+ * @brief Confidence cull: drops the lowest-confidence @p discardFraction of points,
+ *        keeping every per-point attribute array
  *        (colors / normals / validNormal / weights) in lockstep. Weights are
  *        frame-invariant, so this may run in any coordinate frame.
  * @return number of points removed (0 if disabled via keepFrac <= 0 or inapplicable).
  */
-size_t cullByConfidence(PointCloud &cloud, float keepFrac);
+size_t cullByConfidence(PointCloud &cloud, float discardFraction);
 
 /**
  * @brief Writes a single per-pair contribution to pointcloud_pair_LL_RR.ply in the

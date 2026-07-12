@@ -156,6 +156,83 @@ cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, i
     }
 }
 
+cv::Mat Disparity::filterAndComputeConfidence(
+    const cv::Mat &left, const cv::Mat &right, cv::Mat &disparityLeft,
+    int minDisp, int numDisp, int blockSize, DisparityMethod method,
+    float lrMaxDiff, float photometricScale)
+{
+    CV_Assert(disparityLeft.type() == CV_32F && disparityLeft.size() == left.size());
+    lrMaxDiff = std::max(lrMaxDiff, 1e-3f);
+    photometricScale = std::max(photometricScale, 1e-3f);
+
+    cv::Mat disparityRight;
+    bool rightUsesPositiveConvention = false;
+    if (method == DisparityMethod::OpenCVSGBM)
+    {
+        // OpenCV always defines disparity as x_base-x_match. Swapping the images
+        // therefore produces the negative of the left disparity. Cover the exact
+        // mirrored search interval (one spare integer at the lower edge is harmless).
+        const int minRight = -(minDisp + numDisp);
+        disparityRight = computeSGBMOpenCV(right, left, minRight, numDisp, blockSize);
+    }
+    else
+    {
+        cv::Mat leftF, rightF;
+        left.convertTo(leftF, CV_32F);
+        right.convertTo(rightF, CV_32F);
+        disparityRight = computeWTADisparity(leftF, rightF, left.rows, left.cols,
+                                             minDisp, numDisp, 8, 32, true);
+        rightUsesPositiveConvention = true;
+    }
+
+    cv::Mat confidence(left.size(), CV_32F, cv::Scalar(0));
+    size_t validBefore = 0, validAfter = 0;
+    const float invalid = static_cast<float>(minDisp - 1);
+    for (int y = 0; y < left.rows; ++y)
+    {
+        for (int x = 0; x < left.cols; ++x)
+        {
+            float &d = disparityLeft.at<float>(y, x);
+            if (!std::isfinite(d) || d <= static_cast<float>(minDisp))
+                continue;
+            ++validBefore;
+
+            const float xr = static_cast<float>(x) - d;
+            const int qx = cvRound(xr);
+            if (qx < 0 || qx >= right.cols)
+            {
+                d = invalid;
+                continue;
+            }
+
+            const float dr = disparityRight.at<float>(y, qx);
+            const float lrError = rightUsesPositiveConvention ? std::abs(d - dr)
+                                                               : std::abs(d + dr);
+            if (!std::isfinite(dr) || lrError > lrMaxDiff)
+            {
+                d = invalid;
+                continue;
+            }
+
+            // Bilinear sampling is unnecessary at half-resolution here; nearest-pixel
+            // photometric agreement is used only as a soft cue, never as a hard reject.
+            const float photoError = std::abs(static_cast<float>(left.at<uchar>(y, x)) -
+                                              static_cast<float>(right.at<uchar>(y, qx)));
+            const float lrConfidence = std::exp(-0.5f * (lrError * lrError) /
+                                                (lrMaxDiff * lrMaxDiff));
+            const float photoConfidence = std::exp(-photoError / photometricScale);
+            confidence.at<float>(y, x) = lrConfidence * photoConfidence;
+            ++validAfter;
+        }
+    }
+
+    std::cout << "[Disparity] left/right validation kept " << validAfter << "/"
+              << validBefore << " valid disparities ("
+              << (validBefore ? 100.0 * static_cast<double>(validAfter) / validBefore : 0.0)
+              << "%).\n";
+    return confidence;
+}
+
 cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize)
 {
     int numChannels = left.channels(); // images are grayscale (1) & (3) BGR

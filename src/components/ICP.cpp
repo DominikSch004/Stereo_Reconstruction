@@ -133,16 +133,30 @@ ICPOptimizer::ICPOptimizer()
       m_useWeights{ true },
       m_verbose{ true },
       m_nIterations{ 30 },
-      m_lastMatchCount{ 0 }
+      m_lastMatchCount{ 0 },
+      m_maxDistance{ 0.1f },
+      m_robustLoss{ ICPRobustLoss::None },
+      m_robustScale{ 0.02 },
+      m_useReciprocal{ false },
+      m_useAdaptiveGate{ false },
+      m_trimFraction{ 1.0f }
 {
     m_nearestNeighborSearch.setMatchingMaxDistance(0.1f);
 }
 
-void ICPOptimizer::setMatchingMaxDistance(float maxDistance) { m_nearestNeighborSearch.setMatchingMaxDistance(maxDistance); }
+void ICPOptimizer::setMatchingMaxDistance(float maxDistance) { m_maxDistance = maxDistance; m_nearestNeighborSearch.setMatchingMaxDistance(maxDistance); }
 void ICPOptimizer::setNbOfIterations(unsigned nIterations)   { m_nIterations = nIterations; }
 void ICPOptimizer::usePointToPlaneConstraints(bool enable)   { m_usePointToPlane = enable; }
 void ICPOptimizer::useWeights(bool enable)                   { m_useWeights = enable; }
 void ICPOptimizer::setVerbose(bool enable)                   { m_verbose = enable; }
+void ICPOptimizer::setRobustLoss(ICPRobustLoss loss, double scale)
+{
+    m_robustLoss = loss;
+    m_robustScale = std::max(scale, 1e-8);
+}
+void ICPOptimizer::useReciprocalCorrespondences(bool enable) { m_useReciprocal = enable; }
+void ICPOptimizer::setTrimFraction(float fraction)            { m_trimFraction = std::clamp(fraction, 0.05f, 1.0f); }
+void ICPOptimizer::useAdaptiveDistanceGate(bool enable)       { m_useAdaptiveGate = enable; }
 
 std::vector<Eigen::Vector3f> ICPOptimizer::transformPoints(
     const std::vector<Eigen::Vector3f>& points, const Eigen::Matrix4f& pose) const
@@ -188,11 +202,174 @@ void ICPOptimizer::pruneCorrespondences(
         const Eigen::Vector3f& sn = sourceNormals[i];
         const Eigen::Vector3f& tn = targetNormals[match.idx];
         if (!sn.allFinite() || !tn.allFinite()) continue;
+        if (sn.squaredNorm() < 1e-12f || tn.squaredNorm() < 1e-12f) continue;
 
         // Reject correspondences whose normals disagree by more than 60 degrees.
         if (sn.dot(tn) < 0.5f)
             match.idx = -1;
     }
+}
+
+namespace {
+
+double medianOf(std::vector<double> values)
+{
+    if (values.empty()) return std::numeric_limits<double>::infinity();
+    const size_t mid = values.size() / 2;
+    std::nth_element(values.begin(), values.begin() + mid, values.end());
+    double m = values[mid];
+    if (values.size() % 2 == 0)
+    {
+        auto lo = std::max_element(values.begin(), values.begin() + mid);
+        m = 0.5 * (m + *lo);
+    }
+    return m;
+}
+
+} // namespace
+
+void ICPOptimizer::robustlyFilterCorrespondences(
+    const std::vector<Eigen::Vector3f>& transformedPoints,
+    const PointCloud& target,
+    std::vector<Match>& matches) const
+{
+    if (m_useReciprocal && !target.pts.empty() && !transformedPoints.empty())
+    {
+        NearestNeighborSearch reverse;
+        reverse.setMatchingMaxDistance(m_maxDistance);
+        reverse.buildIndex(transformedPoints);
+        const auto reverseMatches = reverse.queryMatches(target.pts);
+        for (size_t i = 0; i < matches.size(); ++i)
+        {
+            const int j = matches[i].idx;
+            if (j >= 0 && (j >= static_cast<int>(reverseMatches.size()) || reverseMatches[j].idx != static_cast<int>(i)))
+                matches[i].idx = -1;
+        }
+    }
+
+    std::vector<double> distances;
+    distances.reserve(matches.size());
+    for (const Match& m : matches)
+        if (m.idx >= 0) distances.push_back(std::sqrt(std::max(0.0f, m.distance)));
+    if (distances.empty()) return;
+
+    if (m_useAdaptiveGate && distances.size() >= 10)
+    {
+        const double med = medianOf(distances);
+        std::vector<double> deviations;
+        deviations.reserve(distances.size());
+        for (double d : distances) deviations.push_back(std::abs(d - med));
+        const double sigma = 1.4826 * medianOf(deviations);
+        const double adaptive = std::min<double>(m_maxDistance,
+            std::max<double>(0.25 * m_maxDistance, med + 3.0 * std::max(sigma, 1e-6)));
+        for (Match& m : matches)
+            if (m.idx >= 0 && std::sqrt(std::max(0.0f, m.distance)) > adaptive) m.idx = -1;
+    }
+
+    if (m_trimFraction < 0.999f)
+    {
+        std::vector<float> validSq;
+        validSq.reserve(matches.size());
+        for (const Match& m : matches) if (m.idx >= 0) validSq.push_back(m.distance);
+        if (validSq.size() >= 10)
+        {
+            const size_t keep = std::max<size_t>(6, static_cast<size_t>(std::ceil(m_trimFraction * validSq.size())));
+            const size_t kth = std::min(keep, validSq.size()) - 1;
+            std::nth_element(validSq.begin(), validSq.begin() + kth, validSq.end());
+            const float cutoff = validSq[kth];
+            for (Match& m : matches)
+                if (m.idx >= 0 && m.distance > cutoff) m.idx = -1;
+        }
+    }
+}
+
+ICPMetrics ICPOptimizer::computeMetrics(
+    const PointCloud& source, const PointCloud& target,
+    const std::vector<Eigen::Vector3f>& transformedPoints,
+    const std::vector<Match>& matches) const
+{
+    ICPMetrics out;
+    out.sourceCount = static_cast<int>(source.pts.size());
+    std::vector<double> distances;
+    distances.reserve(matches.size());
+    double sum = 0.0, sumSq = 0.0;
+    Eigen::Matrix<double, 6, 6> H = Eigen::Matrix<double, 6, 6>::Zero();
+
+    Eigen::Vector3f mn = Eigen::Vector3f::Constant(std::numeric_limits<float>::max());
+    Eigen::Vector3f mx = Eigen::Vector3f::Constant(std::numeric_limits<float>::lowest());
+    for (const auto& p : transformedPoints) { mn = mn.cwiseMin(p); mx = mx.cwiseMax(p); }
+    const Eigen::Vector3f center = 0.5f * (mn + mx);
+    unsigned sourceMask = 0, matchedMask = 0;
+
+    for (size_t i = 0; i < transformedPoints.size(); ++i)
+    {
+        const Eigen::Vector3f& p = transformedPoints[i];
+        const unsigned oct = (p.x() >= center.x() ? 1u : 0u) |
+                             (p.y() >= center.y() ? 2u : 0u) |
+                             (p.z() >= center.z() ? 4u : 0u);
+        sourceMask |= 1u << oct;
+        if (i >= matches.size() || matches[i].idx < 0) continue;
+        const int j = matches[i].idx;
+        if (j >= static_cast<int>(target.pts.size())) continue;
+        matchedMask |= 1u << oct;
+        const double d = (p - target.pts[j]).norm();
+        distances.push_back(d); sum += d; sumSq += d * d;
+
+        const double w = (m_useWeights && i < source.weights.size())
+                       ? std::max<double>(source.weights[i], 0.0) : 1.0;
+        if (m_usePointToPlane && j < static_cast<int>(target.normals.size()) &&
+            (target.validNormal.empty() || target.validNormal[j]) &&
+            target.normals[j].squaredNorm() > 1e-12f)
+        {
+            const Eigen::Vector3d pd = p.cast<double>();
+            const Eigen::Vector3d n = target.normals[j].cast<double>().normalized();
+            Eigen::Matrix<double, 1, 6> J;
+            J << pd.cross(n).transpose(), n.transpose();
+            H.noalias() += w * J.transpose() * J;
+        }
+        else
+        {
+            Eigen::Matrix<double, 3, 6> J = Eigen::Matrix<double, 3, 6>::Zero();
+            Eigen::Matrix3d skew;
+            const Eigen::Vector3d pd = p.cast<double>();
+            skew << 0.0, -pd.z(), pd.y(), pd.z(), 0.0, -pd.x(), -pd.y(), pd.x(), 0.0;
+            J.block<3,3>(0,0) = -skew;
+            J.block<3,3>(0,3) = Eigen::Matrix3d::Identity();
+            H.noalias() += w * J.transpose() * J;
+        }
+    }
+
+    out.matchCount = static_cast<int>(distances.size());
+    out.overlap = out.sourceCount ? static_cast<double>(out.matchCount) / out.sourceCount : 0.0;
+    if (!distances.empty())
+    {
+        out.meanDistance = sum / distances.size();
+        out.rmse = std::sqrt(sumSq / distances.size());
+        out.medianDistance = medianOf(distances);
+    }
+    out.spatialCoverage = sourceMask ? static_cast<double>(__builtin_popcount(matchedMask)) /
+                                      __builtin_popcount(sourceMask) : 0.0;
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> es(H);
+    if (es.info() == Eigen::Success)
+    {
+        const double lo = es.eigenvalues().minCoeff();
+        const double hi = es.eigenvalues().maxCoeff();
+        if (lo > 1e-12) out.conditionNumber = hi / lo;
+    }
+    return out;
+}
+
+ICPMetrics ICPOptimizer::evaluatePose(const PointCloud& source, const PointCloud& target,
+                                      const Eigen::Matrix4f& pose)
+{
+    m_nearestNeighborSearch.buildIndex(target.pts);
+    const auto transformed = transformPoints(source.pts, pose);
+    auto matches = m_nearestNeighborSearch.queryMatches(transformed);
+    if (m_usePointToPlane && source.normals.size() == source.pts.size())
+        pruneCorrespondences(transformNormals(source.normals, pose), target.normals,
+                             target.validNormal, matches);
+    robustlyFilterCorrespondences(transformed, target, matches);
+    return computeMetrics(source, target, transformed, matches);
 }
 
 // ============================================================================
@@ -221,6 +398,9 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
 
     const bool haveSourceNormals = source.normals.size() == source.pts.size();
     Eigen::Matrix4f estimatedPose = initialPose;
+    m_initialMetrics = evaluatePose(source, target, initialPose);
+    // evaluatePose rebuilds the same target index; make this explicit for clarity.
+    m_nearestNeighborSearch.buildIndex(target.pts);
 
     for (unsigned iter = 0; iter < m_nIterations; ++iter)
     {
@@ -233,6 +413,7 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             const auto transformedNormals = transformNormals(source.normals, estimatedPose);
             pruneCorrespondences(transformedNormals, target.normals, target.validNormal, matches);
         }
+        robustlyFilterCorrespondences(transformedPoints, target, matches);
 
         const int matched = (int)std::count_if(matches.begin(), matches.end(),
                                                 [](const Match& m) { return m.idx >= 0; });
@@ -294,13 +475,23 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
                                 && target.normals[match.idx].allFinite();
 
             if (usePlane)
+            {
+                ceres::LossFunction* loss = nullptr;
+                if (m_robustLoss == ICPRobustLoss::Huber) loss = new ceres::HuberLoss(m_robustScale);
+                else if (m_robustLoss == ICPRobustLoss::Cauchy) loss = new ceres::CauchyLoss(m_robustScale);
                 problem.AddResidualBlock(
                     PointToPlaneConstraint::create(sp, tp, target.normals[match.idx], weight),
-                    nullptr, poseIncrement);
+                    loss, poseIncrement);
+            }
             else
+            {
+                ceres::LossFunction* loss = nullptr;
+                if (m_robustLoss == ICPRobustLoss::Huber) loss = new ceres::HuberLoss(m_robustScale);
+                else if (m_robustLoss == ICPRobustLoss::Cauchy) loss = new ceres::CauchyLoss(m_robustScale);
                 problem.AddResidualBlock(
                     PointToPointConstraint::create(sp, tp, weight),
-                    nullptr, poseIncrement);
+                    loss, poseIncrement);
+            }
         }
 
         ceres::Solver::Options options;
@@ -330,6 +521,11 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             break;
         }
     }
+
+    // Re-associate after the final increment. This makes the public match count and
+    // quality metrics describe the returned pose rather than the pre-update state.
+    m_finalMetrics = evaluatePose(source, target, estimatedPose);
+    m_lastMatchCount = m_finalMetrics.matchCount;
 
     return estimatedPose;
 }

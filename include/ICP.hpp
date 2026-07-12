@@ -4,6 +4,8 @@
 #include "NearestNeighborSearch.hpp"
 #include <Eigen/Dense>
 #include <vector>
+#include <limits>
+#include <cmath>
 
 /**
  * @enum ICPMode
@@ -12,6 +14,21 @@
 enum class ICPMode {
     PointToPoint,
     PointToPlane
+};
+
+enum class ICPRobustLoss { None, Huber, Cauchy };
+
+struct ICPMetrics
+{
+    int matchCount = 0;
+    int sourceCount = 0;
+    double overlap = 0.0;
+    double meanDistance = std::numeric_limits<double>::infinity();
+    double medianDistance = std::numeric_limits<double>::infinity();
+    double rmse = std::numeric_limits<double>::infinity();
+    double conditionNumber = std::numeric_limits<double>::infinity();
+    double spatialCoverage = 0.0; // occupied source octants containing accepted matches
+    bool valid() const { return matchCount >= 6 && std::isfinite(rmse); }
 };
 
 /**
@@ -42,6 +59,10 @@ public:
     void useWeights(bool enable);
     /** @brief Emit per-iteration correspondence / cost diagnostics. */
     void setVerbose(bool enable);
+    void setRobustLoss(ICPRobustLoss loss, double scale = 0.02);
+    void useReciprocalCorrespondences(bool enable);
+    void setTrimFraction(float fraction);
+    void useAdaptiveDistanceGate(bool enable);
 
     /**
      * @brief Estimates the rigid transform aligning @p source onto @p target.
@@ -60,6 +81,12 @@ public:
      *        Lets callers gauge overlap and reject a pair that failed to register.
      */
     int lastMatchCount() const { return m_lastMatchCount; }
+    const ICPMetrics& initialMetrics() const { return m_initialMetrics; }
+    const ICPMetrics& finalMetrics() const { return m_finalMetrics; }
+
+    /** @brief Evaluates a pose using the optimizer's current correspondence policy. */
+    ICPMetrics evaluatePose(const PointCloud& source, const PointCloud& target,
+                            const Eigen::Matrix4f& pose = Eigen::Matrix4f::Identity());
 
 protected:
     bool     m_usePointToPlane;
@@ -67,6 +94,14 @@ protected:
     bool     m_verbose;
     unsigned m_nIterations;
     int      m_lastMatchCount;
+    float    m_maxDistance;
+    ICPRobustLoss m_robustLoss;
+    double   m_robustScale;
+    bool     m_useReciprocal;
+    bool     m_useAdaptiveGate;
+    float    m_trimFraction;
+    ICPMetrics m_initialMetrics;
+    ICPMetrics m_finalMetrics;
 
     NearestNeighborSearch m_nearestNeighborSearch;
 
@@ -87,6 +122,17 @@ protected:
         const std::vector<Eigen::Vector3f>& targetNormals,
         const std::vector<bool>& targetValidNormal,
         std::vector<Match>& matches) const;
+
+    void robustlyFilterCorrespondences(
+        const std::vector<Eigen::Vector3f>& transformedPoints,
+        const PointCloud& target,
+        std::vector<Match>& matches) const;
+
+    ICPMetrics computeMetrics(
+        const PointCloud& source,
+        const PointCloud& target,
+        const std::vector<Eigen::Vector3f>& transformedPoints,
+        const std::vector<Match>& matches) const;
 };
 
 /**

@@ -22,6 +22,7 @@
 #include "PlyUtils.hpp"
 #include "ICP.hpp"
 #include "IcpUtils.hpp"
+#include "VoxelFusion.hpp"
 
 namespace {
 
@@ -202,6 +203,44 @@ int main()
                   std::string("weighted beats unweighted (") +
                       (mode == ICPMode::PointToPoint ? "P2Point" : "P2Plane") + ")");
         }
+    }
+
+    // ---------------- Case D: confidence-weighted voxel fusion ----------------
+    std::cout << "\n=== Case D: repeated observations are fused; normal outlier is rejected ===\n";
+    {
+        PointCloud a, b;
+        for (int y = 0; y < 10; ++y)
+            for (int x = 0; x < 10; ++x)
+            {
+                const Eigen::Vector3f p(-0.45f + 0.1f * x, -0.45f + 0.1f * y, 0.0f);
+                for (PointCloud *c : {&a, &b})
+                {
+                    c->colors.push_back(cv::Vec3b(100, 150, 200));
+                    c->weights.push_back(1.0f);
+                    c->normals.push_back(Eigen::Vector3f::UnitZ());
+                    c->validNormal.push_back(true);
+                }
+                a.pts.push_back(p + Eigen::Vector3f(0, 0, 0.004f));
+                b.pts.push_back(p - Eigen::Vector3f(0, 0, 0.004f));
+            }
+        // Close in Euclidean distance but inconsistent along the established normal.
+        b.pts.push_back(a.pts.front() + Eigen::Vector3f(0, 0, 0.04f));
+        b.colors.push_back(cv::Vec3b(0, 0, 255)); b.weights.push_back(1.0f);
+        b.normals.push_back(Eigen::Vector3f::UnitZ()); b.validNormal.push_back(true);
+
+        VoxelFusionModel model(0.05f, 0.5f);
+        model.integrate(a);
+        const auto update = model.integrate(b);
+        PointCloud fused = model.pointCloud();
+        double meanAbsZ = 0.0;
+        for (const auto &p : fused.pts) meanAbsZ += std::abs(p.z());
+        meanAbsZ /= std::max<size_t>(fused.pts.size(), 1);
+        std::cout << "fusion: surfels=" << fused.pts.size() << " merged=" << update.merged
+                  << " rejected=" << update.rejected << " mean|z|=" << meanAbsZ << "\n";
+        check(update.merged >= 90 && fused.pts.size() <= 110,
+              "repeated samples collapse into surfels");
+        check(update.rejected >= 1, "normal-direction outlier is rejected");
+        check(meanAbsZ < 0.002, "opposite zero-mean noise is averaged down");
     }
 
     std::cout << "\n=== " << (allPass ? "ALL CHECKS PASSED" : "SOME CHECKS FAILED") << " ===\n";

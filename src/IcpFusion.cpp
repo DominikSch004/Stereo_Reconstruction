@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 #include <cmath>
+#include <algorithm>
 #include <Eigen/Dense>
 #include "DTULoader.hpp"
 #include "Pipeline.hpp"
@@ -13,6 +14,7 @@
 #include "IcpUtils.hpp"
 #include "PoissonReconstruction.hpp"
 #include "MeshUtils.hpp"
+#include "VoxelFusion.hpp"
 
 int main(int argc, char **argv)
 {
@@ -33,12 +35,11 @@ int main(int argc, char **argv)
     const std::vector<std::pair<int, int>> selectedPairs = {
         {1, 2}, {4, 5}, {7, 8}, {12, 13}, {18, 19}, {26, 27}, {32, 33}, {37, 38}};
 
-    const size_t icpSamples = 4000;
     const size_t minCloudPoints = 1000; // reject degenerate reconstructions (near-empty clouds)
-    const float confidenceKeepFrac = 0.10f;
-    const double minOverlapFrac = 0.10;
-
-    std::mt19937 rng(42);
+    const float confidenceDiscardFraction = 0.10f;
+    // Measured on fusion-resolution surfels, not raw pixels. The model is much
+    // sparser than an organized stereo cloud by design.
+    const double minOverlapFrac = 0.05;
 
     std::vector<PointCloud> clouds;
     clouds.reserve(selectedPairs.size());
@@ -84,13 +85,16 @@ int main(int argc, char **argv)
             continue;
         }
 
-        PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, config.triangulation);
+        PointCloud cloud = PlyUtils::buildPointCloud(
+            res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld,
+            res.rectColor, res.minDisp, res.globalConfidence,
+            config.triangulation, res.disparityConfidence);
 
         const size_t beforeCull = cloud.pts.size();
-        const size_t culled = IcpUtils::cullByConfidence(cloud, confidenceKeepFrac);
+        const size_t culled = IcpUtils::cullByConfidence(cloud, confidenceDiscardFraction);
         if (culled > 0)
-            std::cout << "  Confidence cull (keep weight >= " << confidenceKeepFrac
-                      << " x max): removed " << culled << " / " << beforeCull << " ("
+            std::cout << "  Confidence cull (lowest " << (100.0f * confidenceDiscardFraction)
+                      << "%): removed " << culled << " / " << beforeCull << " ("
                       << (100.0 * (double)culled / (double)beforeCull) << "%), "
                       << cloud.pts.size() << " kept.\n";
 
@@ -130,7 +134,13 @@ int main(int argc, char **argv)
         for (auto &p : clouds[ci].pts)
             p = (p - mean0) / scale0;
 
-    PointCloud fused = clouds[0];
+    // The model stores one confidence-weighted surfel per local surface region.
+    // Repeated observations therefore reduce noise instead of thickening the cloud.
+    VoxelFusionModel fusion(config.fusionVoxelSize, config.fusionOutlierFactor);
+    auto firstStats = fusion.integrate(clouds[0]);
+    PointCloud fused = fusion.pointCloud();
+    std::cout << "Initial fusion model: " << fused.pts.size() << " surfels ("
+              << firstStats.inserted << " inserted, " << firstStats.merged << " merged).\n";
     IcpUtils::saveIndividualCloud(clouds[0], cloudPairs[0].first, cloudPairs[0].second, mean0, scale0);
     for (size_t i = 1; i < clouds.size(); ++i)
     {
@@ -139,49 +149,91 @@ int main(int argc, char **argv)
         // Refine a working copy so clouds[i] retains its untouched calibration placement as fallback.
         PointCloud refined = clouds[i];
 
-        PointCloud srcSub = PlyUtils::subsample(refined, icpSamples, rng);
-        PointCloud tgtSub = PlyUtils::subsample(fused, icpSamples, rng);
+        struct Level { float voxel, maxDistance; unsigned iterations; bool weighted; };
+        const std::vector<Level> levels = {
+            {0.040f, 0.120f, 20, false},
+            {0.020f, 0.075f, 15, true},
+            {0.010f, 0.045f, 12, true}};
 
-        CeresICPOptimizer icp;
-        icp.setMode(config.icpMode);
-        icp.setMatchingMaxDistance(0.1f);
+        Eigen::Matrix4f totalT = Eigen::Matrix4f::Identity();
+        ICPMetrics lastLevelMetrics;
+        for (size_t levelIdx = 0; levelIdx < levels.size(); ++levelIdx)
+        {
+            const Level &level = levels[levelIdx];
+            PointCloud sourceLevel = PlyUtils::voxelDownsample(refined, level.voxel);
+            PointCloud targetLevel = PlyUtils::voxelDownsample(fused, level.voxel);
+            if (sourceLevel.pts.size() < 20 || targetLevel.pts.size() < 20) continue;
 
-        // Coarse alignment on subsampled clouds (unweighted).
-        icp.setNbOfIterations(40);
-        icp.useWeights(false);
-        Eigen::Matrix4f coarseT = icp.estimatePose(srcSub, tgtSub);
-        IcpUtils::applyRigid(refined, coarseT);
+            CeresICPOptimizer icp;
+            icp.setMode(config.icpMode);
+            icp.setMatchingMaxDistance(level.maxDistance);
+            icp.setNbOfIterations(level.iterations);
+            icp.useWeights(level.weighted);
+            icp.useReciprocalCorrespondences(config.icpReciprocal);
+            icp.setTrimFraction(config.icpTrimFraction);
+            icp.useAdaptiveDistanceGate(true);
+            if (config.icpRobust)
+                icp.setRobustLoss(ICPRobustLoss::Cauchy, std::max(0.5f * level.voxel, 0.003f));
+            icp.setVerbose(false);
 
-        // Fine refinement against the full fused cloud (confidence-weighted).
-        icp.setNbOfIterations(20);
-        icp.useWeights(true);
-        Eigen::Matrix4f fineT = icp.estimatePose(refined, fused);
-        IcpUtils::applyRigid(refined, fineT);
-        int matched = icp.lastMatchCount();
+            Eigen::Matrix4f levelT = icp.estimatePose(sourceLevel, targetLevel);
+            IcpUtils::applyRigid(refined, levelT);
+            totalT = levelT * totalT;
+            lastLevelMetrics = icp.finalMetrics();
+            std::cout << "  pyramid level " << levelIdx << " voxel=" << level.voxel
+                      << ": matches=" << lastLevelMetrics.matchCount
+                      << ", median=" << lastLevelMetrics.medianDistance
+                      << ", rmse=" << lastLevelMetrics.rmse << "\n";
+        }
 
-        const double overlapFrac = clouds[i].pts.empty()
-                                 ? 0.0 : (double)matched / (double)clouds[i].pts.size();
-        const bool trustRefinement = overlapFrac >= minOverlapFrac;
+        // Evaluate the complete refinement against the same stable fused model.
+        CeresICPOptimizer quality;
+        quality.setMode(config.icpMode);
+        quality.setMatchingMaxDistance(0.05f);
+        quality.useWeights(true);
+        quality.useReciprocalCorrespondences(config.icpReciprocal);
+        quality.setTrimFraction(config.icpTrimFraction);
+        quality.useAdaptiveDistanceGate(true);
+        quality.setVerbose(false);
+        const PointCloud calibrationEval = PlyUtils::voxelDownsample(clouds[i], config.fusionVoxelSize);
+        const PointCloud refinedEval = PlyUtils::voxelDownsample(refined, config.fusionVoxelSize);
+        const ICPMetrics before = quality.evaluatePose(calibrationEval, fused);
+        const ICPMetrics after = quality.evaluatePose(refinedEval, fused);
+
+        const Eigen::Matrix3f Rcorr = totalT.block<3,3>(0,0);
+        const double cosAngle = std::clamp<double>((Rcorr.trace() - 1.0) * 0.5, -1.0, 1.0);
+        const double correctionAngleDeg = std::acos(cosAngle) * 180.0 / M_PI;
+        const double correctionTranslation = totalT.block<3,1>(0,3).norm();
+        const bool improvesMedian = !before.valid() || after.medianDistance <= 0.98 * before.medianDistance;
+        const bool stableRmse = !before.valid() || after.rmse <= 1.02 * before.rmse;
+        const bool plausibleCorrection = correctionAngleDeg <= 10.0 && correctionTranslation <= 0.15;
+        const bool wellConstrained = std::isfinite(after.conditionNumber) && after.conditionNumber <= 1e12;
+        const bool trustRefinement = after.valid() && after.overlap >= minOverlapFrac &&
+                                     after.spatialCoverage >= 0.5 && improvesMedian && stableRmse &&
+                                     plausibleCorrection && wellConstrained;
         const PointCloud &toAppend = trustRefinement ? refined : clouds[i];
 
         if (trustRefinement)
-            std::cout << "  ICP refined: overlap " << (100.0 * overlapFrac) << "% ("
-                      << matched << " correspondences).\n";
+            std::cout << "  ICP accepted: median " << before.medianDistance << " -> "
+                      << after.medianDistance << ", overlap=" << (100.0 * after.overlap)
+                      << "%, coverage=" << (100.0 * after.spatialCoverage) << "%\n";
         else
-            std::cerr << "  NOTE: low ICP overlap " << (100.0 * overlapFrac) << "% ("
-                      << matched << " correspondences) -- appending at calibration placement "
-                      << "without refinement.\n";
+            std::cerr << "  ICP rejected; keeping calibration pose. before/after median="
+                      << before.medianDistance << "/" << after.medianDistance
+                      << ", rmse=" << before.rmse << "/" << after.rmse
+                      << ", overlap=" << (100.0 * after.overlap)
+                      << "%, coverage=" << (100.0 * after.spatialCoverage)
+                      << "%, correction=" << correctionAngleDeg << " deg/"
+                      << correctionTranslation << " normalized units.\n";
 
         // Save this pair's contribution exactly as it enters the fused cloud.
         IcpUtils::saveIndividualCloud(toAppend, cloudPairs[i].first, cloudPairs[i].second, mean0, scale0);
 
-        fused.pts.insert(fused.pts.end(), toAppend.pts.begin(), toAppend.pts.end());
-        fused.colors.insert(fused.colors.end(), toAppend.colors.begin(), toAppend.colors.end());
-        fused.weights.insert(fused.weights.end(), toAppend.weights.begin(), toAppend.weights.end());
-        fused.normals.insert(fused.normals.end(), toAppend.normals.begin(), toAppend.normals.end());
-        fused.validNormal.insert(fused.validNormal.end(), toAppend.validNormal.begin(), toAppend.validNormal.end());
-
-        std::cout << "Current fused cloud size: " << fused.pts.size() << " points\n";
+        const auto update = fusion.integrate(toAppend);
+        fused = fusion.pointCloud();
+        std::cout << "  Fusion update: inserted=" << update.inserted
+                  << ", merged=" << update.merged << ", rejected=" << update.rejected
+                  << "; model=" << fused.pts.size() << " surfels.\n";
     }
 
     PlyUtils::denormalise(fused, mean0, scale0);

@@ -69,18 +69,17 @@ bool orderPair(DTULoader &loader, int a, int b,
     return true;
 }
 
-size_t cullByConfidence(PointCloud &cloud, float keepFrac)
+size_t cullByConfidence(PointCloud &cloud, float discardFraction)
 {
     const size_t n = cloud.pts.size();
-    if (keepFrac <= 0.0f || n == 0 || cloud.weights.size() != n)
+    if (discardFraction <= 0.0f || n == 0 || cloud.weights.size() != n)
         return 0;
-
-    float wMax = 0.0f;
-    for (float w : cloud.weights)
-        wMax = std::max(wMax, w);
-    if (wMax <= 0.0f)
-        return 0;
-    const float thresh = keepFrac * wMax;
+    discardFraction = std::clamp(discardFraction, 0.0f, 0.95f);
+    std::vector<float> sorted = cloud.weights;
+    const size_t q = std::min(sorted.size() - 1,
+                              static_cast<size_t>(discardFraction * sorted.size()));
+    std::nth_element(sorted.begin(), sorted.begin() + q, sorted.end());
+    const float thresh = sorted[q];
 
     const bool hasColors = cloud.colors.size() == n;
     const bool hasNormals = cloud.normals.size() == n;

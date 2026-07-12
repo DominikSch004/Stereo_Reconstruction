@@ -22,6 +22,14 @@ struct PipelineConfig
     DisparityMethod disparity = DisparityMethod::OpenCVSGBM;
     TriangulationMethod triangulation = TriangulationMethod::OpenCV;
     ICPMode icpMode = ICPMode::PointToPlane; // used by the ICP fusion pipeline only
+    bool stereoConfidenceFilter = true;
+    float stereoLRMaxDiff = 1.5f;
+    float stereoPhotometricScale = 25.0f;
+    bool icpRobust = true;
+    bool icpReciprocal = true;
+    float icpTrimFraction = 0.80f;
+    float fusionVoxelSize = 0.01f;       // normalized cloud units
+    float fusionOutlierFactor = 1.5f;    // normal-distance rejection in voxel units
 
     /**
      * @brief Loads a config from a YAML file (parsed with cv::FileStorage).

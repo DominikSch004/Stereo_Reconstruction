@@ -187,6 +187,14 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
         return false;
     }
 
+    if (config.stereoConfidenceFilter)
+        res.disparityConfidence = Disparity::filterAndComputeConfidence(
+            res.rectLeft, res.rectRight, res.denseDisparity,
+            res.minDisp, res.numDisp, blockSize, config.disparity,
+            config.stereoLRMaxDiff, config.stereoPhotometricScale);
+    else
+        res.disparityConfidence = cv::Mat(res.denseDisparity.size(), CV_32F, cv::Scalar(1.0f));
+
     // --- 7. Disparity to Depth Reprojection ---
     res.dense3DPoints = Triangulation::reprojectDisparityTo3D(
         res.denseDisparity, res.Q, res.P1r, res.P2r, res.minDisp, config.triangulation);

@@ -42,7 +42,8 @@ public:
         const cv::Mat &rectColor,
         int minDisp,
         float globalConfidence,
-        TriangulationMethod method = TriangulationMethod::OpenCV
+        TriangulationMethod method = TriangulationMethod::OpenCV,
+        const cv::Mat &disparityConfidence = cv::Mat()
     );
 
     /**
@@ -65,7 +66,8 @@ public:
         const cv::Mat &rectColor,
         int minDisp,
         float globalConfidence,
-        TriangulationMethod method = TriangulationMethod::OpenCV
+        TriangulationMethod method = TriangulationMethod::OpenCV,
+        const cv::Mat &disparityConfidence = cv::Mat()
     );
 
     /**
@@ -84,6 +86,12 @@ public:
         const PointCloud &cloud,
         size_t n,
         std::mt19937 &rng);
+
+    /**
+     * @brief Confidence-weighted voxel downsampling. Each occupied voxel produces
+     * one averaged point with consistently averaged color/normal attributes.
+     */
+    static PointCloud voxelDownsample(const PointCloud &cloud, float voxelSize);
 
     /**
      * @brief Normalizes point spatial attributes to zero-mean and unit variance.

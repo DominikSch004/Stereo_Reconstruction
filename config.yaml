@@ -22,3 +22,16 @@ triangulation: custom
 
 # point_to_point | point_to_plane  (only used by the IcpFusion executable)
 icp_mode: point_to_plane
+
+# Phase-1 robustness and fusion settings.
+# Boolean values use 0/1 for OpenCV FileStorage portability.
+stereo_confidence_filter: 1
+stereo_lr_max_diff: 1.5
+stereo_photometric_scale: 25.0
+icp_robust: 1
+icp_reciprocal: 1
+icp_trim_fraction: 0.80
+
+# Values are in the normalized coordinate system used by IcpFusion.
+fusion_voxel_size: 0.01
+fusion_outlier_factor: 1.5

@@ -38,6 +38,26 @@ public:
         int blockSize,
         DisparityMethod method);
 
+    /**
+     * @brief Computes a per-pixel stereo reliability map and invalidates inconsistent
+     *        entries in @p disparityLeft in place.
+     *
+     * A second, right-to-left disparity pass is used for a left/right cycle check.
+     * Surviving pixels receive a confidence in [0,1] combining cycle consistency and
+     * rectified photometric agreement; inconsistent/occluded pixels are assigned zero
+     * confidence and minDisp-1 disparity so they cannot be triangulated.
+     */
+    static cv::Mat filterAndComputeConfidence(
+        const cv::Mat &left,
+        const cv::Mat &right,
+        cv::Mat &disparityLeft,
+        int minDisp,
+        int numDisp,
+        int blockSize,
+        DisparityMethod method,
+        float lrMaxDiff = 1.5f,
+        float photometricScale = 25.0f);
+
 private:
      // OpenCV and custom SGM backend implementations
     static cv::Mat computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
