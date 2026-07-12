@@ -9,24 +9,6 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED)
 find_package(glog REQUIRED)
 
-find_path(FREEIMAGE_INCLUDE_DIR
-    NAMES FreeImage.h
-    NO_CACHE
-    REQUIRED
-)
-
-find_library(FREEIMAGE_LIBRARY
-    NAMES freeimage FreeImage
-    NO_CACHE
-    REQUIRED
-)
-
-add_library(FreeImage::FreeImage UNKNOWN IMPORTED)
-set_target_properties(FreeImage::FreeImage PROPERTIES
-    IMPORTED_LOCATION "${FREEIMAGE_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${FREEIMAGE_INCLUDE_DIR}"
-)
-
 add_library(stereo_core STATIC
     src/Pipeline.cpp
     src/PipelineConfig.cpp
@@ -37,7 +19,6 @@ add_library(stereo_core STATIC
     src/components/Triangulation.cpp
     src/components/ICP.cpp
     src/utils/ImgUtils.cpp
-    src/utils/FreeImageHelper.cpp
     src/utils/PlyUtils.cpp
     src/utils/MeshUtils.cpp
     src/utils/GeometryUtils.cpp
@@ -54,7 +35,6 @@ target_include_directories(stereo_core PUBLIC
 target_link_libraries(stereo_core PUBLIC
     ${OpenCV_LIBS}
     Eigen3::Eigen
-    FreeImage::FreeImage
     glog::glog
     Ceres::ceres
 )
