@@ -1,4 +1,5 @@
 #include "FundamentalMatrix.hpp"
+#include "Magsac.hpp"
 #include <opencv2/calib3d.hpp>
 #include <Eigen/SVD>
 #include <random>
@@ -343,12 +344,16 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     double sigmaMax,
-    int maxIter)
+    double confidence,
+    int maxIter,
+    int minIter)
 {
     const int N = (int)ptsL.size();
 
     Eigen::Matrix3d bestF = Eigen::Matrix3d::Identity();
-    double bestScore = -1.0;
+
+    // minimize loss by tracking the lowest loss found.
+    double bestTotalLoss = std::numeric_limits<double>::max();
 
     inlierMask.assign(N, false);
 
@@ -357,11 +362,22 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
 
     const int sampleSize = 8;
 
-    for (int it = 0; it < maxIter; ++it)
-    {
+    // initialize Magsac++ values
+    MagsacPlusPlus magsacCore(sigmaMax);
+    const double sigmaMaxSquared = sigmaMax * sigmaMax;
+
+    int dynamicMaxIter = maxIter;
 
         std::vector<int> idx;
+    idx.reserve(sampleSize);
+    std::vector<cv::Point2f> sL(sampleSize), sR(sampleSize);
 
+    // RANSAC Loop
+    int it;
+    for (it = 0; it < dynamicMaxIter; ++it)
+    {
+        // compute indexes
+        idx.clear();
         while ((int)idx.size() < sampleSize)
         {
             int r = dist(rng);
@@ -371,8 +387,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             }
         }
 
-        std::vector<cv::Point2f> sL(sampleSize), sR(sampleSize);
-
+        // sample points
         for (int i = 0; i < sampleSize; ++i)
         {
             sL[i] = ptsL[idx[i]];
@@ -380,75 +395,108 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         }
 
         Eigen::Matrix3d F = compute8Point(sL, sR);
+        double currentTotalLoss = 0.0;
+        int approxInliers = 0;
 
-        double score = 0.0;
+        // set a strict threshold for iteration
+        double strictStoppingThreshold = 1.0;
 
         for (int i = 0; i < N; ++i)
         {
-            double e = sampsonError(F, ptsL[i], ptsR[i]);
+            double e2 = sampsonError(F, ptsL[i], ptsR[i]);
+            currentTotalLoss += magsacCore.calculateLoss(e2);
 
-            // MAGSAC-style soft truncated Gaussian score
-            if (e < sigmaMax * sigmaMax)
+            // Count inliers using the strict threshold
+            if (std::sqrt(e2) < strictStoppingThreshold)
             {
-                double w = std::exp(-e / (2.0 * sigmaMax * sigmaMax));
-                score += w;
+                approxInliers++;
+            }
+
+            if (currentTotalLoss > bestTotalLoss)
+                break;
+        }
+
+        if (currentTotalLoss < bestTotalLoss)
+        {
+            bestTotalLoss = currentTotalLoss;
+            bestF = F;
+            int requiredIters = calculateRequiredIterations(approxInliers, N, sampleSize, confidence);
+            // added a minIter to fight against coplanarity
+            dynamicMaxIter = std::min(maxIter, std::max(minIter, requiredIters));
+        }
+    }
+
+    // 2. Iteratively Re-weighted Least Squares (IRLS) Polish
+    int irwls_iterations = 5;
+    Eigen::Matrix3d polishedF = bestF;
+
+    for (int iter = 0; iter < irwls_iterations; ++iter)
+    {
+        std::vector<cv::Point2f> inL, inR;
+        std::vector<double> inW;
+        inL.reserve(N);
+        inR.reserve(N);
+        inW.reserve(N);
+
+    for (int i = 0; i < N; ++i)
+    {
+            double e2 = sampsonError(polishedF, ptsL[i], ptsR[i]);
+            double weight = magsacCore.calculateWeight(e2);
+
+            if (weight > 1e-6)
+            {
+                inL.push_back(ptsL[i]);
+                inR.push_back(ptsR[i]);
+                inW.push_back(weight);
             }
         }
 
-        if (score > bestScore)
+        if (inL.size() >= 8)
         {
-            bestScore = score;
-            bestF = F;
-        }
-    }
+            Eigen::Matrix3d newF = computeWeighted8Point(inL, inR, inW);
 
-    std::vector<double> weights(N, 0.0);
+            // Score the new IRLS model
+            double newLoss = 0.0;
+            for (int i = 0; i < N; ++i)
+            {
+                double e2 = sampsonError(newF, ptsL[i], ptsR[i]);
+                newLoss += magsacCore.calculateLoss(e2);
+            }
 
-    for (int i = 0; i < N; ++i)
-    {
-        double e = sampsonError(bestF, ptsL[i], ptsR[i]);
-
-        if (e < sigmaMax * sigmaMax)
-        {
-            weights[i] = std::exp(-e / (2.0 * sigmaMax * sigmaMax));
+            // stop polishing if IRWLS does not improve anymore
+            if (newLoss < bestTotalLoss)
+            {
+                bestTotalLoss = newLoss;
+                polishedF = newF;
+            }
+            else
+            {
+                break;
+            }
         }
         else
         {
-            weights[i] = 0.0;
+            break;
         }
     }
 
-    std::vector<cv::Point2f> inL, inR;
-    std::vector<double> inW;
-
-    for (int i = 0; i < N; ++i)
-    {
-        if (weights[i] > 1e-6)
-        {
-            inL.push_back(ptsL[i]);
-            inR.push_back(ptsR[i]);
-            inW.push_back(weights[i]);
-        }
-    }
-
-    if (inL.size() >= 8)
-    {
-        bestF = computeWeighted8Point(inL, inR, inW);
-    }
-
+    // 3. Final Inlier Mask Generation
     inlierMask.assign(N, false);
-
+    int bestInliers = 0;
     for (int i = 0; i < N; ++i)
     {
-        double e = sampsonError(bestF, ptsL[i], ptsR[i]);
-
-        if (e < sigmaMax * sigmaMax)
+        double e2 = sampsonError(polishedF, ptsL[i], ptsR[i]);
+        if (e2 < sigmaMaxSquared)
         {
             inlierMask[i] = true;
+            bestInliers++;
         }
     }
 
-    return bestF;
+    std::cout << "[MAGSAC] Early termination triggered at iteration " << it
+              << " (Inliers: " << bestInliers << "/" << N << ")\n";
+
+    return polishedF;
 }
 
 Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
