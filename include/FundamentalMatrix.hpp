@@ -44,8 +44,7 @@ public:
         FundamentalMethod method = FundamentalMethod::OpenCVRANSAC,
         double threshold = 1.0,
         double confidence = 0.99,
-        int maxIter = 1000,
-        int minIter = 0);
+        int maxIter = 1000);
 
     /**
      * @brief Computes the Sampson distance error for a single point pair.
@@ -107,8 +106,7 @@ private:
         std::vector<bool> &inlierMask,
         double threshold = 1.0,
         double confidence = 0.99,
-        int maxIter = 1000,
-        int minIter = 0);
+        int maxIter = 1000);
 
     /**
      * @brief OpenCV APPROACH : Wrapper for cv::findFundamentalMat.
@@ -162,8 +160,7 @@ private:
         std::vector<bool> &inlierMask,
         double sigmaMax,
         double confidence,
-        int maxIter,
-        int minIter);
+        int maxIter);
 
     /**
      * @brief Custom APPROACH : Estimates F using a PROSAC-style sampling loop.
@@ -183,8 +180,7 @@ private:
         std::vector<bool> &inlierMask,
         double threshold,
         double confidence,
-        int maxIter,
-        int minIter);
+        int maxIter);
 
     /**
      * @brief Helper function to calculate dynamic U-SAC iterations.

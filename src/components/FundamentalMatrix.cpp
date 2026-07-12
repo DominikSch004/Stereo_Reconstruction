@@ -125,19 +125,18 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     FundamentalMethod method,
     double threshold,
     double confidence,
-    int maxIter,
-    int minIter)
+    int maxIter)
 {
     switch (method)
     {
     case FundamentalMethod::CustomRANSAC:
-        return computeCustomRANSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter, minIter);
+        return computeCustomRANSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
     case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
     case FundamentalMethod::CustomMAGSAC:
-        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter, minIter);
+        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
     case FundamentalMethod::CustomPROSAC:
-        return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter, minIter);
+        return computeCustomPROSAC(ptsL, ptsR, inlierMask, threshold, confidence, maxIter);
     }
 
     inlierMask.assign(ptsL.size(), false);
@@ -150,8 +149,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     std::vector<bool> &inlierMask,
     double threshold,
     double confidence,
-    int maxIter,
-    int minIter)
+    int maxIter)
 {
     const int N = (int)ptsL.size();
     Eigen::Matrix3d bestF = Eigen::Matrix3d::Identity();
@@ -232,7 +230,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
             dynamicMaxIter = std::min(dynamicMaxIter, iter_needed);
         }
 
-        if (it >= minIter && it >= dynamicMaxIter)
+        if (it >= dynamicMaxIter)
         {
             std::cout << "[RANSAC] Early termination triggered at iteration " << it
                       << ". Number of degenerate samplings rejected: " << degenerateFails
@@ -363,8 +361,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     std::vector<bool> &inlierMask,
     double sigmaMax,
     double confidence,
-    int maxIter,
-    int minIter)
+    int maxIter)
 {
     const int N = (int)ptsL.size();
     Eigen::Matrix3d bestF = Eigen::Matrix3d::Identity();
@@ -451,8 +448,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             bestTotalLoss = currentTotalLoss;
             bestF = F;
             int requiredIters = calculateRequiredIterations(approxInliers, N, sampleSize, confidence);
-            // added a minIter to fight against coplanarity
-            dynamicMaxIter = std::min(maxIter, std::max(minIter, requiredIters));
+            dynamicMaxIter = std::min(maxIter, requiredIters);
         }
     }
 
@@ -536,8 +532,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     std::vector<bool> &inlierMask,
     double threshold,
     double confidence,
-    int maxIter,
-    int minIter)
+    int maxIter)
 {
     const int N = (int)ptsL.size();
     const int sampleSize = 8;
@@ -679,9 +674,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         {
             // maximality constraint
             int iter_needed = calculateRequiredIterations(bestInliers, N, sampleSize, confidence);
-
-            // allow dynamic early termination, but strictly enforce the minIter floor
-            dynamicIter = std::min(maxIter, std::max(minIter, iter_needed));
+            dynamicIter = std::min(maxIter, iter_needed);
         }
 
         // stopping criterion
