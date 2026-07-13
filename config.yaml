@@ -25,11 +25,13 @@ icp_mode: point_to_plane
 
 # ICP fusion pair selection (only used by the IcpFusion executable).
 #   selected    -> the curated list of known-horizontal DTU pairs hardcoded in IcpFusion.cpp
-#   consecutive -> disjoint pairs (i, i+1), (i+2, i+3), ... over [icp_view_first, icp_view_last]
+#   consecutive -> OVERLAPPING sliding window (i, i+1), (i+1, i+2), ... over [icp_view_first, icp_view_last]
 # In both modes vertical baselines are skipped automatically (dense stereo needs a horizontal pair).
-icp_pair_mode: selected
-icp_view_first: 1
-icp_view_last: 49
+# On DTU, verticals only occur at row boundaries (idx 5,19,28,38,49,54,59), so keep the
+# range inside one row to keep the overlap chain connected. Views 6..19 are one clean row.
+icp_pair_mode: consecutive
+icp_view_first: 6
+icp_view_last: 19
 
 # Phase-1 robustness and fusion settings.
 # Boolean values use 0/1 for OpenCV FileStorage portability.

@@ -33,16 +33,20 @@ int main(int argc, char **argv)
     config.print();
 
     // Pairs to reconstruct and fuse. Either a curated set of known-horizontal DTU
-    // pairs, or disjoint consecutive view pairs (i, i+1), (i+2, i+3), ... over the
-    // configured range so each view feeds exactly one pair.
-    // Vertical baselines are dropped later by IcpUtils::orderPair regardless of mode.
+    // pairs, or an OVERLAPPING sliding window (i, i+1), (i+1, i+2), ... over the
+    // configured range. Consecutive windows share a view, so their clouds share a
+    // large visible surface and sit only ~one orbit step (~12 deg on DTU) apart --
+    // small enough for ICP to register sequentially without the GT world transform.
+    // Vertical baselines are dropped later by IcpUtils::orderPair regardless of mode;
+    // on DTU those only occur at row boundaries, so keep the range inside one row to
+    // avoid breaking the overlap chain.
     std::vector<std::pair<int, int>> selectedPairs;
     if (config.icpPairMode == IcpPairMode::Consecutive)
     {
-        for (int v = config.icpViewFirst; v < config.icpViewLast; v += 2)
+        for (int v = config.icpViewFirst; v < config.icpViewLast; v += 1)
             selectedPairs.emplace_back(v, v + 1);
-        std::cout << "Pair source: disjoint consecutive views " << config.icpViewFirst << ".."
-                  << config.icpViewLast << " (" << selectedPairs.size()
+        std::cout << "Pair source: overlapping sliding window over views " << config.icpViewFirst
+                  << ".." << config.icpViewLast << " (" << selectedPairs.size()
                   << " candidate pairs before vertical-baseline filtering).\n";
     }
     else
@@ -123,10 +127,11 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // The cloud lives in the pair's RECTIFIED left-camera frame (camToWorld is identity in
-        // the pipeline). Place it in the shared DTU world frame so the clouds are co-registered
-        // by calibration and ICP only has to correct residual pipeline error.
-        IcpUtils::transformCloudToWorld(cloud, res.R1, poseLeft);
+        // EXPERIMENT: world placement via GT pose is DISABLED. Each cloud stays in its own
+        // rectified left-camera frame. With disjoint pairs there is no image-based cross-pair
+        // pose, so ICP (local, gated to <=10 deg) must globally register clouds separated by
+        // large viewpoint rotations -- expected to fail. Restore the call below to fix.
+        // IcpUtils::transformCloudToWorld(cloud, res.R1, poseLeft);
 
         std::cout << "Cloud from pair (" << leftView << "," << rightView << "): "
                   << cloud.pts.size() << " points generated.\n";
@@ -223,17 +228,24 @@ int main(int argc, char **argv)
         const double correctionTranslation = totalT.block<3,1>(0,3).norm();
         const bool improvesMedian = !before.valid() || after.medianDistance <= 0.98 * before.medianDistance;
         const bool stableRmse = !before.valid() || after.rmse <= 1.02 * before.rmse;
-        const bool plausibleCorrection = correctionAngleDeg <= 10.0 && correctionTranslation <= 0.15;
         const bool wellConstrained = std::isfinite(after.conditionNumber) && after.conditionNumber <= 1e12;
+        // Plausibility gate (correctionAngleDeg <= 10, correctionTranslation <= 0.15) removed:
+        // it assumed the GT world transform pre-aligned the clouds so ICP only cleaned up
+        // small residuals. Without that prior, ICP must absorb the full ~12 deg inter-view
+        // rotation, so the fit quality itself (overlap, coverage, median, rmse) is trusted
+        // instead of the correction magnitude. correctionAngleDeg/Translation are still
+        // computed and logged as diagnostics.
         const bool trustRefinement = after.valid() && after.overlap >= minOverlapFrac &&
                                      after.spatialCoverage >= 0.5 && improvesMedian && stableRmse &&
-                                     plausibleCorrection && wellConstrained;
+                                     wellConstrained;
         const PointCloud &toAppend = trustRefinement ? refined : clouds[i];
 
         if (trustRefinement)
             std::cout << "  ICP accepted: median " << before.medianDistance << " -> "
                       << after.medianDistance << ", overlap=" << (100.0 * after.overlap)
-                      << "%, coverage=" << (100.0 * after.spatialCoverage) << "%\n";
+                      << "%, coverage=" << (100.0 * after.spatialCoverage)
+                      << "%, correction=" << correctionAngleDeg << " deg/"
+                      << correctionTranslation << " normalized units\n";
         else
             std::cerr << "  ICP rejected; keeping calibration pose. before/after median="
                       << before.medianDistance << "/" << after.medianDistance
