@@ -5,6 +5,19 @@
 #include <algorithm>
 #include <cmath>
 
+// Sampson distance: first-order approximation to geometric epipolar error
+// (Hartley & Zisserman, Multiple View Geometry 2nd ed., Sec. 11.4.3, Eq. 11.9).
+//
+// Sec 11.5.1 recommends using the normalized 8-point algorithm as an
+// initial estimate, then refining iteratively by minimizing this cost,
+// noting it gives "excellent results" and is noticeably better than the
+// non-iterative estimate alone (Fig. 11.3).
+//
+// We use this error at two points in the pipeline:
+//   1. Inlier scoring during RANSAC-based F estimation (here)
+//   2. Non-linear pose refinement over all inliers after RANSAC
+//      (GeometryUtils::refinePose), minimizing the total Sampson cost
+//      to refine the initial linear estimate
 double FundamentalMatrix::sampsonError(
     const Eigen::Matrix3d &F,
     const cv::Point2f &pl,
@@ -544,7 +557,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
 
     int degenerateCount = 0;
 
-    int thresholdSq = threshold * threshold;
+    const double thresholdSq = threshold * threshold;
 
     // dynamic iterator T_N (stopping criterion)
     int dynamicIter = maxIter;

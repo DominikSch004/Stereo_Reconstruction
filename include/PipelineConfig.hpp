@@ -25,6 +25,12 @@ struct PipelineConfig
     ICPMode icpMode = ICPMode::PointToPlane; // used by the ICP fusion pipeline only
     int rngSeed = 42;
     mutable std::mt19937 rng;
+
+    // Non-linear refinement of (R, t) directly on the essential-matrix space
+    // (see GeometryUtils::refinePose). See FundamentalMatrix.cpp comments for details.
+    // This flag is just for initial comparision and should later be removed
+    bool refinePose = false;
+
     /**
      * @brief Loads a config from a YAML file (parsed with cv::FileStorage).
      * @throws std::runtime_error if the file cannot be opened or a key holds an unknown value.

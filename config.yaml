@@ -25,3 +25,7 @@ triangulation: custom
 
 # point_to_point | point_to_plane  (only used by the IcpFusion executable)
 icp_mode: point_to_point
+
+# true | false non-linear refinement of (R, t) directly on the essential-matrix 
+# space after recoverPose
+pose_refinement: true

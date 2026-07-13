@@ -2,8 +2,9 @@
 //
 // Variants evaluated on the SAME fundamental matrix / inlier set per pair:
 //   [A] cv::findEssentialMat + recoverPose        (previous pipeline approach)
-//   [B] E = K^T F K, SVD-projected (rank 2, equal sigmas) + recoverPose (current pipeline)
-//   [C] E = K^T F K, raw, no projection + recoverPose (isolates the effect of the projection)
+//   [B] E = K^T F K, SVD-projected (rank 2, equal sigmas) + recoverPose (previous pipeline approach, doing the projection was seen to be useless)
+//   [C] E = K^T F K, raw, no projection + recoverPose (current pipeline but with pose_refinement=false)
+//   [D] E = K^T F K + GeometryUtils::refinePose (current pipeline with pose_refinement=true)
 //
 // Metrics per variant:
 //   - rotation error vs DTU ground-truth relative pose (degrees)
@@ -27,6 +28,7 @@
 #include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
 #include "ImgUtils.hpp"
+#include "GeometryUtils.hpp"
 
 namespace
 {
@@ -154,8 +156,8 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // --- Build the three essential-matrix variants ---
-        std::vector<VariantResult> variants(3);
+        // --- Build the four essential-matrix variants ---
+        std::vector<VariantResult> variants(4);
         {
             variants[0].name = "A: findEssentialMat";
             cv::Mat m;
@@ -173,6 +175,16 @@ int main(int argc, char **argv)
             cv::Mat E = K.t() * F_cv * K;
             cv::Mat m;
             cv::recoverPose(E, inL, inR, K, variants[2].R, variants[2].t, m);
+        }
+        {
+            // Non-linear refinement of (R, t) on the essential-matrix space
+            // using the same unprojected E=K'F_cv*K as variant C.
+            // The (s,s,0) projection, is ignored by recoverPose.
+            variants[3].name = "D: E=K'FK + refinePose";
+            cv::Mat E = K.t() * F_cv * K;
+            cv::Mat m;
+            cv::recoverPose(E, inL, inR, K, variants[3].R, variants[3].t, m);
+            GeometryUtils::refinePose(K, inL, inR, variants[3].R, variants[3].t);
         }
 
         // --- Evaluate each variant: pose error vs GT + rectification residual ---
@@ -296,7 +308,7 @@ int main(int argc, char **argv)
                   << std::right << std::setw(12) << "rotErr[deg]"
                   << std::setw(12) << "tErr[deg]"
                   << std::setw(12) << "mean|dy|" << "\n";
-        for (size_t vi = 0; vi < 3; ++vi)
+        for (size_t vi = 0; vi < 4; ++vi)
         {
             double rot = 0, tr = 0, dy = 0;
             for (const auto &pr : allResults)

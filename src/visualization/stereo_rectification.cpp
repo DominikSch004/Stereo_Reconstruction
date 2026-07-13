@@ -12,6 +12,7 @@
 #include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
 #include "ImgUtils.hpp"
+#include "GeometryUtils.hpp"
 
 int main()
 {
@@ -38,11 +39,11 @@ int main()
         return -1;
     }
 
-    // Compute Robust Fundamental Matrix via OpenCV RANSAC pipeline
+    // Compute Robust Fundamental Matrix via Custom MAGSAC
     std::vector<bool> mask;
 
     std::mt19937 rng(42);
-    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
 
     std::vector<cv::Point2f> inL, inR;
     for (size_t i = 0; i < ptsL.size(); ++i)
@@ -57,20 +58,18 @@ int main()
         return false;
 
     int nInliers = std::count(mask.begin(), mask.end(), true);
-    std::cout << "RANSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
+    std::cout << "MAGSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
 
     // --- 3. Relative Pose Recovery ---
     cv::Mat R, t, poseMask;
     cv::Mat F_cv = toCvMat(F);
-    cv::Mat E_hat = K.t() * F_cv * K; // E = K^T * F * K
-    cv::SVD svd(E_hat, cv::SVD::MODIFY_A);
-    // Enforce rank-2 constraint on E
-    svd.w.at<double>(2) = 0.0;
-    float sigma = (svd.w.at<double>(0) + svd.w.at<double>(1)) / 2.0f;
-    svd.w.at<double>(0) = sigma;
-    svd.w.at<double>(1) = sigma;
-    cv::Mat E = svd.u * cv::Mat::diag(svd.w) * svd.vt;
+    cv::Mat E = K.t() * F_cv * K; // E = K^T * F * K
+    // No (s, s, 0) SVD projection: it has zero effect on recoverPose's output
+    // See pipeline.cpp for details
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
+    // Non-linear pose refinement
+    // (see GeometryUtils.hpp / Pipeline.cpp / FundamentalMatrix.cpp for details)
+    GeometryUtils::refinePose(K, inL, inR, R, t);
 
     // Compute Calibrated Homography mappings
     RectifyResult rect;
