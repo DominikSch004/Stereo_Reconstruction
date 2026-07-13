@@ -18,10 +18,18 @@ rectification: opencv
 disparity: opencv
 
 # opencv | custom  (custom = per-pixel DLT triangulation)
-triangulation: custom
+triangulation: opencv
 
 # point_to_point | point_to_plane  (only used by the IcpFusion executable)
 icp_mode: point_to_plane
+
+# ICP fusion pair selection (only used by the IcpFusion executable).
+#   selected    -> the curated list of known-horizontal DTU pairs hardcoded in IcpFusion.cpp
+#   consecutive -> disjoint pairs (i, i+1), (i+2, i+3), ... over [icp_view_first, icp_view_last]
+# In both modes vertical baselines are skipped automatically (dense stereo needs a horizontal pair).
+icp_pair_mode: selected
+icp_view_first: 1
+icp_view_last: 49
 
 # Phase-1 robustness and fusion settings.
 # Boolean values use 0/1 for OpenCV FileStorage portability.

@@ -94,6 +94,17 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     else
         invalidValue("icp_mode", v, "point_to_point | point_to_plane");
 
+    v = readKey(fs, "icp_pair_mode", "selected");
+    if (v == "selected")
+        cfg.icpPairMode = IcpPairMode::Selected;
+    else if (v == "consecutive")
+        cfg.icpPairMode = IcpPairMode::Consecutive;
+    else
+        invalidValue("icp_pair_mode", v, "selected | consecutive");
+
+    cfg.icpViewFirst = readScalar<int>(fs, "icp_view_first", 1);
+    cfg.icpViewLast = readScalar<int>(fs, "icp_view_last", 49);
+
     cfg.stereoConfidenceFilter = readScalar<int>(fs, "stereo_confidence_filter", 1) != 0;
     cfg.stereoLRMaxDiff = readScalar<float>(fs, "stereo_lr_max_diff", 1.5f);
     cfg.stereoPhotometricScale = readScalar<float>(fs, "stereo_photometric_scale", 25.0f);
@@ -107,6 +118,8 @@ PipelineConfig PipelineConfig::load(const std::string &path)
         throw std::runtime_error("[Config] Stereo confidence scales must be positive.");
     if (cfg.icpTrimFraction <= 0.0f || cfg.icpTrimFraction > 1.0f)
         throw std::runtime_error("[Config] icp_trim_fraction must be in (0,1].");
+    if (cfg.icpViewFirst < 1 || cfg.icpViewLast < cfg.icpViewFirst)
+        throw std::runtime_error("[Config] icp_view_first must be >= 1 and icp_view_last >= icp_view_first.");
     if (cfg.fusionVoxelSize <= 0.0f || cfg.fusionOutlierFactor <= 0.0f)
         throw std::runtime_error("[Config] Fusion voxel parameters must be positive.");
 
@@ -128,6 +141,10 @@ void PipelineConfig::print() const
               << "  disparity:          " << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
               << "  triangulation:      " << name(triangulation == TriangulationMethod::OpenCV) << "\n"
               << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane")
+              << "\n  icp_pair_mode:      "
+              << (icpPairMode == IcpPairMode::Consecutive
+                      ? ("consecutive (views " + std::to_string(icpViewFirst) + ".." + std::to_string(icpViewLast) + ")")
+                      : std::string("selected"))
               << "\n  stereo_confidence: " << (stereoConfidenceFilter ? "on" : "off")
               << " (LR=" << stereoLRMaxDiff << " px, photo_scale=" << stereoPhotometricScale << ")"
               << "\n  icp_robust:         " << (icpRobust ? "on" : "off")

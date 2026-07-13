@@ -8,6 +8,16 @@
 #include "ICP.hpp"
 
 /**
+ * @enum IcpPairMode
+ * @brief Which DTU view pairs the ICP fusion pipeline reconstructs and fuses.
+ *   Selected    -> a small hand-picked list of horizontal pairs (fast, curated).
+ *   Consecutive -> disjoint adjacent view pairs (i, i+1), (i+2, i+3), ... over
+ *                  [icpViewFirst, icpViewLast], so each view feeds exactly one pair.
+ * In both modes vertical baselines are still skipped by IcpUtils::orderPair.
+ */
+enum class IcpPairMode { Selected, Consecutive };
+
+/**
  * @struct PipelineConfig
  * @brief Per-step backend selection for the stereo reconstruction pipeline.
  *
@@ -22,6 +32,10 @@ struct PipelineConfig
     DisparityMethod disparity = DisparityMethod::OpenCVSGBM;
     TriangulationMethod triangulation = TriangulationMethod::OpenCV;
     ICPMode icpMode = ICPMode::PointToPlane; // used by the ICP fusion pipeline only
+    // ICP fusion pair selection (used by the IcpFusion executable only)
+    IcpPairMode icpPairMode = IcpPairMode::Selected;
+    int icpViewFirst = 1;   // first DTU view id for consecutive-pair enumeration
+    int icpViewLast = 49;   // last DTU view id (inclusive) for consecutive-pair enumeration
     bool stereoConfidenceFilter = true;
     float stereoLRMaxDiff = 1.5f;
     float stereoPhotometricScale = 25.0f;

@@ -32,8 +32,25 @@ int main(int argc, char **argv)
     }
     config.print();
 
-    const std::vector<std::pair<int, int>> selectedPairs = {
-        {1, 2}, {4, 5}, {7, 8}, {12, 13}, {18, 19}, {26, 27}, {32, 33}, {37, 38}};
+    // Pairs to reconstruct and fuse. Either a curated set of known-horizontal DTU
+    // pairs, or disjoint consecutive view pairs (i, i+1), (i+2, i+3), ... over the
+    // configured range so each view feeds exactly one pair.
+    // Vertical baselines are dropped later by IcpUtils::orderPair regardless of mode.
+    std::vector<std::pair<int, int>> selectedPairs;
+    if (config.icpPairMode == IcpPairMode::Consecutive)
+    {
+        for (int v = config.icpViewFirst; v < config.icpViewLast; v += 2)
+            selectedPairs.emplace_back(v, v + 1);
+        std::cout << "Pair source: disjoint consecutive views " << config.icpViewFirst << ".."
+                  << config.icpViewLast << " (" << selectedPairs.size()
+                  << " candidate pairs before vertical-baseline filtering).\n";
+    }
+    else
+    {
+        selectedPairs = {
+            {1, 2}, {4, 5}, {7, 8}, {12, 13}, {18, 19}, {26, 27}, {32, 33}, {37, 38}};
+        std::cout << "Pair source: curated selection (" << selectedPairs.size() << " pairs).\n";
+    }
 
     const size_t minCloudPoints = 1000; // reject degenerate reconstructions (near-empty clouds)
     const float confidenceDiscardFraction = 0.10f;
