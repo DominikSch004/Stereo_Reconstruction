@@ -4,6 +4,10 @@
 #include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
+#include <numeric>
+
+int inliernumformeasure = 8;
 
 double FundamentalMatrix::sampsonError(
     const Eigen::Matrix3d &F,
@@ -164,6 +168,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     // convention so custom vs. OpenCV stay comparable at any threshold value.
     const double thresholdSq = threshold * threshold;
 
+    //rng.seed(42);
     std::uniform_int_distribution<int> dist(0, N - 1);
 
     // dynamically calculate stopping criterion.
@@ -204,6 +209,8 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
             }
             continue;
         }
+
+        //std::cout << "[RANSAC] inL dimension: " << sL.size() << '\n';
 
         // matrix hypothesis
         Eigen::Matrix3d F = compute8Point(sL, sR);
@@ -252,7 +259,27 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     // Recompute if the global inlier pool satisfies basic system dimensions
     if (inL.size() >= 8)
     {
-        bestF = compute8Point(inL, inR);
+        std::vector<std::size_t> indices(inL.size());
+        std::iota(indices.begin(), indices.end(), 0);
+        std::shuffle(indices.begin(), indices.end(), rng);
+
+        int sampleCount = std::min(inliernumformeasure, (int)inL.size());
+
+        std::vector<cv::Point2f> subsetL;
+        std::vector<cv::Point2f> subsetR;
+        subsetL.reserve(sampleCount);
+        subsetR.reserve(sampleCount);
+
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            subsetL.push_back(inL[indices[i]]);
+            subsetR.push_back(inR[indices[i]]);
+        }
+
+        bestF = compute8Point(subsetL, subsetR);
+        //bestF = compute8point(inL, inR);
+
+
         // Refresh final outlier rejection tracking arrays
         for (int i = 0; i < N; ++i)
         {
@@ -476,9 +503,31 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             }
         }
 
+        //std::cout << "[MAGSAC] inL dimension: " << inL.size() << '\n';
+
         if (inL.size() >= 8)
         {
-            Eigen::Matrix3d newF = computeWeighted8Point(inL, inR, inW);
+            int num = 8;
+            std::vector<std::size_t> indices(inL.size());
+            std::iota(indices.begin(), indices.end(), 0);
+            std::shuffle(indices.begin(), indices.end(), rng);
+
+            std::vector<cv::Point2f> subsetL;
+            std::vector<cv::Point2f> subsetR;
+            subsetL.reserve(num);
+            subsetR.reserve(num);
+
+            for (int i = 0; i < num; ++i)
+            {
+                subsetL.push_back(inL[indices[i]]);
+                subsetR.push_back(inR[indices[i]]);
+            }
+
+            //bestF = compute8Point(subsetL, subsetR);
+            
+            //Eigen::Matrix3d newF = computeWeighted8Point(inL, inR, inW);
+            Eigen::Matrix3d newF = computeWeighted8Point(subsetL, subsetR, inW);
+
 
             // Score the new IRLS model
             double newLoss = 0.0;
@@ -699,9 +748,33 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         }
     }
 
+    // Randomize inL/inR pairs order
+    {
+        std::vector<std::size_t> shuffleIndices(inL.size());
+        std::iota(shuffleIndices.begin(), shuffleIndices.end(), 0);
+        std::shuffle(shuffleIndices.begin(), shuffleIndices.end(), rng);
+
+        std::vector<cv::Point2f> shuffledL, shuffledR;
+        shuffledL.reserve(inL.size());
+        shuffledR.reserve(inR.size());
+        for (std::size_t idx : shuffleIndices)
+        {
+            shuffledL.push_back(inL[idx]);
+            shuffledR.push_back(inR[idx]);
+        }
+        inL.swap(shuffledL);
+        inR.swap(shuffledR);
+    }
+
     if (inL.size() >= 8)
     {
-        bestF = compute8Point(inL, inR);
+        int sampleCount = std::min(inliernumformeasure, (int)inL.size());
+
+        std::vector<cv::Point2f> subsetL(inL.begin(), inL.begin() + sampleCount);
+        std::vector<cv::Point2f> subsetR(inR.begin(), inR.begin() + sampleCount);
+
+        bestF = compute8Point(subsetL, subsetR);
+        //bestF = compute8Point(inL, inR);
 
         for (int i = 0; i < N; ++i)
         {

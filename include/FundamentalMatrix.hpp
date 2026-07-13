@@ -17,6 +17,10 @@ enum class FundamentalMethod
     CustomPROSAC  // Custom implementation of the PROSAC robust estimator
 };
 
+// Number of inlier correspondences sampled for the final refit in
+// computeCustomRANSAC/computeCustomPROSAC. Exposed so callers can sweep it.
+extern int inliernumformeasure;
+
 /**
  * @class FundamentalMatrix
  * @brief Handles epipolar geometry estimation between two unrectified views.
