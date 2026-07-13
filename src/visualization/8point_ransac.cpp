@@ -9,15 +9,6 @@
 #include "Evaluator.hpp"
 #include "VisualizationUtils.hpp"
 
-struct MethodStats
-{
-    double rot_err_sum = 0.0;
-    double trans_err_sum = 0.0;
-    double epi_err_sum = 0.0;
-    double inlier_ratio_sum = 0.0;
-    int valid_count = 0;
-};
-
 int main()
 {
     // 1. Load data
@@ -28,191 +19,82 @@ int main()
     for (int v = 20; v <= 400; v += 10)
         inlierNumValues.push_back(v);
 
-    std::ofstream resultsFile("inlier_sweep_results.txt");
-    resultsFile << "inliernumformeasure,method,avg_rot_err_deg,avg_trans_err_deg,avg_epi_err_px,avg_inlier_ratio,valid_count\n";
+    std::ofstream resultsFile("inlier_sweep_results_1img_pair.txt");
+    resultsFile << "inliernumformeasure,method,rot_err_deg,trans_err_deg,epi_err_px,inlier_ratio\n";
+
+    // single image pair (1, 2)
+    const int i = 1;
+    StereoPair pair = loader.loadPair(i, i + 1);
+
+    cv::Mat K = loader.loadIntrinsicCV(i);
+    CameraPose pose1 = loader.loadCameraPose(i);
+    CameraPose pose2 = loader.loadCameraPose(i + 1);
+    Eigen::Matrix3d R_gt;
+    Eigen::Vector3d t_gt;
+    DTULoader::getRelativePose(pose1, pose2, R_gt, t_gt);
+    cv::Mat grayLeft = toGray(pair.imageLeft);
+    cv::Mat grayRight = toGray(pair.imageRight);
+    SparseKeyPointMatcher matcher(0.75f);
+    MatchResult result = matcher.match(grayLeft, grayRight);
+
+    std::vector<cv::Point2f> ptsL, ptsR;
+    SparseKeyPointMatcher::extractPoints(result, ptsL, ptsR);
+
+    if (ptsL.size() < 8)
+    {
+        std::cout << "Not enough points.\n";
+        return -1;
+    }
 
     for (int inlierNum : inlierNumValues)
     {
         inliernumformeasure = inlierNum;
         std::cout << "\n############### inliernumformeasure = " << inliernumformeasure << " ###############\n";
 
-        // Initialize accumulators for each active method
-        MethodStats ransacStats, openCVStats, magsacStats, prosacStats;
+        std::vector<bool> CustomInliers, OpenCVInliers, Custommagsacinliers, Customprosacinliers;
 
-        for (int i = 1; i < 11; i++)
+        std::mt19937 rng(42);
+
+        Eigen::Matrix3d F_custom = FundamentalMatrix::computeFundamental(ptsL, ptsR, CustomInliers, rng, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
+        rng.seed(42);
+        Eigen::Matrix3d F_opencv = FundamentalMatrix::computeFundamental(ptsL, ptsR, OpenCVInliers, rng, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
+        // set sigmaMax (user-defined threshold) a lot higher since it is meant as a cut-off
+        rng.seed(42);
+        Eigen::Matrix3d F_magsac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Custommagsacinliers, rng, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000);
+        rng.seed(42);
+        Eigen::Matrix3d F_prosac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Customprosacinliers, rng, FundamentalMethod::CustomPROSAC, 1.0, 0.99, 1000);
+
+        Eigen::Matrix3d R_est;
+        Eigen::Vector3d t_est;
+
+        auto evaluateMethod = [&](const std::string &name, const Eigen::Matrix3d &F, const std::vector<bool> &inliers)
         {
-            std::cout << "\n--- Processing Pair " << i << " and " << i + 1 << " ---\n";
+            double epi_err = Evaluator::evaluateEpipolarError(F, ptsL, ptsR, inliers);
+            double ratio = Evaluator::computeInlierRatio(inliers);
 
-            // select by image id, default is dataset 1 (scan1) & illumination 3
-            StereoPair pair = loader.loadPair(i, i + 1);
-
-            cv::Mat K = loader.loadIntrinsicCV(i);
-            CameraPose pose1 = loader.loadCameraPose(i);
-            CameraPose pose2 = loader.loadCameraPose(i + 1);
-            Eigen::Matrix3d R_gt;
-            Eigen::Vector3d t_gt;
-            DTULoader::getRelativePose(pose1, pose2, R_gt, t_gt);
-            cv::Mat grayLeft = toGray(pair.imageLeft);
-            cv::Mat grayRight = toGray(pair.imageRight);
-            SparseKeyPointMatcher matcher(0.75f);
-            MatchResult result = matcher.match(grayLeft, grayRight);
-
-            std::vector<cv::Point2f> ptsL, ptsR;
-            SparseKeyPointMatcher::extractPoints(result, ptsL, ptsR);
-
-            if (ptsL.size() < 8)
-            {
-                std::cout << "Not enough points. Skipping pair.\n";
-                continue; // Use continue instead of return -1 so we don't abort the entire run
-            }
-
-            std::vector<bool> CustomInliers, OpenCVInliers, Custommagsacinliers, Customprosacinliers;
-
-            // set randon numer from hardware
-            std::random_device rd;
-            std::mt19937 rng(42);
-
-            Eigen::Matrix3d F_custom = FundamentalMatrix::computeFundamental(ptsL, ptsR, CustomInliers, rng, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
-            rng.seed(42);
-            Eigen::Matrix3d F_opencv = FundamentalMatrix::computeFundamental(ptsL, ptsR, OpenCVInliers, rng, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
-            // set sigmaMax (user-defined threshold) a lot higher since it is meant as a cut-off
-            rng.seed(42);
-            Eigen::Matrix3d F_magsac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Custommagsacinliers, rng, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000);
-            rng.seed(42);
-            Eigen::Matrix3d F_prosac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Customprosacinliers, rng, FundamentalMethod::CustomPROSAC, 1.0, 0.99, 1000);
-
-            Eigen::Matrix3d R_est;
-            Eigen::Vector3d t_est;
-
-            // ================= evaluate openCV =================
-            double epi_err_opencv = Evaluator::evaluateEpipolarError(F_opencv, ptsL, ptsR, OpenCVInliers);
-            double opencv_ratio = Evaluator::computeInlierRatio(OpenCVInliers);
-
-            if (GeometryUtils::extractPoseFromFundamental(F_opencv, ptsL, ptsR, OpenCVInliers, K, R_est, t_est))
+            if (GeometryUtils::extractPoseFromFundamental(F, ptsL, ptsR, inliers, K, R_est, t_est))
             {
                 double rot_err = 0.0, trans_err = 0.0;
                 Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
-                std::cout << "OpenCV RANSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
-                std::cout << "OpenCV RANSAC Epipolar Error: " << epi_err_opencv << " px\n";
-                std::cout << "OpenCV RANSAC Inlier Ratio: " << opencv_ratio << "%\n";
+                std::cout << name << " Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
+                std::cout << name << " Epipolar Error: " << epi_err << " px\n";
+                std::cout << name << " Inlier Ratio: " << ratio << "%\n";
 
-                // Accumulate stats
-                openCVStats.rot_err_sum += rot_err;
-                openCVStats.trans_err_sum += trans_err;
-                openCVStats.epi_err_sum += epi_err_opencv;
-                openCVStats.inlier_ratio_sum += opencv_ratio;
-                openCVStats.valid_count++;
+                resultsFile << inliernumformeasure << "," << name << "," << rot_err << "," << trans_err << ","
+                            << epi_err << "," << ratio << "\n";
             }
             else
             {
-                std::cout << "OpenCV RANSAC 8-Point Failed to recover pose.\n";
-            }
-
-            // ================= evaluate custom RANSAC =================
-            double epi_err_custom = Evaluator::evaluateEpipolarError(F_custom, ptsL, ptsR, CustomInliers);
-            double custom_ratio = Evaluator::computeInlierRatio(CustomInliers);
-
-            if (GeometryUtils::extractPoseFromFundamental(F_custom, ptsL, ptsR, CustomInliers, K, R_est, t_est))
-            {
-                double rot_err = 0.0, trans_err = 0.0;
-                Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
-                std::cout << "RANSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
-                std::cout << "RANSAC Epipolar Error: " << epi_err_custom << " px\n";
-                std::cout << "RANSAC Inlier Ratio: " << custom_ratio << "%\n";
-
-                // Accumulate stats
-                ransacStats.rot_err_sum += rot_err;
-                ransacStats.trans_err_sum += trans_err;
-                ransacStats.epi_err_sum += epi_err_custom;
-                ransacStats.inlier_ratio_sum += custom_ratio;
-                ransacStats.valid_count++;
-            }
-            else
-            {
-                std::cout << "Custom RANSAC 8-Point Failed to recover pose.\n";
-            }
-
-            // ================= evaluate MAGSAC =================
-            double epi_err_magsac = Evaluator::evaluateEpipolarError(F_magsac, ptsL, ptsR, Custommagsacinliers);
-            double magsac_ratio = Evaluator::computeInlierRatio(Custommagsacinliers);
-
-            if (GeometryUtils::extractPoseFromFundamental(F_magsac, ptsL, ptsR, Custommagsacinliers, K, R_est, t_est))
-            {
-                double rot_err = 0.0, trans_err = 0.0;
-                Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
-                std::cout << "MAGSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
-                std::cout << "MAGSAC Epipolar Error: " << epi_err_magsac << " px\n";
-                std::cout << "MAGSAC Inlier Ratio: " << magsac_ratio << "%\n";
-
-                // Accumulate stats
-                magsacStats.rot_err_sum += rot_err;
-                magsacStats.trans_err_sum += trans_err;
-                magsacStats.epi_err_sum += epi_err_magsac;
-                magsacStats.inlier_ratio_sum += magsac_ratio;
-                magsacStats.valid_count++;
-            }
-            else
-            {
-                std::cout << "MAGSAC 8-point failed to recover pose.\n";
-            }
-
-            // ================= evaluate PROSAC =================
-            double epi_err_prosac = Evaluator::evaluateEpipolarError(F_prosac, ptsL, ptsR, Customprosacinliers);
-            double prosac_ratio = Evaluator::computeInlierRatio(Customprosacinliers);
-
-            if (GeometryUtils::extractPoseFromFundamental(F_prosac, ptsL, ptsR, Customprosacinliers, K, R_est, t_est))
-            {
-                double rot_err = 0.0, trans_err = 0.0;
-                Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
-                std::cout << "PROSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
-                std::cout << "PROSAC Epipolar Error: " << epi_err_prosac << " px\n";
-                std::cout << "PROSAC Inlier Ratio: " << prosac_ratio << "%\n";
-
-                // Accumulate stats
-                prosacStats.rot_err_sum += rot_err;
-                prosacStats.trans_err_sum += trans_err;
-                prosacStats.epi_err_sum += epi_err_prosac;
-                prosacStats.inlier_ratio_sum += prosac_ratio;
-                prosacStats.valid_count++;
-            }
-            else
-            {
-                std::cout << "PROSAC 8-point failed to recover pose.\n";
-            }
-        }
-
-        // 2. Print Summary Results
-        std::cout << "\n================= OVERALL AVERAGES (inliernumformeasure = " << inliernumformeasure << ") =================\n";
-
-        auto printAverage = [&resultsFile, inlierNum](const std::string &name, const MethodStats &stats)
-        {
-            if (stats.valid_count > 0)
-            {
-                double avgRot = stats.rot_err_sum / stats.valid_count;
-                double avgTrans = stats.trans_err_sum / stats.valid_count;
-                double avgEpi = stats.epi_err_sum / stats.valid_count;
-                double avgInlierRatio = stats.inlier_ratio_sum / stats.valid_count;
-
-                std::cout << name << " (Computed over " << stats.valid_count << " successful pairs):\n";
-                std::cout << "  Average Rotation Error:    " << avgRot << " deg\n";
-                std::cout << "  Average Translation Error: " << avgTrans << " deg\n";
-                std::cout << "  Average Epipolar Error:    " << avgEpi << " px\n";
-                std::cout << "  Average Inlier Ratio:      " << avgInlierRatio << "%\n\n";
-
-                resultsFile << inlierNum << "," << name << "," << avgRot << "," << avgTrans << ","
-                            << avgEpi << "," << avgInlierRatio << "," << stats.valid_count << "\n";
-            }
-            else
-            {
-                std::cout << name << " failed to recover pose on all pairs.\n\n";
-                resultsFile << inlierNum << "," << name << ",,,,,0\n";
+                std::cout << name << " Failed to recover pose.\n";
+                resultsFile << inliernumformeasure << "," << name << ",,,,\n";
             }
         };
 
-        printAverage("OpenCV RANSAC", openCVStats);
-        printAverage("Custom RANSAC", ransacStats);
-        printAverage("MAGSAC", magsacStats);
-        printAverage("PROSAC", prosacStats);
+        evaluateMethod("OpenCV RANSAC", F_opencv, OpenCVInliers);
+        evaluateMethod("Custom RANSAC", F_custom, CustomInliers);
+        evaluateMethod("MAGSAC", F_magsac, Custommagsacinliers);
+        evaluateMethod("PROSAC", F_prosac, Customprosacinliers);
+
         resultsFile.flush(); // keep progress on disk in case a later sweep value crashes
 
         // visualize epipolar matches
