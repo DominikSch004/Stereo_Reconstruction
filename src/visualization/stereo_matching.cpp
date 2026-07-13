@@ -311,7 +311,7 @@ int main(int argc, char **argv)
         std::ostringstream s;
         s << "Textureless  " << std::fixed << std::setprecision(0)
           << (nonBlackPixels ? 100.0 * texturelessCount / nonBlackPixels : 0.0)
-          << "%  (red=also invalid)";
+          << "%  (cyan=matched, red=invalid)";
         label(vizTex, s.str());
     }
 
