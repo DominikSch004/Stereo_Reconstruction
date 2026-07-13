@@ -108,6 +108,10 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     cfg.stereoConfidenceFilter = readScalar<int>(fs, "stereo_confidence_filter", 1) != 0;
     cfg.stereoLRMaxDiff = readScalar<float>(fs, "stereo_lr_max_diff", 1.5f);
     cfg.stereoPhotometricScale = readScalar<float>(fs, "stereo_photometric_scale", 25.0f);
+    cfg.confUseGlobal = readScalar<int>(fs, "conf_use_global", 1) != 0;
+    cfg.confUseDepth = readScalar<int>(fs, "conf_use_depth", 1) != 0;
+    cfg.confUseEdge = readScalar<int>(fs, "conf_use_edge", 1) != 0;
+    cfg.confUseStereo = readScalar<int>(fs, "conf_use_stereo", 1) != 0;
     cfg.icpRobust = readScalar<int>(fs, "icp_robust", 1) != 0;
     cfg.icpReciprocal = readScalar<int>(fs, "icp_reciprocal", 1) != 0;
     cfg.icpTrimFraction = readScalar<float>(fs, "icp_trim_fraction", 0.80f);
@@ -147,6 +151,10 @@ void PipelineConfig::print() const
                       : std::string("selected"))
               << "\n  stereo_confidence: " << (stereoConfidenceFilter ? "on" : "off")
               << " (LR=" << stereoLRMaxDiff << " px, photo_scale=" << stereoPhotometricScale << ")"
+              << "\n  conf_weight:        global=" << (confUseGlobal ? "on" : "off")
+              << " depth=" << (confUseDepth ? "on" : "off")
+              << " edge=" << (confUseEdge ? "on" : "off")
+              << " stereo=" << (confUseStereo ? "on" : "off")
               << "\n  icp_robust:         " << (icpRobust ? "on" : "off")
               << ", reciprocal=" << (icpReciprocal ? "on" : "off")
               << ", trim=" << icpTrimFraction

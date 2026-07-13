@@ -122,7 +122,8 @@ int main(int argc, char **argv)
         PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r,
                                                      res.P2r, res.camToWorld, res.rectColor,
                                                      res.minDisp, res.globalConfidence,
-                                                     config.triangulation, res.disparityConfidence);
+                                                     config.triangulation, res.disparityConfidence,
+                                                     config.confidenceWeights());
 
         // rectified-left frame -> DTU world frame (see IcpUtils::transformCloudToWorld)
         IcpUtils::transformCloudToWorld(cloud, res.R1, poseLeft);

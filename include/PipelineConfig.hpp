@@ -39,6 +39,13 @@ struct PipelineConfig
     bool stereoConfidenceFilter = true;
     float stereoLRMaxDiff = 1.5f;
     float stereoPhotometricScale = 25.0f;
+    // Per-factor composition of the ICP confidence weight (see ConfidenceWeightConfig).
+    // Default all-on = historical product. Set individual factors off to ablate them
+    // (e.g. depth-only isolates the one informative factor found by the diagnostic core).
+    bool confUseGlobal = true;
+    bool confUseDepth = true;
+    bool confUseEdge = true;
+    bool confUseStereo = true;
     bool icpRobust = true;
     bool icpReciprocal = true;
     float icpTrimFraction = 0.80f;
@@ -54,4 +61,10 @@ struct PipelineConfig
 
     /** @brief Prints the selected backend of every step. */
     void print() const;
+
+    /** @brief Assembles the per-factor confidence-weight switches for buildPointCloud. */
+    ConfidenceWeightConfig confidenceWeights() const
+    {
+        return {confUseGlobal, confUseDepth, confUseEdge, confUseStereo};
+    }
 };

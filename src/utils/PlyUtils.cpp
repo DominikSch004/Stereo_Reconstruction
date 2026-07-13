@@ -45,7 +45,9 @@ PointCloud PlyUtils::buildPointCloud(
     int minDisp,
     float globalConfidence,
     TriangulationMethod method,
-    const cv::Mat &disparityConfidence)
+    const cv::Mat &disparityConfidence,
+    const ConfidenceWeightConfig &weightCfg,
+    PointConfidenceBreakdown *breakdown)
 {
     cv::Mat disp32f;
     if (disparity.type() == CV_32F)
@@ -56,6 +58,7 @@ PointCloud PlyUtils::buildPointCloud(
     cv::Mat pts3D = Triangulation::reprojectDisparityTo3D(disp32f, Q, P1r, P2r, minDisp, method);
     if (pts3D.empty())
         return PointCloud();
+    if (breakdown) breakdown->clear();
 
     cv::Mat gradX, gradY;
     cv::Sobel(disp32f, gradX, CV_32F, 1, 0, 3);
@@ -141,7 +144,16 @@ PointCloud PlyUtils::buildPointCloud(
             const float stereoConfidence = havePixelConfidence
                                          ? std::clamp(disparityConfidence.at<float>(y, x), 0.0f, 1.0f)
                                          : 1.0f;
-            float finalWeight = globalConfidence * depthConfidence * edgeWeight * stereoConfidence;
+            // Compose the weight from the enabled factors only; a disabled factor
+            // contributes a neutral 1.0. The diagnostic core showed the full product
+            // buries the informative c_depth under the inverted c_edge/c_stereo, so
+            // the ablation needs to switch factors in and out. The breakdown below
+            // still records the RAW per-factor values regardless of the toggles.
+            const float finalWeight =
+                (weightCfg.useGlobal ? globalConfidence : 1.0f) *
+                (weightCfg.useDepth  ? depthConfidence  : 1.0f) *
+                (weightCfg.useEdge   ? edgeWeight       : 1.0f) *
+                (weightCfg.useStereo ? stereoConfidence : 1.0f);
 
             Eigen::Vector3f normalCam = Eigen::Vector3f::Zero();
             bool normalOk = false;
@@ -188,6 +200,17 @@ PointCloud PlyUtils::buildPointCloud(
             cloud.pts.push_back(Eigen::Vector3f((float)w[0], (float)w[1], (float)w[2]));
             cloud.colors.push_back(rectColor.at<cv::Vec3b>(y, x));
             cloud.weights.push_back(finalWeight);
+
+            // Per-factor breakdown, pushed in lockstep with the point so the arrays
+            // stay index-aligned for the confidence ablation. camDepth is the raw
+            // camera-frame Z (mm), captured before the world projection below.
+            if (breakdown)
+            {
+                breakdown->camDepth.push_back(p[2]);
+                breakdown->depthConf.push_back(depthConfidence);
+                breakdown->edgeConf.push_back(edgeWeight);
+                breakdown->stereoConf.push_back(stereoConfidence);
+            }
 
             if (normalOk) {
                 Eigen::Matrix3d R_eigen;

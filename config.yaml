@@ -38,6 +38,16 @@ icp_view_last: 19
 stereo_confidence_filter: 1
 stereo_lr_max_diff: 1.5
 stereo_photometric_scale: 25.0
+
+# Per-factor composition of the ICP confidence weight w = c_global*c_depth*c_edge*c_stereo.
+# The diagnostic core (docs/confidence_icp_analysis.md) found the full product uninformative:
+# c_depth carries the only real signal, diluted by the mildly inverted c_edge/c_stereo.
+# Turn factors off to ablate. Depth-only (edge=0, stereo=0) isolates the informative factor.
+#   c_global is a per-cloud constant -> structurally inert for single-pair ICP.
+conf_use_global: 1
+conf_use_depth: 1
+conf_use_edge: 1
+conf_use_stereo: 1
 icp_robust: 1
 icp_reciprocal: 1
 icp_trim_fraction: 0.80

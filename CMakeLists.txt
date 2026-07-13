@@ -89,6 +89,18 @@ add_executable(IcpBenchmark benchmark/IcpBenchmark.cpp)
 target_include_directories(IcpBenchmark PRIVATE include)
 target_link_libraries(IcpBenchmark PRIVATE stereo_core)
 
+# Confidence-ICP analysis, diagnostic core (L0 calibration + L1 effect size, no ICP).
+# Dumps per-point (w, factors, GT error) CSVs; analysed by scripts/analyze_confidence.py
+add_executable(ConfidenceAnalysis benchmark/ConfidenceAnalysis.cpp)
+target_include_directories(ConfidenceAnalysis PRIVATE include)
+target_link_libraries(ConfidenceAnalysis PRIVATE stereo_core)
+
+# L4 confidence-ICP corruption mechanism test (oracle vs real vs uniform under
+# injected corruption); analysed by scripts/analyze_corruption.py
+add_executable(IcpConfidenceCorruption benchmark/IcpConfidenceCorruption.cpp)
+target_include_directories(IcpConfidenceCorruption PRIVATE include)
+target_link_libraries(IcpConfidenceCorruption PRIVATE stereo_core)
+
 # Visualization / verification executables
 register_visualisation_target(SparseKeyPointMatching src/visualization/sparse_key_point_matching.cpp)
 register_visualisation_target(EightPointRansac       src/visualization/8point_ransac.cpp)
