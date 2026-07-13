@@ -616,7 +616,7 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     // NOTE: coverage vs. dense-vs-sparse accuracy is a continuous tradeoff here
     // As we increase minPeakSegment, it decreases coverage and increases 
     // dense-vs-sparse accuracy.
-        const int minPeakSegment = 100; // cv::StereoSGBM's speckleWindowSize
+    const int minPeakSegment = 100; // cv::StereoSGBM's speckleWindowSize
     disparity = removePeaks(disparity, minDisp, minPeakSegment);
 
     // Gap interpolation (Hirschmuller 2008, Sec 2.5.3): pushes coverage to 100% but currently
