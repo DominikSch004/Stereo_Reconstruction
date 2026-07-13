@@ -210,6 +210,8 @@ PointCloud PlyUtils::buildPointCloud(
                 breakdown->depthConf.push_back(depthConfidence);
                 breakdown->edgeConf.push_back(edgeWeight);
                 breakdown->stereoConf.push_back(stereoConfidence);
+                breakdown->u.push_back(x);
+                breakdown->v.push_back(y);
             }
 
             if (normalOk) {

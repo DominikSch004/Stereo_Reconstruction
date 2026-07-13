@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <random>
 #include <opencv2/flann.hpp>
+#include <opencv2/imgproc.hpp>
 #include "DTULoader.hpp"
 #include "Pipeline.hpp"
 #include "PipelineConfig.hpp"
@@ -93,6 +94,103 @@ std::string cliValue(int argc, char **argv, const std::string &flag, const std::
     for (int i = 1; i < argc - 1; ++i)
         if (flag == argv[i]) return argv[i + 1];
     return def;
+}
+
+// ----------------------------------------------------------------------------
+// Candidate confidence cues (proposal in Stereo-Confidence-Reformulation): these
+// come from the matching COST CURVE, which the literature (Hu & Mordohai 2012;
+// Poggi et al. 2021) ranks above the disparity-gradient / low-cost cues the
+// production weight uses. Computed here (validation only) via a local census cost
+// re-evaluated on the rectified pair -- backend-agnostic, no SGBM internals.
+// ----------------------------------------------------------------------------
+struct CueMaps
+{
+    cv::Mat curv;   // CV_32F: cost-curve curvature at d* (sharp min => high => reliable; <=0 => unreliable)
+    cv::Mat pkr;    // CV_32F: peak ratio = best-competitor cost / cost(d*) (higher => more distinct)
+    cv::Mat tex;    // CV_32F: reference-image gradient magnitude (texture; low => matching ambiguous)
+    cv::Mat sigmaD; // CV_32F: per-pixel disparity std from curvature (sigma_d ~ 1/curv), for propagation
+};
+
+cv::Mat toGray(const cv::Mat &m)
+{
+    cv::Mat g;
+    if (m.channels() == 3) cv::cvtColor(m, g, cv::COLOR_BGR2GRAY);
+    else g = m;
+    if (g.type() != CV_8U) g.convertTo(g, CV_8U);
+    return g;
+}
+
+// 5x5 census transform -> 24-bit code per pixel.
+cv::Mat censusTransform(const cv::Mat &gray)
+{
+    const int R = 2;
+    cv::Mat codes = cv::Mat::zeros(gray.size(), CV_32S);
+    for (int y = R; y < gray.rows - R; ++y)
+        for (int x = R; x < gray.cols - R; ++x)
+        {
+            uint32_t c = 0;
+            const uchar center = gray.at<uchar>(y, x);
+            for (int dy = -R; dy <= R; ++dy)
+                for (int dx = -R; dx <= R; ++dx)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    c = (c << 1) | (gray.at<uchar>(y + dy, x + dx) < center ? 1u : 0u);
+                }
+            codes.at<int>(y, x) = (int)c;
+        }
+    return codes;
+}
+
+CueMaps computeCandidateCues(const cv::Mat &rectLeft, const cv::Mat &rectRight,
+                             const cv::Mat &disparity, int minDisp, int numDisp)
+{
+    const cv::Mat gL = toGray(rectLeft), gR = toGray(rectRight);
+    const cv::Mat codeL = censusTransform(gL), codeR = censusTransform(gR);
+    const int rows = gL.rows, cols = gL.cols;
+    const int R = 2, maxCost = 24; // 5x5 census -> 24 comparisons
+
+    CueMaps m;
+    m.curv = cv::Mat::zeros(disparity.size(), CV_32F);
+    m.pkr = cv::Mat::zeros(disparity.size(), CV_32F);
+    m.sigmaD = cv::Mat(disparity.size(), CV_32F, cv::Scalar(1e3f)); // default: very uncertain
+    cv::Mat gx, gy;
+    cv::Sobel(gL, gx, CV_32F, 1, 0, 3);
+    cv::Sobel(gL, gy, CV_32F, 0, 1, 3);
+    cv::magnitude(gx, gy, m.tex);
+
+    auto cost = [&](int x, int y, int d) -> int {
+        const int xr = x - d;
+        if (xr < R || xr >= cols - R) return maxCost;
+        return __builtin_popcount((unsigned)(codeL.at<int>(y, x) ^ codeR.at<int>(y, xr)));
+    };
+
+    const int dLo = minDisp, dHi = minDisp + numDisp;
+    for (int y = R; y < rows - R; ++y)
+        for (int x = R; x < cols - R; ++x)
+        {
+            const float dispf = disparity.at<float>(y, x);
+            if (dispf <= (float)minDisp || !std::isfinite(dispf)) continue;
+            const int dStar = (int)std::lround(dispf);
+            if (dStar - 1 < dLo || dStar + 1 >= dHi) continue;
+
+            const int cCenter = cost(x, y, dStar);
+            const int cLo = cost(x, y, dStar - 1);
+            const int cHi = cost(x, y, dStar + 1);
+            const float kappa = (float)(cLo - 2 * cCenter + cHi); // 2nd difference ~ curvature
+            m.curv.at<float>(y, x) = kappa;
+            // sigma_d ~ 1/curvature (parabola-fit variance); guard non-convex minima
+            m.sigmaD.at<float>(y, x) = 1.0f / std::max(kappa, 0.25f);
+
+            // peak ratio: best competing cost at |d-d*|>1, relative to cost(d*)
+            int cBest2 = maxCost;
+            for (int d = dLo; d < dHi; ++d)
+            {
+                if (std::abs(d - dStar) <= 1) continue;
+                cBest2 = std::min(cBest2, cost(x, y, d));
+            }
+            m.pkr.at<float>(y, x) = (float)cBest2 / (float)std::max(cCenter, 1);
+        }
+    return m;
 }
 
 } // namespace
@@ -161,7 +259,8 @@ int main(int argc, char **argv)
         std::cerr << "Cannot open output CSVs in '" << outDir << "'.\n";
         return 1;
     }
-    pts << "pair_id,left,right,wx,wy,wz,cam_depth,w,c_depth,c_edge,c_stereo,valid_normal,gt_err_mm\n";
+    pts << "pair_id,left,right,wx,wy,wz,cam_depth,w,c_depth,c_edge,c_stereo,valid_normal,gt_err_mm,"
+           "c_curv,c_pkr,c_tex,w_new\n";
     meta << "pair_id,left,right,global_confidence,n_points_total,n_points_dumped,"
             "cull_threshold_w,rms_radius_mm\n";
     pts << std::fixed << std::setprecision(6);
@@ -212,6 +311,14 @@ int main(int argc, char **argv)
             continue;
         }
 
+        // Candidate cost-curve cues (validation only; production weight untouched) and the
+        // f*B needed to propagate the curvature sigma_d into a depth uncertainty. Computed in
+        // image space, sampled per point via the (u,v) recorded in the breakdown.
+        const CueMaps cues = computeCandidateCues(res.rectLeft, res.rectRight, res.denseDisparity,
+                                                  res.minDisp, res.numDisp);
+        double fB = std::abs(res.P2r.at<double>(0, 3));
+        if (!(fB > 0.0)) fB = 1000.0;
+
         // Place in the DTU world frame (calibration) so GT distances are meaningful.
         // This is the world placement IcpFusion applies; it does not reorder points,
         // so the breakdown arrays stay aligned with cloud.pts.
@@ -234,12 +341,21 @@ int main(int argc, char **argv)
         for (size_t i : idx)
         {
             const auto &p = cloud.pts[i];
+            const int uu = bd.u[i], vv = bd.v[i];
+            const float cCurv = cues.curv.at<float>(vv, uu);
+            const float cPkr = cues.pkr.at<float>(vv, uu);
+            const float cTex = cues.tex.at<float>(vv, uu);
+            const double sigD = cues.sigmaD.at<float>(vv, uu);
+            const double Z = bd.camDepth[i];
+            const double sigZ = (Z * Z) * sigD / fB;             // propagate curvature sigma_d to depth
+            const double wNew = (sigZ > 1e-12) ? 1.0 / (sigZ * sigZ) : 0.0; // inverse-variance weight
             pts << pairId << ',' << leftView << ',' << rightView << ','
                 << p.x() << ',' << p.y() << ',' << p.z() << ','
                 << bd.camDepth[i] << ',' << cloud.weights[i] << ','
                 << bd.depthConf[i] << ',' << bd.edgeConf[i] << ',' << bd.stereoConf[i] << ','
                 << (i < cloud.validNormal.size() && cloud.validNormal[i] ? 1 : 0) << ','
-                << err[i] << '\n';
+                << err[i] << ','
+                << cCurv << ',' << cPkr << ',' << cTex << ',' << wNew << '\n';
         }
 
         meta << pairId << ',' << leftView << ',' << rightView << ','

@@ -38,9 +38,15 @@ struct PointConfidenceBreakdown
     std::vector<float> depthConf;  // c_depth: median-normalized inverse depth variance, capped 100:1
     std::vector<float> edgeConf;   // c_edge: exp(-|grad disparity| / 5)
     std::vector<float> stereoConf; // c_stereo: left/right + photometric reliability in [0,1] (1.0 if no map supplied)
+    std::vector<int>   u;          // source pixel column (x) of each kept point, for sampling candidate cue maps
+    std::vector<int>   v;          // source pixel row (y)
 
-    void clear() { camDepth.clear(); depthConf.clear(); edgeConf.clear(); stereoConf.clear(); }
-    void reserve(size_t n) { camDepth.reserve(n); depthConf.reserve(n); edgeConf.reserve(n); stereoConf.reserve(n); }
+    void clear() { camDepth.clear(); depthConf.clear(); edgeConf.clear(); stereoConf.clear(); u.clear(); v.clear(); }
+    void reserve(size_t n)
+    {
+        camDepth.reserve(n); depthConf.reserve(n); edgeConf.reserve(n); stereoConf.reserve(n);
+        u.reserve(n); v.reserve(n);
+    }
 };
 
 /**
