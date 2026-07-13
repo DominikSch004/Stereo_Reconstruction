@@ -25,7 +25,10 @@ std::vector<Match> NearestNeighborSearch::queryMatches(const std::vector<Eigen::
 
     cv::Mat indices(m, 1, CV_32S);
     cv::Mat dists(m, 1, CV_32F); // FLANN L2 index returns squared distances
-    m_index->knnSearch(queryMat, indices, dists, 1);
+    // 128 leaf checks instead of the default 32: on fused targets of 10^5-10^6
+    // points the default returns visibly suboptimal neighbors, which reads as
+    // correspondence noise in ICP and caps the achievable alignment accuracy.
+    m_index->knnSearch(queryMat, indices, dists, 1, cv::flann::SearchParams(128));
 
     for (int i = 0; i < m; ++i)
     {

@@ -80,11 +80,13 @@ bool orderPair(DTULoader &loader, int a, int b,
 size_t cullByConfidence(PointCloud &cloud, float keepFrac);
 
 /**
- * @brief Writes a single per-pair contribution to pointcloud_pair_LL_RR.ply in the
- *        metric frame (denormalized with @p mean / @p scale). The cloud is copied
- *        before denormalizing, so the caller's normalized cloud is left untouched.
+ * @brief Writes a single per-pair contribution to pointcloud_pair_LL_RR<suffix>.ply
+ *        in the metric frame (denormalized with @p mean / @p scale). The cloud is
+ *        copied before denormalizing, so the caller's normalized cloud is left
+ *        untouched.
  */
 void saveIndividualCloud(const PointCloud &cloud, int leftView, int rightView,
-                         const Eigen::Vector3f &mean, float scale);
+                         const Eigen::Vector3f &mean, float scale,
+                         const std::string &suffix = "");
 
 } // namespace IcpUtils

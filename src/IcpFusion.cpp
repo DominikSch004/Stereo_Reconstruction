@@ -33,7 +33,8 @@ int main(int argc, char **argv)
     const std::vector<std::pair<int, int>> selectedPairs = {
         {1, 2}, {4, 5}, {7, 8}, {12, 13}, {18, 19}, {26, 27}, {32, 33}, {37, 38}};
 
-    const size_t icpSamples = 4000;
+    const size_t icpSamples = 4000;      // coarse-stage source subsample
+    const size_t icpFineSamples = 30000; // fine-stage source subsample (plenty for 6 DOF)
     const size_t minCloudPoints = 1000; // reject degenerate reconstructions (near-empty clouds)
     const float confidenceKeepFrac = 0.10f;
     const double minOverlapFrac = 0.10;
@@ -131,6 +132,9 @@ int main(int argc, char **argv)
             p = (p - mean0) / scale0;
 
     PointCloud fused = clouds[0];
+    // Calibration-only concatenation, kept alongside the ICP result so the ICP
+    // stage can be judged against the placement it started from.
+    PointCloud fusedCalib = clouds[0];
     IcpUtils::saveIndividualCloud(clouds[0], cloudPairs[0].first, cloudPairs[0].second, mean0, scale0);
     for (size_t i = 1; i < clouds.size(); ++i)
     {
@@ -139,28 +143,31 @@ int main(int argc, char **argv)
         // Refine a working copy so clouds[i] retains its untouched calibration placement as fallback.
         PointCloud refined = clouds[i];
 
-        PointCloud srcSub = PlyUtils::subsample(refined, icpSamples, rng);
-        PointCloud tgtSub = PlyUtils::subsample(fused, icpSamples, rng);
-
         CeresICPOptimizer icp;
         icp.setMode(config.icpMode);
-        icp.setMatchingMaxDistance(0.1f);
-
-        // Coarse alignment on subsampled clouds (unweighted).
-        icp.setNbOfIterations(40);
         icp.useWeights(false);
-        Eigen::Matrix4f coarseT = icp.estimatePose(srcSub, tgtSub);
+
+        // Coarse: subsampled source against the FULL fused cloud. A subsampled
+        // target would impose an NN-spacing error floor (~1.5 mm at 4000 points)
+        // that caps the whole fusion. The 0.5 gate covers the worst observed
+        // calibration placement error (~0.35 normalized); the optimizer's
+        // adaptive 3x-median gate anneals it as alignment improves.
+        PointCloud srcSub = PlyUtils::subsample(refined, icpSamples, rng);
+        icp.setMatchingMaxDistance(0.5f);
+        icp.setNbOfIterations(40);
+        Eigen::Matrix4f coarseT = icp.estimatePose(srcSub, fused);
         IcpUtils::applyRigid(refined, coarseT);
 
-        // Fine refinement against the full fused cloud (confidence-weighted).
-        icp.setNbOfIterations(20);
-        icp.useWeights(true);
-        Eigen::Matrix4f fineT = icp.estimatePose(refined, fused);
+        // Fine: denser source subsample, tight gate (basic unweighted ICP).
+        PointCloud srcFine = PlyUtils::subsample(refined, icpFineSamples, rng);
+        icp.setMatchingMaxDistance(0.1f);
+        icp.setNbOfIterations(30);
+        Eigen::Matrix4f fineT = icp.estimatePose(srcFine, fused);
         IcpUtils::applyRigid(refined, fineT);
         int matched = icp.lastMatchCount();
 
-        const double overlapFrac = clouds[i].pts.empty()
-                                 ? 0.0 : (double)matched / (double)clouds[i].pts.size();
+        const double overlapFrac = srcFine.pts.empty()
+                                 ? 0.0 : (double)matched / (double)srcFine.pts.size();
         const bool trustRefinement = overlapFrac >= minOverlapFrac;
         const PointCloud &toAppend = trustRefinement ? refined : clouds[i];
 
@@ -172,8 +179,10 @@ int main(int argc, char **argv)
                       << matched << " correspondences) -- appending at calibration placement "
                       << "without refinement.\n";
 
-        // Save this pair's contribution exactly as it enters the fused cloud.
+        // Save this pair's contribution exactly as it enters the fused cloud,
+        // plus its calibration-only placement for before/after comparison.
         IcpUtils::saveIndividualCloud(toAppend, cloudPairs[i].first, cloudPairs[i].second, mean0, scale0);
+        IcpUtils::saveIndividualCloud(clouds[i], cloudPairs[i].first, cloudPairs[i].second, mean0, scale0, "_calib");
 
         fused.pts.insert(fused.pts.end(), toAppend.pts.begin(), toAppend.pts.end());
         fused.colors.insert(fused.colors.end(), toAppend.colors.begin(), toAppend.colors.end());
@@ -181,8 +190,17 @@ int main(int argc, char **argv)
         fused.normals.insert(fused.normals.end(), toAppend.normals.begin(), toAppend.normals.end());
         fused.validNormal.insert(fused.validNormal.end(), toAppend.validNormal.begin(), toAppend.validNormal.end());
 
+        fusedCalib.pts.insert(fusedCalib.pts.end(), clouds[i].pts.begin(), clouds[i].pts.end());
+        fusedCalib.colors.insert(fusedCalib.colors.end(), clouds[i].colors.begin(), clouds[i].colors.end());
+        fusedCalib.weights.insert(fusedCalib.weights.end(), clouds[i].weights.begin(), clouds[i].weights.end());
+        fusedCalib.normals.insert(fusedCalib.normals.end(), clouds[i].normals.begin(), clouds[i].normals.end());
+        fusedCalib.validNormal.insert(fusedCalib.validNormal.end(), clouds[i].validNormal.begin(), clouds[i].validNormal.end());
+
         std::cout << "Current fused cloud size: " << fused.pts.size() << " points\n";
     }
+
+    PlyUtils::denormalise(fusedCalib, mean0, scale0);
+    PlyUtils::savePLY("pointcloud_fused_calib.ply", fusedCalib);
 
     PlyUtils::denormalise(fused, mean0, scale0);
     PlyUtils::savePLY("pointcloud_fused.ply", fused);

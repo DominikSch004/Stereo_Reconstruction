@@ -105,13 +105,15 @@ size_t cullByConfidence(PointCloud &cloud, float keepFrac)
 }
 
 void saveIndividualCloud(const PointCloud &cloud, int leftView, int rightView,
-                         const Eigen::Vector3f &mean, float scale)
+                         const Eigen::Vector3f &mean, float scale,
+                         const std::string &suffix)
 {
     PointCloud out = cloud; // copy so denormalising doesn't disturb the fusion pipeline
     PlyUtils::denormalise(out, mean, scale);
 
-    char fname[64];
-    std::snprintf(fname, sizeof(fname), "pointcloud_pair_%02d_%02d.ply", leftView, rightView);
+    char fname[80];
+    std::snprintf(fname, sizeof(fname), "pointcloud_pair_%02d_%02d%s.ply",
+                  leftView, rightView, suffix.c_str());
     PlyUtils::savePLY(fname, out);
     std::cout << "  Saved individual cloud -> " << fname << " (" << out.pts.size()
               << " points)\n";

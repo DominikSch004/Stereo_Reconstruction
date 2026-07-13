@@ -188,6 +188,10 @@ void ICPOptimizer::pruneCorrespondences(
         const Eigen::Vector3f& sn = sourceNormals[i];
         const Eigen::Vector3f& tn = targetNormals[match.idx];
         if (!sn.allFinite() || !tn.allFinite()) continue;
+        // Invalid source normals are stored as zero vectors; they carry no
+        // orientation evidence, so the match must survive (it falls back to a
+        // point-to-point residual) instead of auto-failing the dot test.
+        if (sn.squaredNorm() < 1e-12f || tn.squaredNorm() < 1e-12f) continue;
 
         // Reject correspondences whose normals disagree by more than 60 degrees.
         if (sn.dot(tn) < 0.5f)
@@ -222,20 +226,68 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
     const bool haveSourceNormals = source.normals.size() == source.pts.size();
     Eigen::Matrix4f estimatedPose = initialPose;
 
+    // The pose with the smallest observed mean correspondence distance. ICP on
+    // real data is not monotone (re-association noise, biased normals), so the
+    // final iterate is NOT necessarily the best one; returning the best guards
+    // against late-iteration drift.
+    Eigen::Matrix4f bestPose = initialPose;
+    double bestMeanDist = std::numeric_limits<double>::max();
+    int bestMatchCount = 0;
+    int divergingStreak = 0;
+
+    // Associates source (under `pose`) to the target: NN query, adaptive
+    // distance gate at 3x the median NN distance (standard outlier rejection --
+    // a fixed gate is either too tight for the initial error or too loose near
+    // convergence), then normal-agreement pruning. Returns matches plus the
+    // surviving count and their mean Euclidean distance.
+    auto associate = [&](const Eigen::Matrix4f& pose,
+                         const std::vector<Eigen::Vector3f>& transformedPoints,
+                         int& matched, double& meanDist)
+    {
+        auto matches = m_nearestNeighborSearch.queryMatches(transformedPoints);
+
+        std::vector<float> validSq;
+        validSq.reserve(matches.size());
+        for (const auto& mm : matches)
+            if (mm.idx >= 0)
+                validSq.push_back(mm.distance);
+        if (!validSq.empty())
+        {
+            const size_t mid = validSq.size() / 2;
+            std::nth_element(validSq.begin(), validSq.begin() + mid, validSq.end());
+            // 3x median distance == 9x median squared distance; the floor keeps
+            // the gate open once the clouds sit within sampling noise.
+            const float tauSq = std::max(9.0f * validSq[mid], 1e-8f);
+            for (auto& mm : matches)
+                if (mm.idx >= 0 && mm.distance > tauSq)
+                    mm.idx = -1;
+        }
+
+        if (m_usePointToPlane && haveSourceNormals)
+        {
+            const auto transformedNormals = transformNormals(source.normals, pose);
+            pruneCorrespondences(transformedNormals, target.normals, target.validNormal, matches);
+        }
+
+        matched = 0;
+        double sumDist = 0.0;
+        for (const auto& mm : matches)
+        {
+            if (mm.idx < 0) continue;
+            ++matched;
+            sumDist += std::sqrt((double)mm.distance);
+        }
+        meanDist = matched > 0 ? sumDist / matched : std::numeric_limits<double>::max();
+        return matches;
+    };
+
     for (unsigned iter = 0; iter < m_nIterations; ++iter)
     {
         // --- Associate: transform source by the current estimate, then match ---
         const auto transformedPoints = transformPoints(source.pts, estimatedPose);
-        auto matches = m_nearestNeighborSearch.queryMatches(transformedPoints);
-
-        if (m_usePointToPlane && haveSourceNormals)
-        {
-            const auto transformedNormals = transformNormals(source.normals, estimatedPose);
-            pruneCorrespondences(transformedNormals, target.normals, target.validNormal, matches);
-        }
-
-        const int matched = (int)std::count_if(matches.begin(), matches.end(),
-                                                [](const Match& m) { return m.idx >= 0; });
+        int matched = 0;
+        double meanDist = 0.0;
+        auto matches = associate(estimatedPose, transformedPoints, matched, meanDist);
         m_lastMatchCount = matched;
 
         if (matched < 6)
@@ -249,20 +301,35 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             std::cout << "  [ICP iter " << iter << "] only " << matched
                       << " correspondences survived -- stopping (need >= 6).\n"
                       << "    NN distances (all " << matches.size() << " source pts): min="
-                      << std::sqrt(minD) << " mean=" << std::sqrt(meanD)
+                      << std::sqrt(minD) << " rms=" << std::sqrt(meanD)
                       << " max=" << std::sqrt(maxD) << "\n";
+            break;
+        }
+
+        // --- Best-pose tracking and divergence stop ---
+        if (meanDist < bestMeanDist)
+        {
+            bestMeanDist = meanDist;
+            bestPose = estimatedPose;
+            bestMatchCount = matched;
+            divergingStreak = 0;
+        }
+        else if (++divergingStreak >= 5)
+        {
+            if (m_verbose)
+                std::cout << "  [ICP iter " << iter << "] mean distance has not improved for "
+                          << divergingStreak << " iterations (best " << bestMeanDist
+                          << ", now " << meanDist << ") -- stopping.\n";
             break;
         }
 
         // --- Diagnostics ---
         if (m_verbose)
         {
-            double sumDist = 0.0;
             int planeCount = 0;
             for (size_t i = 0; i < matches.size(); ++i)
             {
                 if (matches[i].idx < 0) continue;
-                sumDist += (transformedPoints[i] - target.pts[matches[i].idx]).norm();
                 if (m_usePointToPlane && matches[i].idx < (int)target.normals.size()
                     && (target.validNormal.empty() || target.validNormal[matches[i].idx]))
                     ++planeCount;
@@ -270,7 +337,7 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             std::cout << "  [ICP iter " << iter << "] correspondences=" << matched
                       << "/" << source.pts.size()
                       << " | plane=" << planeCount << " point=" << (matched - planeCount)
-                      << " | mean pre-opt dist=" << (sumDist / matched) << "\n";
+                      << " | mean pre-opt dist=" << meanDist << "\n";
         }
 
         // --- Solve for the incremental pose (starts at identity each iteration) ---
@@ -324,12 +391,34 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             std::cout << "    iter " << iter << " step: |trans|=" << transNorm
                       << " |omega|=" << omegaNorm << "\n";
 
-        if (transNorm < 1e-5 && omegaNorm < 1e-5)
+        // 1e-4 normalized units is far below the correspondence noise floor on
+        // real data; the old 1e-5 threshold effectively never fired.
+        if (transNorm < 1e-4 && omegaNorm < 1e-4)
         {
             if (m_verbose) std::cout << "  [ICP] converged at iter " << iter << "\n";
             break;
         }
     }
 
-    return estimatedPose;
+    // The last solve's pose was never evaluated inside the loop; score it once
+    // so it can win over the tracked best.
+    {
+        const auto transformedPoints = transformPoints(source.pts, estimatedPose);
+        int matched = 0;
+        double meanDist = 0.0;
+        associate(estimatedPose, transformedPoints, matched, meanDist);
+        if (matched >= 6 && meanDist < bestMeanDist)
+        {
+            bestMeanDist = meanDist;
+            bestPose = estimatedPose;
+            bestMatchCount = matched;
+        }
+    }
+    m_lastMatchCount = bestMatchCount;
+
+    if (m_verbose)
+        std::cout << "  [ICP] returning best pose (mean correspondence dist "
+                  << bestMeanDist << ", " << m_lastMatchCount << " matches).\n";
+
+    return bestPose;
 }

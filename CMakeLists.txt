@@ -88,6 +88,11 @@ add_executable(IcpBenchmark benchmark/IcpBenchmark.cpp)
 target_include_directories(IcpBenchmark PRIVATE include)
 target_link_libraries(IcpBenchmark PRIVATE stereo_core)
 
+# Chamfer accuracy of saved fused/per-pair clouds against the DTU GT scan
+add_executable(FusedCloudEval benchmark/FusedCloudEval.cpp)
+target_include_directories(FusedCloudEval PRIVATE include)
+target_link_libraries(FusedCloudEval PRIVATE stereo_core)
+
 # Visualization / verification executables
 register_visualisation_target(SparseKeyPointMatching src/visualization/sparse_key_point_matching.cpp)
 register_visualisation_target(EightPointRansac       src/visualization/8point_ransac.cpp)

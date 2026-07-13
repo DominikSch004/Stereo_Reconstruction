@@ -21,4 +21,7 @@ disparity: opencv
 triangulation: custom
 
 # point_to_point | point_to_plane  (only used by the IcpFusion executable)
-icp_mode: point_to_plane
+# point_to_point is the default: the per-point normals available here come from
+# +/-1px central differences on raw stereo disparity and are too noisy to
+# support point-to-plane residuals (they caused tangential drift in fusion).
+icp_mode: point_to_point
