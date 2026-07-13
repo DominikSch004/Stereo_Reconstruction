@@ -51,6 +51,13 @@ Eigen::Matrix4f randomRigid(double angleDeg, double transMag, std::mt19937 &rng)
 void transformCloudToWorld(PointCloud &cloud, const cv::Mat &R1, const CameraPose &poseLeft);
 
 /**
+ * @brief Rigid transform taking a pair's RECTIFIED left-camera frame to the DTU
+ *        world frame (the math behind transformCloudToWorld, exposed so a caller
+ *        can anchor an entire fused result with one transform).
+ */
+Eigen::Matrix4f rectToWorldTransform(const cv::Mat &R1, const CameraPose &poseLeft);
+
+/**
  * @brief Orders a candidate DTU view pair by its baseline direction in the LEFT
  *        camera frame so the dense stereo stack always sees a horizontal,
  *        left-to-right baseline.
@@ -81,12 +88,13 @@ size_t cullByConfidence(PointCloud &cloud, float keepFrac);
 
 /**
  * @brief Writes a single per-pair contribution to pointcloud_pair_LL_RR<suffix>.ply
- *        in the metric frame (denormalized with @p mean / @p scale). The cloud is
- *        copied before denormalizing, so the caller's normalized cloud is left
- *        untouched.
+ *        in the metric frame (denormalized with @p mean / @p scale), then moved by
+ *        the rigid @p anchor (e.g. a fusion-frame -> world gauge transform). The
+ *        cloud is copied first, so the caller's normalized cloud is left untouched.
  */
 void saveIndividualCloud(const PointCloud &cloud, int leftView, int rightView,
                          const Eigen::Vector3f &mean, float scale,
-                         const std::string &suffix = "");
+                         const std::string &suffix = "",
+                         const Eigen::Matrix4f &anchor = Eigen::Matrix4f::Identity());
 
 } // namespace IcpUtils

@@ -34,19 +34,22 @@ Eigen::Matrix4f randomRigid(double angleDeg, double transMag, std::mt19937 &rng)
     return T;
 }
 
-void transformCloudToWorld(PointCloud &cloud, const cv::Mat &R1, const CameraPose &poseLeft)
+Eigen::Matrix4f rectToWorldTransform(const cv::Mat &R1, const CameraPose &poseLeft)
 {
     Eigen::Matrix3d R1e;
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c)
             R1e(r, c) = R1.at<double>(r, c);
 
-    const Eigen::Matrix3f rectToWorldR = (poseLeft.R.transpose() * R1e.transpose()).cast<float>();
-    const Eigen::Vector3f worldC = poseLeft.t.cast<float>();
-    for (auto &p : cloud.pts)
-        p = rectToWorldR * p + worldC;
-    for (auto &n : cloud.normals)
-        n = rectToWorldR * n;
+    Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
+    T.block<3, 3>(0, 0) = (poseLeft.R.transpose() * R1e.transpose()).cast<float>();
+    T.block<3, 1>(0, 3) = poseLeft.t.cast<float>();
+    return T;
+}
+
+void transformCloudToWorld(PointCloud &cloud, const cv::Mat &R1, const CameraPose &poseLeft)
+{
+    applyRigid(cloud, rectToWorldTransform(R1, poseLeft));
 }
 
 bool orderPair(DTULoader &loader, int a, int b,
@@ -106,10 +109,11 @@ size_t cullByConfidence(PointCloud &cloud, float keepFrac)
 
 void saveIndividualCloud(const PointCloud &cloud, int leftView, int rightView,
                          const Eigen::Vector3f &mean, float scale,
-                         const std::string &suffix)
+                         const std::string &suffix, const Eigen::Matrix4f &anchor)
 {
     PointCloud out = cloud; // copy so denormalising doesn't disturb the fusion pipeline
     PlyUtils::denormalise(out, mean, scale);
+    applyRigid(out, anchor);
 
     char fname[80];
     std::snprintf(fname, sizeof(fname), "pointcloud_pair_%02d_%02d%s.ply",

@@ -30,8 +30,15 @@ int main(int argc, char **argv)
     }
     config.print();
 
-    const std::vector<std::pair<int, int>> selectedPairs = {
-        {1, 2}, {4, 5}, {7, 8}, {12, 13}, {18, 19}, {26, 27}, {32, 33}, {37, 38}};
+    // OVERLAPPING sliding window (i, i+1), (i+1, i+2), ... over one DTU row.
+    // Registration is ICP-only (no GT world placement below), so consecutive
+    // clouds must overlap heavily and sit close in pose: sharing a view keeps
+    // them ~one orbit step apart, well inside the coarse stage's basin. On DTU,
+    // vertical baselines only occur at row boundaries (idx 5,19,28,38,49,...),
+    // so views 6..19 are one clean row and the overlap chain stays connected.
+    std::vector<std::pair<int, int>> selectedPairs;
+    for (int v = 6; v < 19; ++v)
+        selectedPairs.emplace_back(v, v + 1);
 
     const size_t icpSamples = 4000;      // coarse-stage source subsample
     const size_t icpFineSamples = 30000; // fine-stage source subsample (plenty for 6 DOF)
@@ -40,6 +47,15 @@ int main(int argc, char **argv)
     const double minOverlapFrac = 0.10;
 
     std::mt19937 rng(42);
+
+    // Rigid transform from the FUSION frame (= first kept cloud's rectified
+    // left-camera frame) to the DTU world frame. Applied to outputs only, so
+    // saved clouds land in the frame of the GT scan for evaluation and
+    // visualization. This is a single global gauge transform of the entire
+    // fused result -- it cannot influence the registration, which below relies
+    // exclusively on ICP (GT poses otherwise enter only through the metric
+    // baseline rescale inside the pipeline, i.e. scale estimation).
+    Eigen::Matrix4f worldAnchor = Eigen::Matrix4f::Identity();
 
     std::vector<PointCloud> clouds;
     clouds.reserve(selectedPairs.size());
@@ -103,10 +119,13 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // The cloud lives in the pair's RECTIFIED left-camera frame (camToWorld is identity in
-        // the pipeline). Place it in the shared DTU world frame so the clouds are co-registered
-        // by calibration and ICP only has to correct residual pipeline error.
-        IcpUtils::transformCloudToWorld(cloud, res.R1, poseLeft);
+        // NO GT pre-registration: the cloud stays in its own RECTIFIED
+        // left-camera frame (camToWorld is identity in the pipeline) and ICP
+        // alone registers it to the fused reference. The first kept cloud
+        // defines the fusion frame; remember its world transform as the
+        // output anchor (gauge only, see above).
+        if (clouds.empty())
+            worldAnchor = IcpUtils::rectToWorldTransform(res.R1, poseLeft);
 
         std::cout << "Cloud from pair (" << leftView << "," << rightView << "): "
                   << cloud.pts.size() << " points generated.\n";
@@ -123,24 +142,28 @@ int main(int argc, char **argv)
         std::cerr << "WARNING: collected only " << clouds.size() << " of " << selectedPairs.size()
                   << " selected pairs (some were skipped or failed to reconstruct).\n";
 
-    // Single normalization, derived from cloud 0 only, preserving relative spatial
-    // relationship between clouds. normalise() already transforms cloud 0 in place,
-    // so only the remaining clouds need the same transform applied.
+    // Single normalization, derived from cloud 0 only. Each cloud sits in its
+    // own rectified camera frame, but the object occupies roughly the same
+    // region (~(0,0,depth)) in all of them, so cloud 0's mean/scale center and
+    // scale every cloud consistently; the residual inter-frame offset is
+    // exactly what ICP must absorb.
     auto [mean0, scale0] = PlyUtils::normalise(clouds[0]);
     for (size_t ci = 1; ci < clouds.size(); ++ci)
         for (auto &p : clouds[ci].pts)
             p = (p - mean0) / scale0;
 
     PointCloud fused = clouds[0];
-    // Calibration-only concatenation, kept alongside the ICP result so the ICP
-    // stage can be judged against the placement it started from.
-    PointCloud fusedCalib = clouds[0];
-    IcpUtils::saveIndividualCloud(clouds[0], cloudPairs[0].first, cloudPairs[0].second, mean0, scale0);
+    // Pre-ICP concatenation (clouds at their raw camera-frame placements), kept
+    // alongside the ICP result so the registration can be judged against the
+    // placement it started from.
+    PointCloud fusedPreIcp = clouds[0];
+    IcpUtils::saveIndividualCloud(clouds[0], cloudPairs[0].first, cloudPairs[0].second, mean0, scale0, "", worldAnchor);
     for (size_t i = 1; i < clouds.size(); ++i)
     {
         std::cout << "\nICP aligning cloud " << i + 1 << " to fused reference...\n";
 
-        // Refine a working copy so clouds[i] retains its untouched calibration placement as fallback.
+        // Refine a working copy so clouds[i] keeps its raw camera-frame placement
+        // for the pre-ICP reference cloud and the *_preicp diagnostics.
         PointCloud refined = clouds[i];
 
         CeresICPOptimizer icp;
@@ -149,9 +172,10 @@ int main(int argc, char **argv)
 
         // Coarse: subsampled source against the FULL fused cloud. A subsampled
         // target would impose an NN-spacing error floor (~1.5 mm at 4000 points)
-        // that caps the whole fusion. The 0.5 gate covers the worst observed
-        // calibration placement error (~0.35 normalized); the optimizer's
-        // adaptive 3x-median gate anneals it as alignment improves.
+        // that caps the whole fusion. The 0.5 gate covers the full initial
+        // misalignment (~one orbit step between consecutive rectified camera
+        // frames, ~0.1-0.3 normalized); the optimizer's adaptive 3x-median gate
+        // anneals it as alignment improves.
         PointCloud srcSub = PlyUtils::subsample(refined, icpSamples, rng);
         icp.setMatchingMaxDistance(0.5f);
         icp.setNbOfIterations(40);
@@ -169,40 +193,50 @@ int main(int argc, char **argv)
         const double overlapFrac = srcFine.pts.empty()
                                  ? 0.0 : (double)matched / (double)srcFine.pts.size();
         const bool trustRefinement = overlapFrac >= minOverlapFrac;
-        const PointCloud &toAppend = trustRefinement ? refined : clouds[i];
 
-        if (trustRefinement)
-            std::cout << "  ICP refined: overlap " << (100.0 * overlapFrac) << "% ("
-                      << matched << " correspondences).\n";
-        else
+        // Track the pre-ICP state regardless of acceptance, and save the raw
+        // placement for before/after diagnostics.
+        IcpUtils::saveIndividualCloud(clouds[i], cloudPairs[i].first, cloudPairs[i].second, mean0, scale0, "_preicp", worldAnchor);
+        fusedPreIcp.pts.insert(fusedPreIcp.pts.end(), clouds[i].pts.begin(), clouds[i].pts.end());
+        fusedPreIcp.colors.insert(fusedPreIcp.colors.end(), clouds[i].colors.begin(), clouds[i].colors.end());
+        fusedPreIcp.weights.insert(fusedPreIcp.weights.end(), clouds[i].weights.begin(), clouds[i].weights.end());
+        fusedPreIcp.normals.insert(fusedPreIcp.normals.end(), clouds[i].normals.begin(), clouds[i].normals.end());
+        fusedPreIcp.validNormal.insert(fusedPreIcp.validNormal.end(), clouds[i].validNormal.begin(), clouds[i].validNormal.end());
+
+        if (!trustRefinement)
+        {
+            // Without GT pre-registration there is no fallback placement: the
+            // raw camera-frame pose is arbitrary in the fusion frame, so a
+            // rejected refinement means the cloud must be dropped entirely.
             std::cerr << "  NOTE: low ICP overlap " << (100.0 * overlapFrac) << "% ("
-                      << matched << " correspondences) -- appending at calibration placement "
-                      << "without refinement.\n";
+                      << matched << " correspondences) -- rejecting refinement and "
+                      << "SKIPPING this cloud (no registration available without GT poses).\n";
+            continue;
+        }
 
-        // Save this pair's contribution exactly as it enters the fused cloud,
-        // plus its calibration-only placement for before/after comparison.
-        IcpUtils::saveIndividualCloud(toAppend, cloudPairs[i].first, cloudPairs[i].second, mean0, scale0);
-        IcpUtils::saveIndividualCloud(clouds[i], cloudPairs[i].first, cloudPairs[i].second, mean0, scale0, "_calib");
+        std::cout << "  ICP refined: overlap " << (100.0 * overlapFrac) << "% ("
+                  << matched << " correspondences).\n";
 
-        fused.pts.insert(fused.pts.end(), toAppend.pts.begin(), toAppend.pts.end());
-        fused.colors.insert(fused.colors.end(), toAppend.colors.begin(), toAppend.colors.end());
-        fused.weights.insert(fused.weights.end(), toAppend.weights.begin(), toAppend.weights.end());
-        fused.normals.insert(fused.normals.end(), toAppend.normals.begin(), toAppend.normals.end());
-        fused.validNormal.insert(fused.validNormal.end(), toAppend.validNormal.begin(), toAppend.validNormal.end());
+        // Save this pair's contribution exactly as it enters the fused cloud.
+        IcpUtils::saveIndividualCloud(refined, cloudPairs[i].first, cloudPairs[i].second, mean0, scale0, "", worldAnchor);
 
-        fusedCalib.pts.insert(fusedCalib.pts.end(), clouds[i].pts.begin(), clouds[i].pts.end());
-        fusedCalib.colors.insert(fusedCalib.colors.end(), clouds[i].colors.begin(), clouds[i].colors.end());
-        fusedCalib.weights.insert(fusedCalib.weights.end(), clouds[i].weights.begin(), clouds[i].weights.end());
-        fusedCalib.normals.insert(fusedCalib.normals.end(), clouds[i].normals.begin(), clouds[i].normals.end());
-        fusedCalib.validNormal.insert(fusedCalib.validNormal.end(), clouds[i].validNormal.begin(), clouds[i].validNormal.end());
+        fused.pts.insert(fused.pts.end(), refined.pts.begin(), refined.pts.end());
+        fused.colors.insert(fused.colors.end(), refined.colors.begin(), refined.colors.end());
+        fused.weights.insert(fused.weights.end(), refined.weights.begin(), refined.weights.end());
+        fused.normals.insert(fused.normals.end(), refined.normals.begin(), refined.normals.end());
+        fused.validNormal.insert(fused.validNormal.end(), refined.validNormal.begin(), refined.validNormal.end());
 
         std::cout << "Current fused cloud size: " << fused.pts.size() << " points\n";
     }
 
-    PlyUtils::denormalise(fusedCalib, mean0, scale0);
-    PlyUtils::savePLY("pointcloud_fused_calib.ply", fusedCalib);
+    // Outputs move into the DTU world frame via the single gauge anchor (for
+    // GT-based evaluation and visualization only; see worldAnchor above).
+    PlyUtils::denormalise(fusedPreIcp, mean0, scale0);
+    IcpUtils::applyRigid(fusedPreIcp, worldAnchor);
+    PlyUtils::savePLY("pointcloud_fused_preicp.ply", fusedPreIcp);
 
     PlyUtils::denormalise(fused, mean0, scale0);
+    IcpUtils::applyRigid(fused, worldAnchor);
     PlyUtils::savePLY("pointcloud_fused.ply", fused);
 
     std::cout << "\nFusion complete. Saved to pointcloud_fused.ply\n";
