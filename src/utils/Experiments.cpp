@@ -1,4 +1,7 @@
 #include <Experiments.hpp>
+#include <numeric>
+#include <algorithm>
+#include <cmath>
 
 ContaminatedPointSets Experiments::ratioDegradation(
     const std::vector<cv::Point2f> &inliersL,
@@ -67,6 +70,58 @@ ContaminatedPointSets Experiments::ratioDegradation(
 
         result.L.push_back(shuffled_L);
         result.R.push_back(shuffled_R);
+    }
+
+    return result;
+}
+ContaminatedPointSets Experiments::magnitudeDegradation(
+    const std::vector<cv::Point2f> &inliersL,
+    const std::vector<cv::Point2f> &inliersR,
+    const cv::Size &imgSize,
+    std::mt19937 &rng,
+    double subsetRatio,
+    double initialMagnitude,
+    double finalMagnitude,
+    double magnitudeJump)
+{
+    ContaminatedPointSets result;
+
+    int total_points = inliersL.size();
+
+    // peturb a subset of the points
+    int num_to_perturb = std::round(subsetRatio * total_points);
+
+    // random angle distribution [0, 2*pi]
+    std::uniform_real_distribution<float> distTheta(0.0f, 2.0f * (float)CV_PI);
+
+    // shuffle a vector of indices to pick the random subset
+    std::vector<int> indices(total_points);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::shuffle(indices.begin(), indices.end(), rng);
+
+    for (double magnitude = initialMagnitude; magnitude <= finalMagnitude; magnitude += magnitudeJump)
+    {
+        std::vector<cv::Point2f> perturbedL = inliersL;
+        std::vector<cv::Point2f> perturbedR = inliersR;
+
+        // apply directional offset to the fixed random subset
+        for (int k = 0; k < num_to_perturb; k++)
+        {
+            int idx = indices[k]; // Use the shuffled index
+            float theta = distTheta(rng);
+            float dx = (float)(magnitude * std::cos(theta));
+            float dy = (float)(magnitude * std::sin(theta));
+
+            // inject error strictly into the right image coordinates
+            perturbedR[idx].x += dx;
+            perturbedR[idx].y += dy;
+
+            // Clamp to image boundaries
+            perturbedR[idx].x = std::max(0.0f, std::min((float)imgSize.width - 1.0f, perturbedR[idx].x));
+            perturbedR[idx].y = std::max(0.0f, std::min((float)imgSize.height - 1.0f, perturbedR[idx].y));
+        }
+        result.L.push_back(perturbedL);
+        result.R.push_back(perturbedR);
     }
 
     return result;

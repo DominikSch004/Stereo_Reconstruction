@@ -40,4 +40,31 @@ public:
         double finalRatio = 0.9,
         double intervalJump = 0.01,
         bool keepTotalConstant = true);
+
+    /**
+     * @brief Experiment 2: Magnitude Degradation (Localization Error)
+     *
+     * Isolates a subset of the pristine inliers and applies a random
+     * directional pixel offset of increasing magnitude to the right image coordinates.
+     * Evaluates how sensitive the solver is to localized feature mismatches.
+     *
+     * @param inliersL The original set of pristine inliers for the left image.
+     * @param inliersR The synchronized set of pristine inliers for the right image.
+     * @param imgSize The dimensions of the image (used for clamping perturbations).
+     * @param rng A configured random number generator.
+     * @param subsetRatio The fraction of total points to perturb (default: 0.30).
+     * @param initialMagnitude The starting noise magnitude in pixels (default: 1.0).
+     * @param finalMagnitude The maximum noise magnitude in pixels (default: 50.0).
+     * @param magnitudeJump The step size to increase the magnitude at each iteration (default: 2.0).
+     * @return A ContaminatedPointSets struct containing synchronized lists of progressively perturbed 2D coordinate vectors.
+     */
+    static ContaminatedPointSets magnitudeDegradation(
+        const std::vector<cv::Point2f> &inliersL,
+        const std::vector<cv::Point2f> &inliersR,
+        const cv::Size &imgSize,
+        std::mt19937 &rng,
+        double subsetRatio = 0.30,
+        double initialMagnitude = 1.0,
+        double finalMagnitude = 50.0,
+        double magnitudeJump = 2.0);
 };
