@@ -104,6 +104,15 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     {
         cfg.rng = std::mt19937(cfg.rngSeed);
     }
+
+    v = readKey(fs, "pose_refinement", "false");
+    if (v == "true")
+        cfg.refinePose = true;
+    else if (v == "false")
+        cfg.refinePose = false;
+    else
+        invalidValue("pose_refinement", v, "true | false");
+
     return cfg;
 }
 
@@ -123,5 +132,6 @@ void PipelineConfig::print() const
               << "  disparity:          " << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
               << "  triangulation:      " << name(triangulation == TriangulationMethod::OpenCV) << "\n"
               << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane")
-              << "\n";
+              << "\n"
+              << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n";
 }
