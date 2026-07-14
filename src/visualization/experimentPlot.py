@@ -16,15 +16,11 @@ def generate_benchmark_plots(csv_file, x_column, x_label, title_prefix, output_d
         # Read the data, passing the correct separator
         df = pd.read_csv(csv_file, sep=sep)
         
-        # --- NEW DATA AGGREGATION ---
-        # Group by the x-axis value (e.g., outlier_magnitude) and calculate the mean
-        # This condenses multiple image pairs into a single, average point per X value
+        # Aggregate data and take avg. 
         df = df.groupby(x_column)[['rot_error_deg', 'trans_error_deg', 'epipolar_error']].mean().reset_index()
         
-        # Sort by the x-axis to ensure the line graph connects properly
         df = df.sort_values(by=x_column)
         
-        # Create a figure with three subplots side-by-side
         fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(18, 5))
         
         # --- Graph 1: Rotation Error ---
@@ -53,15 +49,14 @@ def generate_benchmark_plots(csv_file, x_column, x_label, title_prefix, output_d
         
         plt.tight_layout()
         
-        # Determine the save path based on the CSV filename
+        # save path
         save_filename = f"{csv_file.stem}_plot.png"
         save_path = output_dir / save_filename
-        
-        # Save the plot and close the figure to free up memory
+
         plt.savefig(save_path, dpi=300)
         plt.close(fig)
         
-        print(f"✅ Successfully grouped and saved: {save_path}")
+        print(f"Successfully grouped and saved: {save_path}")
         
     except FileNotFoundError:
         print(f"Error: The file '{csv_file}' was not found.")
