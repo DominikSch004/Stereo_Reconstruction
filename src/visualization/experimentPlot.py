@@ -85,7 +85,7 @@ inlier_csv = experiments_dir / "svd_inliers_benchmark.csv"
 generate_benchmark_plots(
     csv_file=ratio_csv,
     x_column="outlier_ratio",
-    x_label="Outlier Ratio",
+    x_label="Outlier Ratio (%)",
     title_prefix="Ratio Analysis",
     output_dir=experiments_dir,
     sep="," 
@@ -94,7 +94,7 @@ generate_benchmark_plots(
 generate_benchmark_plots(
     csv_file=magnitude_csv,
     x_column="outlier_magnitude",
-    x_label="Outlier Magnitude",
+    x_label="Outlier Magnitude (in px)",
     title_prefix="Magnitude Analysis",
     output_dir=experiments_dir,
     sep="," 
