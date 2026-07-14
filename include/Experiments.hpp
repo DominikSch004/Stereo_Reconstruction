@@ -67,4 +67,30 @@ public:
         double initialMagnitude = 1.0,
         double finalMagnitude = 50.0,
         double magnitudeJump = 2.0);
+
+    /**
+     * @brief Experiment 3: Increase Inlier Count
+     *
+     * Iteratively samples subsets of size N from the pristine inlier pool.
+     * To ensure a smooth curve and mitigate the risk of a specific subset
+     * being geometrically degenerate, it generates multiple random samples
+     * for each N step.
+     *
+     * @param inliersL The original set of pristine inliers for the left image.
+     * @param inliersR The synchronized set of pristine inliers for the right image.
+     * @param rng A configured random number generator.
+     * @param iterationsPerStep The number of random subsets to generate for each N (default: 5).
+     * @param startSampling The minimum number of points to sample (default: 8).
+     * @param endSampling The maximum number of points to sample (default: -1, meaning use all available).
+     * @param jump The step size between iterations (default: 5).
+     * @return A ContaminatedPointSets struct containing synchronized lists of sampled inlier subsets.
+     */
+    static ContaminatedPointSets inlierSubsets(
+        const std::vector<cv::Point2f> &inliersL,
+        const std::vector<cv::Point2f> &inliersR,
+        std::mt19937 &rng,
+        int iterationsPerStep = 5,
+        int startSampling = 8,
+        int endSampling = -1,
+        int jump = 5);
 };
