@@ -11,11 +11,15 @@
 # opencv | custom | custom_magsac | custom_prosac
 fundamental_matrix: custom_magsac
 
+# 42 | -1 for true randomness
+rng_seed: 42
+
 # opencv | custom  (custom = Loop & Zhang projective rectification)
 rectification: opencv
 
-# opencv | custom  (WARNING: custom dense matching is not implemented yet)
-disparity: opencv
+# opencv | custom  (custom = simplified semi-global matching (Hirschmüller 2008),
+# Birchfield-Tomasi cost + 16-direction path aggregation)
+disparity: custom
 
 # opencv | custom  (custom = per-pixel DLT triangulation)
 triangulation: custom
@@ -25,3 +29,7 @@ triangulation: custom
 # +/-1px central differences on raw stereo disparity and are too noisy to
 # support point-to-plane residuals (they caused tangential drift in fusion).
 icp_mode: point_to_plane
+
+# true | false non-linear refinement of (R, t) directly on the essential-matrix 
+# space after recoverPose
+pose_refinement: true

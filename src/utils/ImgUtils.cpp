@@ -9,27 +9,11 @@ cv::Mat toCvMat(const Eigen::Matrix3d &M)
     return out;
 }
 
-cv::Mat toGray(const FreeImageB &fi)
-{
-    cv::Mat rgba(fi.h, fi.w, CV_8UC4, fi.data);
-    cv::Mat gray;
-    cv::cvtColor(rgba, gray, cv::COLOR_RGBA2GRAY);
-    return gray;
-}
-
 cv::Mat toGray(const cv::Mat &img)
 {
     cv::Mat gray;
     cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
     return gray;
-}
-
-cv::Mat toBGR(const FreeImageB &fi)
-{
-    cv::Mat rgba(fi.h, fi.w, CV_8UC4, fi.data);
-    cv::Mat bgr;
-    cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
-    return bgr;
 }
 
 Eigen::Matrix3d toEigenMat(const cv::Mat &cvMat)

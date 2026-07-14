@@ -17,11 +17,19 @@
  */
 struct PipelineConfig
 {
+
     FundamentalMethod fundamental = FundamentalMethod::OpenCVRANSAC;
     RectificationMethod rectification = RectificationMethod::CalibratedOpenCV;
     DisparityMethod disparity = DisparityMethod::OpenCVSGBM;
     TriangulationMethod triangulation = TriangulationMethod::OpenCV;
     ICPMode icpMode = ICPMode::PointToPlane; // used by the ICP fusion pipeline only
+    int rngSeed = 42;
+    mutable std::mt19937 rng;
+
+    // Non-linear refinement of (R, t) directly on the essential-matrix space
+    // (see GeometryUtils::refinePose). See FundamentalMatrix.cpp comments for details.
+    // This flag is just for initial comparision and should later be removed
+    bool refinePose = false;
 
     /**
      * @brief Loads a config from a YAML file (parsed with cv::FileStorage).

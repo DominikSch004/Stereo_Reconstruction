@@ -6,21 +6,32 @@
 namespace
 {
 
-std::string readKey(const cv::FileStorage &fs, const std::string &key, const std::string &def)
-{
-    cv::FileNode node = fs[key];
-    if (node.empty())
+    std::string readKey(const cv::FileStorage &fs, const std::string &key, const std::string &def)
     {
-        std::cout << "[Config] Key '" << key << "' not set, using default '" << def << "'\n";
-        return def;
+        cv::FileNode node = fs[key];
+        if (node.empty())
+        {
+            std::cout << "[Config] Key '" << key << "' not set, using default '" << def << "'\n";
+            return def;
+        }
+        return static_cast<std::string>(node);
     }
-    return static_cast<std::string>(node);
-}
 
-[[noreturn]] void invalidValue(const std::string &key, const std::string &value, const std::string &allowed)
-{
-    throw std::runtime_error("[Config] Invalid value '" + value + "' for key '" + key + "'. Allowed: " + allowed);
-}
+    int readIntKey(const cv::FileStorage &fs, const std::string &key, int def)
+    {
+        cv::FileNode node = fs[key];
+        if (node.empty())
+        {
+            std::cout << "[Config] Key '" << key << "' not set, using default '" << def << "'\n";
+            return def;
+        }
+        return static_cast<int>(node);
+    }
+
+    [[noreturn]] void invalidValue(const std::string &key, const std::string &value, const std::string &allowed)
+    {
+        throw std::runtime_error("[Config] Invalid value '" + value + "' for key '" + key + "'. Allowed: " + allowed);
+    }
 
 } // namespace
 
@@ -83,16 +94,36 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     else
         invalidValue("icp_mode", v, "point_to_point | point_to_plane");
 
+    cfg.rngSeed = readIntKey(fs, "rng_seed", 42);
+    if (cfg.rngSeed == -1)
+    {
+        std::random_device rd;
+        cfg.rng = std::mt19937(rd());
+    }
+    else
+    {
+        cfg.rng = std::mt19937(cfg.rngSeed);
+    }
+
+    v = readKey(fs, "pose_refinement", "false");
+    if (v == "true")
+        cfg.refinePose = true;
+    else if (v == "false")
+        cfg.refinePose = false;
+    else
+        invalidValue("pose_refinement", v, "true | false");
+
     return cfg;
 }
 
 void PipelineConfig::print() const
 {
-    auto name = [](bool isOpenCV) { return isOpenCV ? "opencv" : "custom"; };
+    auto name = [](bool isOpenCV)
+    { return isOpenCV ? "opencv" : "custom"; };
 
     std::cout << "[Config] Pipeline step backends:\n"
               << "  fundamental_matrix: "
-              << (fundamental == FundamentalMethod::OpenCVRANSAC ? "opencv"
+              << (fundamental == FundamentalMethod::OpenCVRANSAC   ? "opencv"
                   : fundamental == FundamentalMethod::CustomRANSAC ? "custom"
                   : fundamental == FundamentalMethod::CustomMAGSAC ? "custom_magsac"
                                                                    : "custom_prosac")
@@ -101,5 +132,6 @@ void PipelineConfig::print() const
               << "  disparity:          " << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
               << "  triangulation:      " << name(triangulation == TriangulationMethod::OpenCV) << "\n"
               << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane")
-              << "\n";
+              << "\n"
+              << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n";
 }

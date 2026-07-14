@@ -8,8 +8,6 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 
-// #include <FreeImageHelper.h> if we cannot use openCV data structres for custom approach we can go back to this.
-
 struct StereoPair
 {
     cv::Mat imageLeft;

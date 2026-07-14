@@ -7,7 +7,7 @@
 #include <limits>
 #include <algorithm>
 
-// For each pixel, the nearest valid (> minDisp) disparity found by walking strictly in
+// For each pixel, the nearest valid (>= minDisp) disparity found by walking strictly in
 // direction (dx,dy) from that pixel (NaN if the walk reaches the image border without
 // finding one). Implemented as a single pass per direction: pixels are visited
 // in the order opposite to (dx,dy) so that, by the time a pixel is reached, the answer for
@@ -16,7 +16,7 @@ cv::Mat Disparity::nearestValidInDirection(const cv::Mat &disp, int minDisp, int
 {
     const float NA = std::numeric_limits<float>::quiet_NaN();
     cv::Mat result(rows, cols, CV_32F, cv::Scalar(NA));
-    auto isValid = [minDisp](float v) { return v > static_cast<float>(minDisp); };
+    auto isValid = [minDisp](float v) { return v >= static_cast<float>(minDisp); };
 
     if (dy == 0)
     {
@@ -401,7 +401,7 @@ cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &disp
         for (int x = 0; x < cols; ++x)
         {
             float d = disparity.at<float>(y, x);
-            if (d > static_cast<float>(minDisp))
+            if (d >= static_cast<float>(minDisp))
                 continue; // already valid, nothing to fill
 
             wasInvalid.at<uchar>(y, x) = 255;
@@ -473,7 +473,7 @@ cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &disp
                     int ny = y + oy, nx = x + ox;
                     if (ny < 0 || ny >= rows || nx < 0 || nx >= cols) continue;
                     float v = filled.at<float>(ny, nx);
-                    if (v > static_cast<float>(minDisp))
+                    if (v >= static_cast<float>(minDisp))
                         window.push_back(v);
                 }
             if (window.empty())
@@ -481,6 +481,91 @@ cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &disp
 
             std::sort(window.begin(), window.end());
             result.at<float>(y, x) = window[window.size() / 2];
+        }
+    }
+
+    return result;
+}
+
+// Peak filtering (Hirschmuller 2008, Sec 2.5.1): segments the valid disparity 
+// map into 4-connected regions where adjacent pixels' disparities agree within 
+// 1px, then invalidates (minDisp - 1) every segment smaller than 
+// minSegmentSize. This removes small isolated patches of incorrect disparity
+// ("peaks", e.g. from noise/low texture) while preserving real scene
+// strucutre, which forms much larger connected segments.
+cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSegmentSize)
+{
+    const int rows = disparity.rows;
+    const int cols = disparity.cols;
+    const float minDispF = static_cast<float>(minDisp);
+
+    cv::Mat result = disparity.clone();
+    cv::Mat visited = cv::Mat::zeros(rows, cols, CV_8U);
+
+    // stack: pixels that still need to be explored (DFS)
+    // segment: all pixels belonging to the current connected component
+    std::vector<cv::Point> stack, segment;
+
+    // right, left, down, up
+    static const int dxs[4] = {1, -1, 0, 0};
+    static const int dys[4] = {0, 0, 1, -1};
+
+    for (int y = 0; y < rows; ++y)
+    {
+        for (int x = 0; x < cols; ++x)
+        {
+            if (visited.at<uchar>(y, x))
+                continue;
+
+            float d = disparity.at<float>(y, x);
+            if (!(d > minDispF))
+            {
+                // Invalid pixels do not belong to any segment.
+                visited.at<uchar>(y, x) = 255;
+                continue;
+            }
+
+            // Start a new connected segment using 4-connected DFS
+            // with chained 1 px disparity agreement.
+            segment.clear();
+            stack.clear();
+            stack.push_back({x, y});
+            // Mark as visited before pushing to avoid duplicates
+            visited.at<uchar>(y, x) = 255;
+
+            // DFS
+            while (!stack.empty())
+            {
+                cv::Point p = stack.back();
+                stack.pop_back();
+                segment.push_back(p);
+                float dp = disparity.at<float>(p.y, p.x);
+
+                // Check the 4 adjacent neighbours
+                for (int k = 0; k < 4; ++k)
+                {
+                    int nx = p.x + dxs[k], ny = p.y + dys[k];
+                    
+                    if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+                    if (visited.at<uchar>(ny, nx)) continue;
+
+                    // neighbour disparity
+                    float dn = disparity.at<float>(ny, nx);
+
+                    // accept the neighbour only if it has a valid disparity
+                    // and differs by at most 1 px from the current pixel.
+                    if (!(dn > minDispF) || std::abs(dn - dp) > 1.0f) continue;
+
+                    visited.at<uchar>(ny, nx) = 255;
+                    stack.push_back({nx, ny});
+                }
+            }
+
+            // remove tiny regions which are unlikely to
+            // represent valid scene structure.
+            if (static_cast<int>(segment.size()) < minSegmentSize)
+                for (const auto &p : segment)
+                    result.at<float>(p.y, p.x) = minDispF - 1.0f;
         }
     }
 
@@ -504,9 +589,10 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     cv::Mat dispLeft = computeWTADisparity(leftF, rightF, rows, cols, minDisp, numDisp, P1, P2, false);
     cv::Mat dispRight = computeWTADisparity(leftF, rightF, rows, cols, minDisp, numDisp, P1, P2, true);
 
-    // L-R consistency check: a left pixel's disparity is only trusted if walking to
-    // its claimed match in the right image and reading D_right there gives
-    // (about - 1.5px tolerance) the same disparity back.
+    // L-R consistency check (Hirschmuller 2008, Eq. 15): a left pixel's 
+    // disparity is only trusted if walking to its claimed match in the right
+    // image and reading D_right there gives the same disparity back,
+    // within 1px.
     // Disagreement -> occlusion or a bad match -> invalidate
     cv::Mat disparity(rows, cols, CV_32F);
     for (int r = 0; r < rows; ++r)
@@ -516,10 +602,22 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
             float d = dispLeft.at<float>(r, c);
             int qx = cvRound(c - d); // corresponding x in the right image
 
-            bool consistent = (qx >= 0 && qx < cols) && (std::abs(d - dispRight.at<float>(r, qx)) <= 1.5f);
+            bool consistent = (qx >= 0 && qx < cols) && (std::abs(d - dispRight.at<float>(r, qx)) <= 1.0f);
             disparity.at<float>(r, c) = consistent ? d : static_cast<float>(minDisp - 1);
         }
     }
+
+    // Peak filtering (Hirschmuller 2008, Sec 2.5.1): removes small isolated 
+    // patches of disparity that survived the L-R check but disagree with their 
+    // surroundings. The paper doesn't give a universal size threshold to use. 
+    // Using 100px here as it matches cv::StereoSGBM's speckleWindowSize value 
+    // we are currently using.
+
+    // NOTE: coverage vs. dense-vs-sparse accuracy is a continuous tradeoff here
+    // As we increase minPeakSegment, it decreases coverage and increases 
+    // dense-vs-sparse accuracy.
+    const int minPeakSegment = 100; // cv::StereoSGBM's speckleWindowSize
+    disparity = removePeaks(disparity, minDisp, minPeakSegment);
 
     // Gap interpolation (Hirschmuller 2008, Sec 2.5.3): pushes coverage to 100% but currently
     // worsens accuracy (mean error 31->34px, photometric MAE 3.9->34.2) as >80% of

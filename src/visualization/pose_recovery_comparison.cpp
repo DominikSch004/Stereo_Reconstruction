@@ -2,8 +2,9 @@
 //
 // Variants evaluated on the SAME fundamental matrix / inlier set per pair:
 //   [A] cv::findEssentialMat + recoverPose        (previous pipeline approach)
-//   [B] E = K^T F K, SVD-projected (rank 2, equal sigmas) + recoverPose (current pipeline)
-//   [C] E = K^T F K, raw, no projection + recoverPose (isolates the effect of the projection)
+//   [B] E = K^T F K, SVD-projected (rank 2, equal sigmas) + recoverPose (previous pipeline approach, doing the projection was seen to be useless)
+//   [C] E = K^T F K, raw, no projection + recoverPose (current pipeline but with pose_refinement=false)
+//   [D] E = K^T F K + GeometryUtils::refinePose (current pipeline with pose_refinement=true)
 //
 // Metrics per variant:
 //   - rotation error vs DTU ground-truth relative pose (degrees)
@@ -27,61 +28,64 @@
 #include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
 #include "ImgUtils.hpp"
+#include "GeometryUtils.hpp"
 
 namespace
 {
 
-struct VariantResult
-{
-    std::string name;
-    cv::Mat R, t;
-    double rotErrDeg = -1.0;
-    double transErrDeg = -1.0;
-    double meanDy = -1.0, medianDy = -1.0, maxDy = -1.0;
-    double within1px = 0.0;
-    bool rectOk = false;
-    cv::Mat panel; // rectified side-by-side visualization row
-};
+    struct VariantResult
+    {
+        std::string name;
+        cv::Mat R, t;
+        double rotErrDeg = -1.0;
+        double transErrDeg = -1.0;
+        double meanDy = -1.0, medianDy = -1.0, maxDy = -1.0;
+        double within1px = 0.0;
+        bool rectOk = false;
+        cv::Mat panel; // rectified side-by-side visualization row
+    };
 
-double rotationErrorDeg(const cv::Mat &R_est, const Eigen::Matrix3d &R_gt)
-{
-    Eigen::Matrix3d Re;
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j)
-            Re(i, j) = R_est.at<double>(i, j);
-    Eigen::Matrix3d dR = Re * R_gt.transpose();
-    double c = (dR.trace() - 1.0) / 2.0;
-    c = std::max(-1.0, std::min(1.0, c));
-    return std::acos(c) * 180.0 / CV_PI;
-}
+    double rotationErrorDeg(const cv::Mat &R_est, const Eigen::Matrix3d &R_gt)
+    {
+        Eigen::Matrix3d Re;
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                Re(i, j) = R_est.at<double>(i, j);
+        Eigen::Matrix3d dR = Re * R_gt.transpose();
+        double c = (dR.trace() - 1.0) / 2.0;
+        c = std::max(-1.0, std::min(1.0, c));
+        return std::acos(c) * 180.0 / CV_PI;
+    }
 
-double translationErrorDeg(const cv::Mat &t_est, const Eigen::Vector3d &t_gt)
-{
-    Eigen::Vector3d te(t_est.at<double>(0), t_est.at<double>(1), t_est.at<double>(2));
-    if (te.norm() < 1e-12 || t_gt.norm() < 1e-12)
-        return -1.0;
-    double c = te.normalized().dot(t_gt.normalized());
-    c = std::max(-1.0, std::min(1.0, c));
-    return std::acos(c) * 180.0 / CV_PI;
-}
+    double translationErrorDeg(const cv::Mat &t_est, const Eigen::Vector3d &t_gt)
+    {
+        Eigen::Vector3d te(t_est.at<double>(0), t_est.at<double>(1), t_est.at<double>(2));
+        if (te.norm() < 1e-12 || t_gt.norm() < 1e-12)
+            return -1.0;
+        double c = te.normalized().dot(t_gt.normalized());
+        c = std::max(-1.0, std::min(1.0, c));
+        return std::acos(c) * 180.0 / CV_PI;
+    }
 
-// SVD projection onto the essential-matrix manifold: rank 2, equal singular values.
-cv::Mat projectToEssential(const cv::Mat &E_hat)
-{
-    cv::SVD svd(E_hat);
-    double sigma = (svd.w.at<double>(0) + svd.w.at<double>(1)) / 2.0;
-    cv::Mat w = cv::Mat::zeros(3, 1, CV_64F);
-    w.at<double>(0) = sigma;
-    w.at<double>(1) = sigma;
-    return svd.u * cv::Mat::diag(w) * svd.vt;
-}
+    // SVD projection onto the essential-matrix manifold: rank 2, equal singular values.
+    cv::Mat projectToEssential(const cv::Mat &E_hat)
+    {
+        cv::SVD svd(E_hat);
+        double sigma = (svd.w.at<double>(0) + svd.w.at<double>(1)) / 2.0;
+        cv::Mat w = cv::Mat::zeros(3, 1, CV_64F);
+        w.at<double>(0) = sigma;
+        w.at<double>(1) = sigma;
+        return svd.u * cv::Mat::diag(w) * svd.vt;
+    }
 
-cv::Scalar errColor(double e)
-{
-    if (e <= 1.0) return {0, 255, 0};
-    if (e <= 3.0) return {0, 255, 255};
-    return {0, 0, 255};
-}
+    cv::Scalar errColor(double e)
+    {
+        if (e <= 1.0)
+            return {0, 255, 0};
+        if (e <= 3.0)
+            return {0, 255, 255};
+        return {0, 0, 255};
+    }
 
 } // namespace
 
@@ -130,8 +134,10 @@ int main(int argc, char **argv)
         // below sees the identical F / inlier set, so differences are purely
         // attributable to the pose-recovery step.
         std::vector<bool> mask;
-        Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(
-            ptsL, ptsR, mask, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
+
+        std::mt19937 rng(42);
+
+        Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000);
         cv::Mat F_cv = toCvMat(F);
 
         std::vector<cv::Point2f> inL, inR;
@@ -150,8 +156,8 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // --- Build the three essential-matrix variants ---
-        std::vector<VariantResult> variants(3);
+        // --- Build the four essential-matrix variants ---
+        std::vector<VariantResult> variants(4);
         {
             variants[0].name = "A: findEssentialMat";
             cv::Mat m;
@@ -169,6 +175,16 @@ int main(int argc, char **argv)
             cv::Mat E = K.t() * F_cv * K;
             cv::Mat m;
             cv::recoverPose(E, inL, inR, K, variants[2].R, variants[2].t, m);
+        }
+        {
+            // Non-linear refinement of (R, t) on the essential-matrix space
+            // using the same unprojected E=K'F_cv*K as variant C.
+            // The (s,s,0) projection, is ignored by recoverPose.
+            variants[3].name = "D: E=K'FK + refinePose";
+            cv::Mat E = K.t() * F_cv * K;
+            cv::Mat m;
+            cv::recoverPose(E, inL, inR, K, variants[3].R, variants[3].t, m);
+            GeometryUtils::refinePose(K, inL, inR, variants[3].R, variants[3].t);
         }
 
         // --- Evaluate each variant: pose error vs GT + rectification residual ---
@@ -261,7 +277,8 @@ int main(int argc, char **argv)
         }
 
         // --- Per-pair table ---
-        std::cout << "\n" << std::left << std::setw(24) << "variant"
+        std::cout << "\n"
+                  << std::left << std::setw(24) << "variant"
                   << std::right << std::setw(12) << "rotErr[deg]"
                   << std::setw(12) << "tErr[deg]"
                   << std::setw(12) << "mean|dy|"
@@ -291,7 +308,7 @@ int main(int argc, char **argv)
                   << std::right << std::setw(12) << "rotErr[deg]"
                   << std::setw(12) << "tErr[deg]"
                   << std::setw(12) << "mean|dy|" << "\n";
-        for (size_t vi = 0; vi < 3; ++vi)
+        for (size_t vi = 0; vi < 4; ++vi)
         {
             double rot = 0, tr = 0, dy = 0;
             for (const auto &pr : allResults)

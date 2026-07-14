@@ -26,7 +26,6 @@ Run `./scripts/download_dtu.sh` to download automatically.
 - Eigen3
 - Ceres Solver
 - CMake
-- FreeImage
 
 ## Build
 ```bash
