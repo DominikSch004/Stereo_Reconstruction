@@ -16,4 +16,13 @@ namespace VisualizationUtils
                                 const std::vector<bool> &inlierMask,
                                 const Eigen::Matrix3d &F,
                                 int maxDrawn = 20);
+
+    void visualizeOutliers(const std::vector<cv::Point2f> &ptsL,
+                           const std::vector<cv::Point2f> &ptsR,
+                           const cv::Mat &grayLeft,
+                           const cv::Mat &grayRight,
+                           const std::vector<bool> &inlierMask,
+                           const std::string &leftWindowTitle,
+                           const std::string &rightWindowTitle);
+
 }

@@ -12,3 +12,4 @@ data/
 docs/papers/*.md
 .idea/
 cmake-build-*/
+experiments/ 

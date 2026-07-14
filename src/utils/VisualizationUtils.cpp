@@ -1,4 +1,6 @@
 #include "VisualizationUtils.hpp"
+#include <iostream>
+#include <fstream>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 
@@ -63,5 +65,41 @@ namespace VisualizationUtils
 
         cv::namedWindow(windowTitle, cv::WINDOW_NORMAL);
         cv::imshow(windowTitle, combined);
+    }
+
+    void visualizeOutliers(const std::vector<cv::Point2f> &ptsL,
+                           const std::vector<cv::Point2f> &ptsR,
+                           const cv::Mat &grayLeft,
+                           const cv::Mat &grayRight,
+                           const std::vector<bool> &inlierMask,
+                           const std::string &leftWindowTitle,
+                           const std::string &rightWindowTitle)
+    {
+        cv::Mat visLeft, visRight;
+        cv::cvtColor(grayLeft, visLeft, cv::COLOR_GRAY2BGR);
+        cv::cvtColor(grayRight, visRight, cv::COLOR_GRAY2BGR);
+        for (size_t p = 0; p < ptsL.size(); p++)
+        {
+            if (!inlierMask[p])
+            {
+
+                cv::circle(visLeft, ptsL[p], 4, cv::Scalar(0, 0, 255), -1);
+                cv::circle(visRight, ptsR[p], 4, cv::Scalar(0, 0, 255), -1);
+            }
+            else
+            {
+                cv::circle(visLeft, ptsL[p], 6, cv::Scalar(0, 255, 0), -1);
+                cv::circle(visRight, ptsR[p], 6, cv::Scalar(0, 255, 0), -1);
+            }
+        }
+        cv::Mat displayImgLeft, displayImgRight;
+        cv::resize(visLeft, displayImgLeft, cv::Size(), 0.5, 0.5);
+        cv::resize(visRight, displayImgRight, cv::Size(), 0.5, 0.5);
+
+        cv::imshow(leftWindowTitle, displayImgLeft);
+        cv::imshow(rightWindowTitle, displayImgRight);
+        std::cout << "Press any key on the image window to continue to the experiments...\n";
+        cv::waitKey(0);
+        cv::destroyAllWindows();
     }
 }

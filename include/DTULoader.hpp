@@ -54,7 +54,7 @@ public:
         return pair;
     }
 
-    CameraPose loadCameraPose(int imageId, int datasetId = 1)
+    CameraPose loadCameraPose(int imageId)
     {
         char idStr[4];
         snprintf(idStr, sizeof(idStr), "%03d", imageId);
@@ -80,6 +80,26 @@ public:
         return loadPoseFromTxt(calPath);
     }
 
+    cv::Mat loadFundamental(int leftImageId, int rightImageId)
+    {
+        char idStrLeft[4];
+        char idStrRight[4];
+        snprintf(idStrLeft, sizeof(idStrLeft), "%03d", leftImageId);
+        snprintf(idStrRight, sizeof(idStrRight), "%03d", rightImageId);
+        std::string calPathLeft = m_baseDir + "SampleSet/MVS Data/Calibration/cal18/pos_" + std::string(idStrLeft) + ".txt";
+        std::string calPathRight = m_baseDir + "SampleSet/MVS Data/Calibration/cal18/pos_" + std::string(idStrRight) + ".txt";
+        cv::Mat Pl = loadProjectionFromPath(calPathLeft);
+        cv::Mat Pr = loadProjectionFromPath(calPathRight);
+        return getFundamentalFromProjection(Pl, Pr);
+    }
+
+    cv::Mat loadFundamental(const std::string &leftProjectionMatrixPath, const std::string &rightProjectionMatrixPath)
+    {
+        cv::Mat Pl = loadProjectionFromPath(leftProjectionMatrixPath);
+        cv::Mat Pr = loadProjectionFromPath(rightProjectionMatrixPath);
+        return getFundamentalFromProjection(Pl, Pr);
+    }
+
     std::vector<cv::Point3f> loadPointCloud(int datasetId = 1)
     {
         char buf[256];
@@ -93,9 +113,9 @@ public:
         return loadPointCloudFromPath(plyPath);
     }
 
-    cv::Mat loadIntrinsicCV(int imageId, int datasetId = 1)
+    cv::Mat loadIntrinsicCV(int imageId)
     {
-        CameraPose pose = loadCameraPose(imageId, datasetId);
+        CameraPose pose = loadCameraPose(imageId);
         return poseToInstrinsics(pose);
     }
 
@@ -134,27 +154,7 @@ private:
         pose.K = Eigen::Matrix3d::Identity();
         pose.t = Eigen::Vector3d::Zero();
 
-        std::ifstream file(calPath);
-        if (!file.is_open())
-        {
-            std::cerr << "ERROR: Cannot open calibration file! Path does not exist: " << calPath << "\n";
-            return pose;
-        }
-
-        // read 3x4 Reprojection Matrix
-        cv::Mat P(3, 4, CV_64F);
-        for (int i = 0; i < 3; i++)
-        {
-            for (int j = 0; j < 4; ++j)
-            {
-                if (!(file >> P.at<double>(i, j)))
-                {
-                    std::cerr << "ERROR: Failed to read matrix data from " << calPath << " (file might be corrupted or empty)\n";
-                    return pose;
-                }
-            }
-        }
-        file.close();
+        cv::Mat P = loadProjectionFromPath(calPath);
 
         // decomposition and Eigen conversion
         cv::Mat K_cv, R_cv, t_homogeneous;
@@ -171,6 +171,72 @@ private:
             pose.t(i) = t_homogeneous.at<double>(i, 0) / t_homogeneous.at<double>(3, 0);
         }
         return pose;
+    }
+
+    cv::Mat loadProjectionFromPath(const std::string &calPath)
+    {
+        // read 3x4 Reprojection Matrix
+        cv::Mat P(3, 4, CV_64F);
+        std::ifstream file(calPath);
+        if (!file.is_open())
+        {
+            std::cerr << "ERROR: Cannot open calibration file! Path does not exist: " << calPath << "\n";
+            return P;
+        }
+
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                if (!(file >> P.at<double>(i, j)))
+                {
+                    std::cerr << "ERROR: Failed to read matrix data from " << calPath << " (file might be corrupted or empty)\n";
+                    return P;
+                }
+            }
+        }
+        file.close();
+        return P;
+    }
+
+    cv::Mat getFundamentalFromProjection(const cv::Mat &P1, const cv::Mat &P2)
+    {
+
+        // SVD decomposes P1 into U, W, and V^T. The nullspace is the last row of V^T.
+        cv::Mat w, u, vt;
+        cv::SVD::compute(P1, w, u, vt, cv::SVD::FULL_UV);
+        cv::Mat C1 = vt.row(3).t();
+
+        // compute the epipole in the second view
+        cv::Mat e2 = P2 * C1;
+
+        // construct the skew-symmetric matrix for the epipole [e2]_x
+        double x = e2.at<double>(0, 0);
+        double y = e2.at<double>(1, 0);
+        double z = e2.at<double>(2, 0);
+
+        cv::Mat e2_skew = (cv::Mat_<double>(3, 3) << 0.0, -z, y,
+                           z, 0.0, -x,
+                           -y, x, 0.0);
+
+        // compute the Moore-Penrose pseudo-inverse of P1
+        cv::Mat P1_pinv;
+        cv::invert(P1, P1_pinv, cv::DECOMP_SVD);
+
+        // construct the Fundamental Matrix
+        cv::Mat F = e2_skew * P2 * P1_pinv;
+
+        // normalize F (standardizing by the bottom-right element F_33)
+        if (std::abs(F.at<double>(2, 2)) > 1e-8)
+        {
+            F /= F.at<double>(2, 2);
+        }
+        else
+        {
+            cv::normalize(F, F);
+        }
+
+        return F;
     }
 
     std::vector<cv::Point3f> loadPointCloudFromPath(const std::string &plyPath)
