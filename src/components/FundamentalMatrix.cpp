@@ -507,26 +507,29 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
 
         if (inL.size() >= 8)
         {
-            int num = 8;
+            int num = std::min(inliernumformeasure, (int)inL.size());
             std::vector<std::size_t> indices(inL.size());
             std::iota(indices.begin(), indices.end(), 0);
             std::shuffle(indices.begin(), indices.end(), rng);
 
             std::vector<cv::Point2f> subsetL;
             std::vector<cv::Point2f> subsetR;
+            std::vector<double> subsetW;
             subsetL.reserve(num);
             subsetR.reserve(num);
+            subsetW.reserve(num);
 
             for (int i = 0; i < num; ++i)
             {
                 subsetL.push_back(inL[indices[i]]);
                 subsetR.push_back(inR[indices[i]]);
+                subsetW.push_back(inW[indices[i]]);
             }
 
             //bestF = compute8Point(subsetL, subsetR);
-            
+
             //Eigen::Matrix3d newF = computeWeighted8Point(inL, inR, inW);
-            Eigen::Matrix3d newF = computeWeighted8Point(subsetL, subsetR, inW);
+            Eigen::Matrix3d newF = computeWeighted8Point(subsetL, subsetR, subsetW);
 
 
             // Score the new IRLS model
