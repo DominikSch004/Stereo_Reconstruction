@@ -7,18 +7,25 @@
 #include "Triangulation.hpp"
 #include "ICP.hpp"
 
+enum class FeatureDetector
+{
+    SIFT,
+    ORB
+};
+
 /**
  * @struct PipelineConfig
  * @brief Per-step backend selection for the stereo reconstruction pipeline.
  *
  * Each configurable step maps to one of the existing component enums. Steps
- * without an alternative implementation (sparse SIFT+FLANN matching, essential
- * matrix / pose recovery) are intentionally not configurable.
+ * Essential matrix / pose recovery has no alternative implementation and is
+ * intentionally not configurable.
  */
 struct PipelineConfig
 {
 
     FundamentalMethod fundamental = FundamentalMethod::OpenCVRANSAC;
+    FeatureDetector featureDetector = FeatureDetector::SIFT;
     RectificationMethod rectification = RectificationMethod::CalibratedOpenCV;
     DisparityMethod disparity = DisparityMethod::OpenCVSGBM;
     TriangulationMethod triangulation = TriangulationMethod::OpenCV;

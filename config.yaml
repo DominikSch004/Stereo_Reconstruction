@@ -4,9 +4,11 @@
 # default is ../config.yaml relative to the build directory).
 #
 # Steps without an alternative implementation are not configurable:
-#   - sparse feature matching (always OpenCV SIFT + FLANN)
 #   - essential matrix / pose recovery (always cv::findEssentialMat + cv::recoverPose;
 #     see the comment in Pipeline.cpp step 3 for why E-from-F was abandoned)
+
+# sift | orb
+feature_detector: sift
 
 # opencv | custom | custom_magsac | custom_prosac
 fundamental_matrix: custom_magsac

@@ -1,16 +1,8 @@
 #include "SparseKeyPointMatcher.hpp"
 #include <algorithm>
 
-namespace {
-// Change this to switch feature detector/matcher used by SparseKeyPointMatcher::match().
-enum class DetectorType { SIFT, ORB };
-// Change here to switch feature detector/matcher used by SparseKeyPointMatcher::match().
-constexpr DetectorType kDetectorType = DetectorType::SIFT;
-//constexpr DetectorType kDetectorType = DetectorType::SIFT;
-}
-
-SparseKeyPointMatcher::SparseKeyPointMatcher(float ratioThreshold)
-    : ratioThreshold_(ratioThreshold),
+SparseKeyPointMatcher::SparseKeyPointMatcher(float ratioThreshold, FeatureDetector detector)
+    : ratioThreshold_(ratioThreshold), detector_(detector),
       sift_(cv::SIFT::create()), orb_(cv::ORB::create(100000)) // For Sift no cap but for orb there is a default cap of 500
 {
 }
@@ -22,7 +14,7 @@ MatchResult SparseKeyPointMatcher::match(const cv::Mat &grayLeft,
 
     cv::Mat descLeft, descRight;
 
-    if (kDetectorType == DetectorType::ORB)
+    if (detector_ == FeatureDetector::ORB)
     {
         orb_->detectAndCompute(grayLeft, cv::noArray(),
                                result.keypointsLeft, descLeft);
@@ -44,7 +36,7 @@ MatchResult SparseKeyPointMatcher::match(const cv::Mat &grayLeft,
 
     std::vector<std::vector<cv::DMatch>> knnMatches;
 
-    if (kDetectorType == DetectorType::ORB)
+    if (detector_ == FeatureDetector::ORB)
     {
         // ORB descriptors are binary; Hamming distance via brute force.
         cv::BFMatcher bf(cv::NORM_HAMMING);

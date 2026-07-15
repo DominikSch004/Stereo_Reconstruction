@@ -3,6 +3,7 @@
 #include <vector>
 #include <opencv2/core.hpp>
 #include <opencv2/features2d.hpp>
+#include "PipelineConfig.hpp"
 
 struct MatchResult {
     std::vector<cv::KeyPoint> keypointsLeft;
@@ -12,10 +13,11 @@ struct MatchResult {
 
 class SparseKeyPointMatcher {
 public:
-    explicit SparseKeyPointMatcher(float ratioThreshold = 0.75f);
+    explicit SparseKeyPointMatcher(float ratioThreshold = 0.75f,
+                                   FeatureDetector detector = FeatureDetector::SIFT);
 
     // Detect keypoints, compute descriptors, run ratio-test filtered matching.
-    // Detector (SIFT vs ORB) is selected internally in SparseKeyPointMatcher.cpp.
+    // SIFT uses FLANN matching; ORB uses brute-force Hamming matching.
     MatchResult match(const cv::Mat& grayLeft, const cv::Mat& grayRight) const;
 
     // Extract matched point coordinates as parallel float vectors.
@@ -25,6 +27,7 @@ public:
 
 private:
     float ratioThreshold_;
+    FeatureDetector detector_;
     cv::Ptr<cv::SIFT> sift_;
     cv::Ptr<cv::ORB> orb_;
 };
