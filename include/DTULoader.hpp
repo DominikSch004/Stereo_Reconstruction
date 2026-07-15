@@ -2,12 +2,11 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include "PlyUtils.hpp"
 #include <Eigen/Dense>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
-
-// #include <FreeImageHelper.h> if we cannot use openCV data structres for custom approach we can go back to this.
 
 struct StereoPair
 {
@@ -79,6 +78,19 @@ public:
         std::string calPath = base + "SampleSet/MVS Data/Calibration/cal18/pos_" + id + ".txt";
 
         return loadPoseFromTxt(calPath);
+    }
+
+    std::vector<cv::Point3f> loadPointCloud(int datasetId = 1)
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "SampleSet/MVS Data/Points/stl/stl%03d_total.ply", datasetId);
+        std::string plyPath = m_baseDir + std::string(buf);
+        return loadPointCloudFromPath(plyPath);
+    }
+
+    std::vector<cv::Point3f> loadPointCloud(const std::string &plyPath)
+    {
+        return loadPointCloudFromPath(plyPath);
     }
 
     cv::Mat loadIntrinsicCV(int imageId, int datasetId = 1)
@@ -159,6 +171,21 @@ private:
             pose.t(i) = t_homogeneous.at<double>(i, 0) / t_homogeneous.at<double>(3, 0);
         }
         return pose;
+    }
+
+    std::vector<cv::Point3f> loadPointCloudFromPath(const std::string &plyPath)
+    {
+        PointCloud eigenCloud = PlyUtils::loadPLY(plyPath);
+
+        std::vector<cv::Point3f> cvCloud;
+        cvCloud.reserve(eigenCloud.pts.size());
+
+        for (const auto &pt : eigenCloud.pts)
+        {
+            cvCloud.push_back(cv::Point3f(pt.x(), pt.y(), pt.z()));
+        }
+
+        return cvCloud;
     }
 
     cv::Mat poseToInstrinsics(const CameraPose &pose)

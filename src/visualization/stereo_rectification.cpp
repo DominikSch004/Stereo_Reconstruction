@@ -12,6 +12,7 @@
 #include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
 #include "ImgUtils.hpp"
+#include "GeometryUtils.hpp"
 
 int main()
 {
@@ -38,9 +39,11 @@ int main()
         return -1;
     }
 
-    // Compute Robust Fundamental Matrix via updated Custom RANSAC pipeline
+    // Compute Robust Fundamental Matrix via Custom MAGSAC
     std::vector<bool> mask;
-    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
+
+    std::mt19937 rng(42);
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
 
     std::vector<cv::Point2f> inL, inR;
     for (size_t i = 0; i < ptsL.size(); ++i)
@@ -55,22 +58,18 @@ int main()
         return false;
 
     int nInliers = std::count(mask.begin(), mask.end(), true);
-    std::cout << "RANSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
+    std::cout << "MAGSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
 
     // --- 3. Relative Pose Recovery ---
-    // Estimate the essential matrix DIRECTLY from the correspondences rather than
-    // converting from F via E = K^T F K. The latter propagates F's noise and never
-    // enforces the essential-matrix constraint (two equal singular values), which
-    // yields a poor translation direction and tilts the rectified rows (verified:
-    // ~74px vertical residual). findEssentialMat enforces that constraint during
-    // RANSAC and recovers a translation matching the ground-truth pose (~0.4px).
-    cv::Mat poseMask;
-    cv::Mat E = cv::findEssentialMat(inL, inR, K, cv::RANSAC, 0.999, 1.0, poseMask);
-    //cv::Mat F_cv = toCvMat(F);
-    //cv::Mat E = K.t() * F_cv * K;
-    cv::Mat R, t;
-    cv::Mat cvE_mask = cv::Mat::ones(inL.size(), 1, CV_8U);
+    cv::Mat R, t, poseMask;
+    cv::Mat F_cv = toCvMat(F);
+    cv::Mat E = K.t() * F_cv * K; // E = K^T * F * K
+    // No (s, s, 0) SVD projection: it has zero effect on recoverPose's output
+    // See pipeline.cpp for details
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
+    // Non-linear pose refinement
+    // (see GeometryUtils.hpp / Pipeline.cpp / FundamentalMatrix.cpp for details)
+    GeometryUtils::refinePose(K, inL, inR, R, t);
 
     // Compute Calibrated Homography mappings
     RectifyResult rect;
@@ -138,10 +137,13 @@ int main()
     }
 
     // Map a vertical error to a colour: green (good) -> yellow -> red (bad).
-    auto errColor = [](double e) -> cv::Scalar {
-        if (e <= 1.0) return {0, 255, 0};     // <= 1px : aligned
-        if (e <= 3.0) return {0, 255, 255};   // <= 3px : borderline
-        return {0, 0, 255};                    // > 3px : misaligned
+    auto errColor = [](double e) -> cv::Scalar
+    {
+        if (e <= 1.0)
+            return {0, 255, 0}; // <= 1px : aligned
+        if (e <= 3.0)
+            return {0, 255, 255}; // <= 3px : borderline
+        return {0, 0, 255};       // > 3px : misaligned
     };
 
     // Draw the rectified correspondences on each panel.

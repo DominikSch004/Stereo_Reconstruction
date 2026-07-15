@@ -50,7 +50,7 @@ cv::Mat Triangulation::reprojectOpenCV(const cv::Mat &disp32f, const cv::Mat &Q)
     return pts3D;
 }
 
-cv::Mat Triangulation::reprojectManual(const cv::Mat &disp32f, const cv::Mat &P1r, const cv::Mat &P2r)
+cv::Mat Triangulation::reprojectManual(const cv::Mat &disp32f, const cv::Mat &P1r, const cv::Mat &P2r, int minDisp)
 {
     if (P1r.empty() || P2r.empty()) {
         std::cerr << "ERROR: Manual projection requires populated rectified matrices P1r/P2r.\n";
@@ -61,7 +61,9 @@ cv::Mat Triangulation::reprojectManual(const cv::Mat &disp32f, const cv::Mat &P1
     for (int y = 0; y < disp32f.rows; ++y) {
         for (int x = 0; x < disp32f.cols; ++x) {
             float d = disp32f.at<float>(y, x);
-            if (!std::isfinite(d) || d <= 0.0f) continue;
+            // Invalid/no-match value is minDisp - 1
+            // invalid pixels are skipped and left as (0,0,0) and so callers should handle them appropriately
+            if (!std::isfinite(d) || d <= (float)minDisp) continue;
 
             cv::Vec2d u1(x, y);
             cv::Vec2d u2(x - d, y);
@@ -73,14 +75,15 @@ cv::Mat Triangulation::reprojectManual(const cv::Mat &disp32f, const cv::Mat &P1
 }
 
 cv::Mat Triangulation::reprojectDisparityTo3D(
-    const cv::Mat &disp32f, 
-    const cv::Mat &Q, 
-    const cv::Mat &P1r, 
-    const cv::Mat &P2r, 
+    const cv::Mat &disp32f,
+    const cv::Mat &Q,
+    const cv::Mat &P1r,
+    const cv::Mat &P2r,
+    int minDisp,
     TriangulationMethod method)
 {
     switch (method) {
-        case TriangulationMethod::Manual: return reprojectManual(disp32f, P1r, P2r);
+        case TriangulationMethod::Manual: return reprojectManual(disp32f, P1r, P2r, minDisp);
         case TriangulationMethod::OpenCV:
         default:                          return reprojectOpenCV(disp32f, Q);
     }
