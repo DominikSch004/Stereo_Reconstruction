@@ -1,58 +1,54 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 from pathlib import Path
 
 def generate_benchmark_plots(csv_file, x_column, x_label, title_prefix, output_dir, sep=','):
     """
-    Reads a benchmark CSV, groups by the X variable, averages the metrics 
-    across multiple image pairs, and generates three line graphs:
-    1. Mean Rotation Error vs. X
-    2. Mean Translation Error vs. X
-    3. Mean Epipolar Error vs. X
-    
-    Saves the resulting figure to the specified output directory.
+    Reads a benchmark CSV, groups by the X variable, and calculates the 
+    median and standard deviation across sampling iterations.
+    Generates line graphs with shaded standard deviation regions.
     """
     try:
-        # Read the data, passing the correct separator
         df = pd.read_csv(csv_file, sep=sep)
         
-        # Aggregate data and take avg. 
-        df = df.groupby(x_column)[['rot_error_deg', 'trans_error_deg', 'epipolar_error']].mean().reset_index()
+        # mean and std
+        grouped = df.groupby(x_column)[['rot_error_deg', 'trans_error_deg', 'epipolar_error']].agg(['median', 'std']).reset_index()
         
-        df = df.sort_values(by=x_column)
+        # flatten nested strings
+        grouped.columns = [f"{col[0]}_{col[1]}" if col[1] else col[0] for col in grouped.columns]
+        
+        grouped = grouped.sort_values(by=x_column)
+        x_data = grouped[x_column]
         
         fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(18, 5))
         
-        # --- Graph 1: Rotation Error ---
-        axes[0].plot(df[x_column], df['rot_error_deg'], marker='o', linestyle='-', color='#1f77b4', label='Mean Rotation Error')
-        axes[0].set_title(f'{title_prefix}: Mean Rotation Error')
-        axes[0].set_xlabel(x_label)
-        axes[0].set_ylabel('Error (Degrees)')
-        axes[0].legend()
-        axes[0].grid(True, linestyle=':', alpha=0.7)
-        
-        # --- Graph 2: Translation Error ---
-        axes[1].plot(df[x_column], df['trans_error_deg'], marker='s', linestyle='-', color='#ff7f0e', label='Mean Translation Error')
-        axes[1].set_title(f'{title_prefix}: Mean Translation Error')
-        axes[1].set_xlabel(x_label)
-        axes[1].set_ylabel('Error (Degrees)')
-        axes[1].legend()
-        axes[1].grid(True, linestyle=':', alpha=0.7)
-        
-        # --- Graph 3: Epipolar Error ---
-        axes[2].plot(df[x_column], df['epipolar_error'], marker='^', linestyle='-', color='purple', label='Mean Epipolar Error')
-        axes[2].set_title(f'{title_prefix}: Mean Epipolar Error')
-        axes[2].set_xlabel(x_label)
-        axes[2].set_ylabel('Epipolar Error')
-        axes[2].legend()
-        axes[2].grid(True, linestyle=':', alpha=0.7)
+        # plot the median line and shaded standard deviation area
+        def plot_with_fill(ax, metric_name, color, label, y_label):
+            median = grouped[f'{metric_name}_median']
+            std = grouped[f'{metric_name}_std'].fillna(0) 
+            
+            ax.plot(x_data, median, marker='o', linestyle='-', color=color, label=f'Median {label}')
+            
+            # Create the shaded standard deviation region, ensure error > 0 
+            ax.fill_between(x_data, np.clip(median - std, 0, None), median + std, color=color, alpha=0.2, label='±1 Std Dev')
+            
+            ax.set_title(f'{title_prefix}: {label}')
+            ax.set_xlabel(x_label)
+            ax.set_ylabel(y_label)
+            ax.legend()
+            ax.grid(True, linestyle=':', alpha=0.7)
+
+        # --- Generate the 3 Graphs ---
+        plot_with_fill(axes[0], 'rot_error_deg', '#1f77b4', 'Rotation Error', 'Error (Degrees)')
+        plot_with_fill(axes[1], 'trans_error_deg', '#ff7f0e', 'Translation Error', 'Error (Degrees)')
+        plot_with_fill(axes[2], 'epipolar_error', 'purple', 'Epipolar Error', 'Epipolar Error')
         
         plt.tight_layout()
         
-        # save path
+        # Save the plot
         save_filename = f"{csv_file.stem}_plot.png"
         save_path = output_dir / save_filename
-
         plt.savefig(save_path, dpi=300)
         plt.close(fig)
         
@@ -62,8 +58,6 @@ def generate_benchmark_plots(csv_file, x_column, x_label, title_prefix, output_d
         print(f"Error: The file '{csv_file}' was not found.")
     except KeyError as e:
         print(f"Error: Missing expected column in '{csv_file}'. Make sure your CSV contains: {e}")
-        if 'df' in locals():
-            print(f"Columns actually found: {df.columns.tolist()}")
 
 
 # Path Setup

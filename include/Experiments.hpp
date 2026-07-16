@@ -39,7 +39,8 @@ public:
         double initialRatio = 0.0,
         double finalRatio = 0.9,
         double intervalJump = 0.01,
-        bool keepTotalConstant = true);
+        bool keepTotalConstant = true,
+        int iterationsPerStep = 50);
 
     /**
      * @brief Experiment 2: Magnitude Degradation (Localization Error)
@@ -66,7 +67,8 @@ public:
         double subsetRatio = 0.30,
         double initialMagnitude = 1.0,
         double finalMagnitude = 50.0,
-        double magnitudeJump = 2.0);
+        double magnitudeJump = 2.0,
+        int iterationsPerStep = 50);
 
     /**
      * @brief Experiment 3: Increase Inlier Count
@@ -89,7 +91,7 @@ public:
         const std::vector<cv::Point2f> &inliersL,
         const std::vector<cv::Point2f> &inliersR,
         std::mt19937 &rng,
-        int iterationsPerStep = 5,
+        int iterationsPerStep = 50,
         int startSampling = 8,
         int endSampling = -1,
         int jump = 5);

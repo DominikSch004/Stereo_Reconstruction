@@ -46,14 +46,16 @@ int main()
     csv_inliers << "image_pair_start,num_inliers,rot_error_deg,trans_error_deg,epipolar_error\n";
 
     DTULoader loader("../data/dtu/");
-    std::mt19937 rng(42);
+    std::random_device rd;
+    std::mt19937 rng(rd());
 
     Eigen::Matrix3d R_est;
     Eigen::Vector3d t_est;
     int startLeftImageId = 30;
     int datasetId = 6;
     int iterations = 10;
-    int minNumberInliers = 0;
+    // random iterations we want to do per experiment
+    int randomIterations = 50;
 
     for (int i = startLeftImageId; i <= startLeftImageId + iterations; i++)
     {
@@ -143,14 +145,16 @@ int main()
         double initRatio = 0.0;
         double finalRatio = 0.9;
         double jump = 0.01;
+        bool keepTotalNumberEqual = true;
         double target_ratio = initRatio;
-
         // add contamination to inliers progressively
-        ContaminatedPointSets contaminatedPoints = Experiments::ratioDegradation(inliersL, inliersR, grayLeft.size(), rng, initRatio, finalRatio, jump);
+        ContaminatedPointSets contaminatedPoints = Experiments::ratioDegradation(inliersL, inliersR, grayLeft.size(), rng, initRatio,
+                                                                                 finalRatio, jump, keepTotalNumberEqual, randomIterations);
 
         for (size_t step = 0; step < contaminatedPoints.L.size(); step++)
         {
-            double target_ratio = initRatio + (step * jump);
+            int step_idx = step / randomIterations;
+            double target_ratio = initRatio + (step_idx * jump);
             std::vector<cv::Point2f> mixedL = contaminatedPoints.L[step];
             std::vector<cv::Point2f> mixedR = contaminatedPoints.R[step];
             Eigen::Matrix3d F_est = FundamentalMatrix::compute8Point(mixedL, mixedR);
@@ -184,12 +188,13 @@ int main()
         double finalMag = 50.0;
         double magJump = 2.0;
 
-        ContaminatedPointSets magnitudePoints = Experiments::magnitudeDegradation(
-            inliersL, inliersR, grayLeft.size(), rng, 0.30, initMag, finalMag, magJump);
+        ContaminatedPointSets magnitudePoints = Experiments::magnitudeDegradation(inliersL, inliersR, grayLeft.size(), rng, 0.30,
+                                                                                  initMag, finalMag, magJump, randomIterations);
 
         for (size_t step = 0; step < magnitudePoints.L.size(); step++)
         {
-            double magnitude = initMag + (step * magJump);
+            int step_idx = step / randomIterations;
+            double magnitude = initMag + (step_idx * magJump);
 
             std::vector<cv::Point2f> perturbedL = magnitudePoints.L[step];
             std::vector<cv::Point2f> perturbedR = magnitudePoints.R[step];
@@ -218,10 +223,9 @@ int main()
         // *** Experiment 3: Progressive Increase of Inlier Sampling ***
         std::cout << "Running Experiment 3: Progressive Increase of Inlier Sampling...\n";
 
-        int randomSamplingIterations = 1;
         int initialSamplingCount = 20;
         int skip = 10;
-        ContaminatedPointSets subsetPoints = Experiments::inlierSubsets(inliersL, inliersR, rng, randomSamplingIterations, initialSamplingCount, -1, skip);
+        ContaminatedPointSets subsetPoints = Experiments::inlierSubsets(inliersL, inliersR, rng, randomIterations, initialSamplingCount, -1, skip);
 
         for (size_t step = 0; step < subsetPoints.L.size(); step++)
         {
