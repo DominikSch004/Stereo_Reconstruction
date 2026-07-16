@@ -741,7 +741,15 @@ int FundamentalMatrix::calculateRequiredIterations(int bestInliers, int N, int s
     double log_prob = std::log(1.0 - confidence);
     double log_fail = std::log(p_fail);
 
-    return (int)(log_prob / log_fail);
+    const double required = std::ceil(log_prob / log_fail);
+
+  if (!std::isfinite(required) ||
+      required >= static_cast<double>(std::numeric_limits<int>::max()))
+  {
+      return std::numeric_limits<int>::max();
+  }
+
+  return std::max(1, static_cast<int>(required));
 }
 
 bool FundamentalMatrix::isCoplanar(const std::vector<cv::Point2f> &sL,
