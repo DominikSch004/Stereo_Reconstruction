@@ -4,6 +4,7 @@
 #include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 // Sampson distance: first-order approximation to geometric epipolar error
 // (Hartley & Zisserman, Multiple View Geometry 2nd ed., Sec. 11.4.3, Eq. 11.9).

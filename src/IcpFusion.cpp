@@ -30,12 +30,6 @@ int main(int argc, char **argv)
     }
     config.print();
 
-    // OVERLAPPING sliding window (i, i+1), (i+1, i+2), ... over one DTU row.
-    // Registration is ICP-only (no GT world placement below), so consecutive
-    // clouds must overlap heavily and sit close in pose: sharing a view keeps
-    // them ~one orbit step apart, well inside the coarse stage's basin. On DTU,
-    // vertical baselines only occur at row boundaries (idx 5,19,28,38,49,...),
-    // so views 6..19 are one clean row and the overlap chain stays connected.
     std::vector<std::pair<int, int>> selectedPairs;
     for (int v = 6; v < 19; ++v)
         selectedPairs.emplace_back(v, v + 1);
@@ -48,13 +42,6 @@ int main(int argc, char **argv)
 
     std::mt19937 rng(42);
 
-    // Rigid transform from the FUSION frame (= first kept cloud's rectified
-    // left-camera frame) to the DTU world frame. Applied to outputs only, so
-    // saved clouds land in the frame of the GT scan for evaluation and
-    // visualization. This is a single global gauge transform of the entire
-    // fused result -- it cannot influence the registration, which below relies
-    // exclusively on ICP (GT poses otherwise enter only through the metric
-    // baseline rescale inside the pipeline, i.e. scale estimation).
     Eigen::Matrix4f worldAnchor = Eigen::Matrix4f::Identity();
 
     std::vector<PointCloud> clouds;
@@ -142,11 +129,7 @@ int main(int argc, char **argv)
         std::cerr << "WARNING: collected only " << clouds.size() << " of " << selectedPairs.size()
                   << " selected pairs (some were skipped or failed to reconstruct).\n";
 
-    // Single normalization, derived from cloud 0 only. Each cloud sits in its
-    // own rectified camera frame, but the object occupies roughly the same
-    // region (~(0,0,depth)) in all of them, so cloud 0's mean/scale center and
-    // scale every cloud consistently; the residual inter-frame offset is
-    // exactly what ICP must absorb.
+    // Normalize all clouds for more numarical stability of cerer solver
     auto [mean0, scale0] = PlyUtils::normalise(clouds[0]);
     for (size_t ci = 1; ci < clouds.size(); ++ci)
         for (auto &p : clouds[ci].pts)
@@ -168,7 +151,6 @@ int main(int argc, char **argv)
 
         CeresICPOptimizer icp;
         icp.setMode(config.icpMode);
-        icp.useWeights(false);
 
         // Coarse: subsampled source against the FULL fused cloud. A subsampled
         // target would impose an NN-spacing error floor (~1.5 mm at 4000 points)
@@ -179,6 +161,7 @@ int main(int argc, char **argv)
         PointCloud srcSub = PlyUtils::subsample(refined, icpSamples, rng);
         icp.setMatchingMaxDistance(0.5f);
         icp.setNbOfIterations(40);
+        icp.useWeights(false);
         Eigen::Matrix4f coarseT = icp.estimatePose(srcSub, fused);
         IcpUtils::applyRigid(refined, coarseT);
 
@@ -186,6 +169,7 @@ int main(int argc, char **argv)
         PointCloud srcFine = PlyUtils::subsample(refined, icpFineSamples, rng);
         icp.setMatchingMaxDistance(0.1f);
         icp.setNbOfIterations(30);
+        icp.useWeights(true);
         Eigen::Matrix4f fineT = icp.estimatePose(srcFine, fused);
         IcpUtils::applyRigid(refined, fineT);
         int matched = icp.lastMatchCount();
