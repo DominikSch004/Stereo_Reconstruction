@@ -93,8 +93,8 @@ EightPointRes Evaluator::evaluateEightPoint(const EightPointParams &eightParams)
     // epipolar error
     if (!eightParams.F_est.empty() && !eightParams.ptsL.empty())
     {
-        result.epipolar_error = computeSymmetricEpipolarDistance(
-            eightParams.ptsL, eightParams.ptsR, eightParams.F_est);
+        result.epipolar_error = evaluateEpipolarError(eightParams.F_est, eightParams.ptsL,
+                                                      eightParams.ptsR, eightParams.inlierMask);
     }
     else
     {
@@ -249,7 +249,7 @@ double Evaluator::computeSymmetricEpipolarDistance(const std::vector<cv::Point2f
     return total_error / (2.0 * pts1.size());
 }
 
-double Evaluator::evaluateEpipolarError(const Eigen::Matrix3d &F_eigen,
+double Evaluator::evaluateEpipolarError(const cv::Mat &F,
                                         const std::vector<cv::Point2f> &ptsL,
                                         const std::vector<cv::Point2f> &ptsR,
                                         const std::vector<bool> &inlierMask)
@@ -268,9 +268,7 @@ double Evaluator::evaluateEpipolarError(const Eigen::Matrix3d &F_eigen,
     if (inL.empty())
         return -1.0;
 
-    cv::Mat F_cv = toCvMat(F_eigen);
-
-    return computeSymmetricEpipolarDistance(inL, inR, F_cv);
+    return computeSymmetricEpipolarDistance(inL, inR, F);
 }
 
 double Evaluator::computeInlierRatio(const std::vector<bool> &inlierMask)

@@ -70,7 +70,7 @@ public:
                                                    const std::vector<cv::Point2f> &pts2,
                                                    const cv::Mat &F);
 
-    static double evaluateEpipolarError(const Eigen::Matrix3d &F_eigen,
+    static double evaluateEpipolarError(const cv::Mat &F,
                                         const std::vector<cv::Point2f> &ptsL,
                                         const std::vector<cv::Point2f> &ptsR,
                                         const std::vector<bool> &inlierMask);
