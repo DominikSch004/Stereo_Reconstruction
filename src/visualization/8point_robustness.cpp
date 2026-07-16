@@ -49,8 +49,6 @@ int main()
     std::random_device rd;
     std::mt19937 rng(rd());
 
-    Eigen::Matrix3d R_est;
-    Eigen::Vector3d t_est;
     int startLeftImageId = 30;
     int datasetId = 6;
     int iterations = 10;
@@ -146,7 +144,6 @@ int main()
         double finalRatio = 0.9;
         double jump = 0.01;
         bool keepTotalNumberEqual = true;
-        double target_ratio = initRatio;
         // add contamination to inliers progressively
         ContaminatedPointSets contaminatedPoints = Experiments::ratioDegradation(inliersL, inliersR, grayLeft.size(), rng, initRatio,
                                                                                  finalRatio, jump, keepTotalNumberEqual, randomIterations);
@@ -175,9 +172,10 @@ int main()
             }
             else
             {
+                double epi_err_fallback = Evaluator::evaluateEpipolarError(F_cv_ex1, ptsL, ptsR, inlierMask);
                 // pose extraction failed
                 csv_ratio << i << "," << mixedL.size() << ","
-                          << target_ratio << ",NaN,NaN,NaN\n";
+                          << target_ratio << ",NaN,NaN," << epi_err_fallback << "\n";
             }
         }
 
@@ -216,8 +214,9 @@ int main()
             }
             else
             {
+                double epi_err_fallback = Evaluator::evaluateEpipolarError(F_cv_ex2, ptsL, ptsR, inlierMask);
                 csv_magnitude << i << "," << perturbedL.size() << ","
-                              << magnitude << ",NaN,NaN,NaN\n";
+                              << magnitude << ",NaN,NaN," << epi_err_fallback << "\n";
             }
         }
         // *** Experiment 3: Progressive Increase of Inlier Sampling ***
@@ -251,8 +250,8 @@ int main()
             }
             else
             {
-                // Pose extraction failed
-                csv_inliers << i << "," << current_N << ",NaN,NaN,NaN\n";
+                double epi_err_fallback = Evaluator::evaluateEpipolarError(F_cv_ex3, ptsL, ptsR, inlierMask);
+                csv_inliers << i << "," << current_N << ",NaN,NaN," << epi_err_fallback << "\n";
             }
         }
     }
@@ -261,6 +260,6 @@ int main()
     csv_ratio.close();
     csv_magnitude.close();
     csv_inliers.close();
-    std::cout << "\nBenchmarking complete. Data written to /build in svd_ratio_benchmark.csv, svd_magnitude_benchmark.csv & svd_inliers_benchmark.csv\n";
+    std::cout << "\nBenchmarking complete. Data written to /experiments in svd_ratio_benchmark.csv, svd_magnitude_benchmark.csv & svd_inliers_benchmark.csv\n";
     return 0;
 }
