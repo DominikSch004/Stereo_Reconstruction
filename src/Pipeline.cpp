@@ -56,7 +56,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     res.K = K.clone();
 
     // --- 1. Sparse Feature Matching ---
-    SparseKeyPointMatcher matcher(0.75f);
+    SparseKeyPointMatcher matcher(0.75f, config.featureDetector);
     MatchResult matchRes = matcher.match(gray1, gray2);
 
     std::vector<cv::Point2f> ptsL, ptsR;

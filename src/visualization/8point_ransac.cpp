@@ -7,6 +7,7 @@
 #include "GeometryUtils.hpp"
 #include "Evaluator.hpp"
 #include "VisualizationUtils.hpp"
+#include "PipelineConfig.hpp"
 
 struct MethodStats
 {
@@ -17,8 +18,21 @@ struct MethodStats
     int valid_count = 0;
 };
 
-int main()
+int main(int argc, char **argv)
 {
+    const std::string configPath = (argc > 1) ? argv[1] : "../config.yaml";
+    PipelineConfig config;
+    try
+    {
+        config = PipelineConfig::load(configPath);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << e.what() << "\n";
+        return 1;
+    }
+    config.print();
+
     // 1. Load data
     DTULoader loader("../data/dtu/");
 
@@ -40,7 +54,7 @@ int main()
         DTULoader::getRelativePose(pose1, pose2, R_gt, t_gt);
         cv::Mat grayLeft = toGray(pair.imageLeft);
         cv::Mat grayRight = toGray(pair.imageRight);
-        SparseKeyPointMatcher matcher(0.75f);
+        SparseKeyPointMatcher matcher(0.75f, config.featureDetector);
         MatchResult result = matcher.match(grayLeft, grayRight);
 
         std::vector<cv::Point2f> ptsL, ptsR;

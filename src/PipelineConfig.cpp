@@ -50,7 +50,15 @@ PipelineConfig PipelineConfig::load(const std::string &path)
 
     PipelineConfig cfg;
 
-    std::string v = readKey(fs, "fundamental_matrix", "opencv");
+    std::string v = readKey(fs, "feature_detector", "sift");
+    if (v == "sift")
+        cfg.featureDetector = FeatureDetector::SIFT;
+    else if (v == "orb")
+        cfg.featureDetector = FeatureDetector::ORB;
+    else
+        invalidValue("feature_detector", v, "sift | orb");
+
+    v = readKey(fs, "fundamental_matrix", "opencv");
     if (v == "opencv")
         cfg.fundamental = FundamentalMethod::OpenCVRANSAC;
     else if (v == "custom")
@@ -122,6 +130,7 @@ void PipelineConfig::print() const
     { return isOpenCV ? "opencv" : "custom"; };
 
     std::cout << "[Config] Pipeline step backends:\n"
+              << "  feature_detector:   " << (featureDetector == FeatureDetector::SIFT ? "sift" : "orb") << "\n"
               << "  fundamental_matrix: "
               << (fundamental == FundamentalMethod::OpenCVRANSAC   ? "opencv"
                   : fundamental == FundamentalMethod::CustomRANSAC ? "custom"
