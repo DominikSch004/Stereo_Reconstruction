@@ -157,9 +157,6 @@ void PipelineConfig::print() const
               << "  image_pair:         (" << imageLeftId << ", " << imageRightId << ")\n"
               << "  illumination:       " << illuminationId << "\n";
 
-    auto name = [](bool isOpenCV)
-    { return isOpenCV ? "opencv" : "custom"; };
-
     std::cout << "\n FLANNs ratio_threshold:    " << ratioThreshold << "\n";
 
     std::cout << "[Config] Pipeline step backends:\n"

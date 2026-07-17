@@ -109,7 +109,8 @@ int main()
         // }
 
         // Load fundamental from custom MAGSAC
-        Eigen::Matrix3d F_gt = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, rng, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000000);
+        VisualizationData vis;
+        Eigen::Matrix3d F_gt = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, rng, vis, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000000);
 
         for (size_t j = 0; j < ptsL.size(); j++)
         {
@@ -125,14 +126,14 @@ int main()
             continue;
         }
 
-        Eigen::Matrix3d R_est;
-        Eigen::Vector3d t_est;
+        cv::Mat R_est;
+        cv::Mat t_est;
         cv::Mat F_cv = toCvMat(F_gt);
 
         if (GeometryUtils::extractPoseFromFundamental(F_gt, ptsL, ptsR, inlierMask, K, R_est, t_est))
         {
             // Evaluation
-            EightPointParams initParams = {ptsL, ptsR, F_cv, inlierMask, R_gt, t_gt, R_est, t_est};
+            EightPointParams initParams = {ptsL, ptsR, F_cv, inlierMask, R_gt, t_gt, toEigenMat(R_est), toEigenVec(t_est)};
             EightPointRes initResult = Evaluator::evaluateEightPoint(initParams);
             std::cout << "[Initial Check] \n";
             Evaluator::printEightPoint(initResult);
@@ -157,14 +158,14 @@ int main()
             std::vector<cv::Point2f> mixedR = contaminatedPoints.R[step];
             Eigen::Matrix3d F_est = FundamentalMatrix::compute8Point(mixedL, mixedR);
 
-            Eigen::Matrix3d R_est_ex1;
-            Eigen::Vector3d t_est_ex1;
+            cv::Mat R_est_ex1;
+            cv::Mat t_est_ex1;
             cv::Mat F_cv_ex1 = toCvMat(F_est);
 
             if (GeometryUtils::extractPoseFromFundamental(F_est, ptsL, ptsR, inlierMask, K, R_est_ex1, t_est_ex1))
             {
                 // Evaluation
-                EightPointParams ex1 = {ptsL, ptsR, F_cv_ex1, inlierMask, R_gt, t_gt, R_est_ex1, t_est_ex1};
+                EightPointParams ex1 = {ptsL, ptsR, F_cv_ex1, inlierMask, R_gt, t_gt, toEigenMat(R_est_ex1), toEigenVec(t_est_ex1)};
                 EightPointRes resultEx1 = Evaluator::evaluateEightPoint(ex1);
 
                 // Add to csv
@@ -200,14 +201,14 @@ int main()
 
             Eigen::Matrix3d F_est = FundamentalMatrix::compute8Point(perturbedL, perturbedR);
 
-            Eigen::Matrix3d R_est_ex2;
-            Eigen::Vector3d t_est_ex2;
+            cv::Mat R_est_ex2;
+            cv::Mat t_est_ex2;
             cv::Mat F_cv_ex2 = toCvMat(F_est);
 
             if (GeometryUtils::extractPoseFromFundamental(F_est, ptsL, ptsR, inlierMask, K, R_est_ex2, t_est_ex2))
             {
                 // Evaluation
-                EightPointParams ex2 = {ptsL, ptsR, F_cv_ex2, inlierMask, R_gt, t_gt, R_est_ex2, t_est_ex2};
+                EightPointParams ex2 = {ptsL, ptsR, F_cv_ex2, inlierMask, R_gt, t_gt, toEigenMat(R_est_ex2), toEigenVec(t_est_ex2)};
                 EightPointRes resultEx2 = Evaluator::evaluateEightPoint(ex2);
 
                 csv_magnitude << i << "," << perturbedL.size() << ","
@@ -236,14 +237,15 @@ int main()
 
             Eigen::Matrix3d F_est = FundamentalMatrix::compute8Point(sampleL, sampleR);
 
-            Eigen::Matrix3d R_est_ex3;
-            Eigen::Vector3d t_est_ex3;
+            cv::Mat R_est_ex3;
+            cv::Mat t_est_ex3;
             cv::Mat F_cv_ex3 = toCvMat(F_est);
 
             if (GeometryUtils::extractPoseFromFundamental(F_est, ptsL, ptsR, inlierMask, K, R_est_ex3, t_est_ex3))
             {
                 // Evaluation
-                EightPointParams ex3 = {ptsL, ptsR, F_cv_ex3, inlierMask, R_gt, t_gt, R_est_ex3, t_est_ex3};
+
+                EightPointParams ex3 = {ptsL, ptsR, F_cv_ex3, inlierMask, R_gt, t_gt, toEigenMat(R_est_ex3), toEigenVec(t_est_ex3)};
                 EightPointRes resultEx3 = Evaluator::evaluateEightPoint(ex3);
 
                 csv_inliers << i << "," << current_N << ","

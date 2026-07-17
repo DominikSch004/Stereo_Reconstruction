@@ -66,23 +66,25 @@ int main(int argc, char **argv)
             continue; // Use continue instead of return -1 so we don't abort the entire run
         }
 
+        VisualizationData visualize;
+
         std::vector<bool> CustomInliers, OpenCVInliers, Custommagsacinliers, Customprosacinliers;
 
         // set randon numer from hardware
         std::random_device rd;
         std::mt19937 rng(42);
 
-        Eigen::Matrix3d F_custom = FundamentalMatrix::computeFundamental(ptsL, ptsR, CustomInliers, rng, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
+        Eigen::Matrix3d F_custom = FundamentalMatrix::computeFundamental(ptsL, ptsR, CustomInliers, rng, visualize, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
         rng.seed(42);
-        Eigen::Matrix3d F_opencv = FundamentalMatrix::computeFundamental(ptsL, ptsR, OpenCVInliers, rng, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
+        Eigen::Matrix3d F_opencv = FundamentalMatrix::computeFundamental(ptsL, ptsR, OpenCVInliers, rng, visualize, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
         // set sigmaMax (user-defined threshold) a lot higher since it is meant as a cut-off
         rng.seed(42);
-        Eigen::Matrix3d F_magsac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Custommagsacinliers, rng, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000);
+        Eigen::Matrix3d F_magsac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Custommagsacinliers, rng, visualize, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000);
         rng.seed(42);
-        Eigen::Matrix3d F_prosac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Customprosacinliers, rng, FundamentalMethod::CustomPROSAC, 1.0, 0.99, 1000);
+        Eigen::Matrix3d F_prosac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Customprosacinliers, rng, visualize, FundamentalMethod::CustomPROSAC, 1.0, 0.99, 1000);
 
-        Eigen::Matrix3d R_est;
-        Eigen::Vector3d t_est;
+        cv::Mat R_est;
+        cv::Mat t_est;
 
         // ================= evaluate openCV =================
         double epi_err_opencv = Evaluator::evaluateEpipolarError(toCvMat(F_custom), ptsL, ptsR, OpenCVInliers);
@@ -91,7 +93,7 @@ int main(int argc, char **argv)
         if (GeometryUtils::extractPoseFromFundamental(F_opencv, ptsL, ptsR, OpenCVInliers, K, R_est, t_est))
         {
             double rot_err = 0.0, trans_err = 0.0;
-            Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
+            Evaluator::evaluatePose(toEigenMat(R_est), toEigenVec(t_est), R_gt, t_gt, rot_err, trans_err);
             std::cout << "OpenCV RANSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
             std::cout << "OpenCV RANSAC Epipolar Error: " << epi_err_opencv << " px\n";
             std::cout << "OpenCV RANSAC Inlier Ratio: " << opencv_ratio << "%\n";
@@ -115,7 +117,7 @@ int main(int argc, char **argv)
         if (GeometryUtils::extractPoseFromFundamental(F_custom, ptsL, ptsR, CustomInliers, K, R_est, t_est))
         {
             double rot_err = 0.0, trans_err = 0.0;
-            Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
+            Evaluator::evaluatePose(toEigenMat(R_est), toEigenVec(t_est), R_gt, t_gt, rot_err, trans_err);
             std::cout << "RANSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
             std::cout << "RANSAC Epipolar Error: " << epi_err_custom << " px\n";
             std::cout << "RANSAC Inlier Ratio: " << custom_ratio << "%\n";
@@ -139,7 +141,7 @@ int main(int argc, char **argv)
         if (GeometryUtils::extractPoseFromFundamental(F_magsac, ptsL, ptsR, Custommagsacinliers, K, R_est, t_est))
         {
             double rot_err = 0.0, trans_err = 0.0;
-            Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
+            Evaluator::evaluatePose(toEigenMat(R_est), toEigenVec(t_est), R_gt, t_gt, rot_err, trans_err);
             std::cout << "MAGSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
             std::cout << "MAGSAC Epipolar Error: " << epi_err_magsac << " px\n";
             std::cout << "MAGSAC Inlier Ratio: " << magsac_ratio << "%\n";
@@ -163,7 +165,7 @@ int main(int argc, char **argv)
         if (GeometryUtils::extractPoseFromFundamental(F_prosac, ptsL, ptsR, Customprosacinliers, K, R_est, t_est))
         {
             double rot_err = 0.0, trans_err = 0.0;
-            Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_err, trans_err);
+            Evaluator::evaluatePose(toEigenMat(R_est), toEigenVec(t_est), R_gt, t_gt, rot_err, trans_err);
             std::cout << "PROSAC Geodesic Rotation: " << rot_err << " deg | Translation: " << trans_err << " deg\n";
             std::cout << "PROSAC Epipolar Error: " << epi_err_prosac << " px\n";
             std::cout << "PROSAC Inlier Ratio: " << prosac_ratio << "%\n";
