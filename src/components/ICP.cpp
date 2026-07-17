@@ -1,246 +1,413 @@
 #include "ICP.hpp"
-#include <opencv2/flann.hpp>
-#include <vector>
-#include <algorithm>
-#include <limits>
 #include <ceres/ceres.h>
 #include <ceres/rotation.h>
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <limits>
 
-// Functor for calculating confidence-weighted point-to-point residual
-struct WeightedPointToPointError {
-    WeightedPointToPointError(const Eigen::Vector3f& src, const Eigen::Vector3f& tgt, float weight)
-        : src_(src.cast<double>()), tgt_(tgt.cast<double>()), weight_(static_cast<double>(weight)) {}
+// ============================================================================
+// Optimization constraints
+//
+// Pose is parameterized as 6 doubles: [0,1,2] angle-axis rotation vector,
+// [3,4,5] translation. Ceres squares the residual, so a per-correspondence
+// confidence weight w enters as sqrt(w): [sqrt(w)*e]^2 == w*e^2.
+// ============================================================================
 
-    template <typename T>
-    bool operator()(const T* const camera, T* residuals) const {
-        // camera[0,1,2] is Angle-Axis rotation vector (omega)
-        // camera[3,4,5] is Translation vector (t)
-        T p[3];
-        T src_pt[3] = { T(src_[0]), T(src_[1]), T(src_[2]) };
+namespace {
 
-        // Rotate point using Ceres's internal angle-axis rotation utility
-        ceres::AngleAxisRotatePoint(camera, src_pt, p); // applies Rodrigues formula internally
-
-        // Add translation
-        p[0] += camera[3];
-        p[1] += camera[4];
-        p[2] += camera[5];
-
-        // Residual = sqrt(weight) * (R*s + t - tgt)
-        // Using sqrt(weight) because Ceres minimizes the square of the residual:
-        // [sqrt(w) * error]^2 = w * error^2
-        T sqrt_w = T(std::sqrt(weight_));
-        residuals[0] = sqrt_w * (p[0] - T(tgt_[0]));
-        residuals[1] = sqrt_w * (p[1] - T(tgt_[1]));
-        residuals[2] = sqrt_w * (p[2] - T(tgt_[2]));
-
-        return true;
-    }
-
-    const Eigen::Vector3d src_;
-    const Eigen::Vector3d tgt_;
-    const double weight_;
-};
-
-// Functor for calculating confidence-weighted point-to-plane residual
-struct WeightedPointToPlaneError {
-    WeightedPointToPlaneError(const Eigen::Vector3f& src, const Eigen::Vector3f& tgt,
-                               const Eigen::Vector3f& tgtNormal, float weight)
-        : src_(src.cast<double>()), tgt_(tgt.cast<double>()),
-          normal_(tgtNormal.cast<double>()), weight_(static_cast<double>(weight)) {}
-
-    template <typename T>
-    bool operator()(const T* const camera, T* residuals) const {
-        T p[3];
-        T src_pt[3] = { T(src_[0]), T(src_[1]), T(src_[2]) };
-        ceres::AngleAxisRotatePoint(camera, src_pt, p);
-
-        p[0] += camera[3];
-        p[1] += camera[4];
-        p[2] += camera[5];
-
-        T sqrt_w = T(std::sqrt(weight_));
-        T dx = p[0] - T(tgt_[0]);
-        T dy = p[1] - T(tgt_[1]);
-        T dz = p[2] - T(tgt_[2]);
-        residuals[0] = sqrt_w * (T(normal_[0]) * dx + T(normal_[1]) * dy + T(normal_[2]) * dz);
-
-        return true;
-    }
-
-    const Eigen::Vector3d src_;
-    const Eigen::Vector3d tgt_;
-    const Eigen::Vector3d normal_;
-    const double weight_;
-};
-
-Eigen::Matrix4f ICP::align(PointCloud& source, const PointCloud& target,
-                            int maxIter, float distThresh, bool useWeights,
-                            ICPMode mode)
+// Applies the 6-DOF pose (angle-axis + translation) to a source point.
+template <typename T>
+void applyPose(const T* const pose, const T* const srcPoint, T* dstPoint)
 {
-    // Build FLANN KD-tree on target point sets
-    int n = int(target.pts.size());
-    cv::Mat targetMat(n, 3, CV_32F);
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            targetMat.at<float>(i, j) = target.pts[i](j);
-        }
-    }
+    ceres::AngleAxisRotatePoint(pose, srcPoint, dstPoint); // Rodrigues formula
+    dstPoint[0] += pose[3];
+    dstPoint[1] += pose[4];
+    dstPoint[2] += pose[5];
+}
 
-    cv::flann::Index kdtree(targetMat, cv::flann::KDTreeIndexParams(4));
+// Converts an optimized 6-DOF pose vector into a 4x4 homogeneous transform.
+Eigen::Matrix4f poseVectorToMatrix(const double* pose)
+{
+    double R[9];
+    ceres::AngleAxisToRotationMatrix(pose, R); // column-major
 
-    const bool wantPlane = (mode == ICPMode::PointToPlane);
-    const bool targetHasNormals = wantPlane && (target.normals.size() == target.pts.size())
-                                             && (target.validNormal.size() == target.pts.size());
-    if (wantPlane && !targetHasNormals) {
-        std::cerr << "WARNING: ICPMode::PointToPlane requested but target has no per-point "
-                      "normals (or size mismatch) -- falling back to point-to-point for this call.\n";
-    }
+    Eigen::Matrix4f m = Eigen::Matrix4f::Identity();
+    m(0, 0) = (float)R[0]; m(0, 1) = (float)R[3]; m(0, 2) = (float)R[6];
+    m(1, 0) = (float)R[1]; m(1, 1) = (float)R[4]; m(1, 2) = (float)R[7];
+    m(2, 0) = (float)R[2]; m(2, 1) = (float)R[5]; m(2, 2) = (float)R[8];
+    m(0, 3) = (float)pose[3];
+    m(1, 3) = (float)pose[4];
+    m(2, 3) = (float)pose[5];
+    return m;
+}
 
-    Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
+} // namespace
 
-    for (int iter = 0; iter < maxIter; ++iter)
+/**
+ * Confidence-weighted point-to-point residual (3D).
+ */
+class PointToPointConstraint
+{
+public:
+    PointToPointConstraint(const Eigen::Vector3f& sourcePoint, const Eigen::Vector3f& targetPoint, float weight)
+        : m_sourcePoint{ sourcePoint.cast<double>() },
+          m_targetPoint{ targetPoint.cast<double>() },
+          m_sqrtWeight{ std::sqrt(std::max(0.0, (double)weight)) }
+    { }
+
+    template <typename T>
+    bool operator()(const T* const pose, T* residuals) const
     {
-        int m = int(source.pts.size());
-        cv::Mat queryMat(m, 3, CV_32F);
-        for (int i = 0; i < m; ++i) {
-            for (int j = 0; j < 3; ++j) {
-                queryMat.at<float>(i, j) = source.pts[i](j);
-            }
-        }
+        T src[3] = { T(m_sourcePoint[0]), T(m_sourcePoint[1]), T(m_sourcePoint[2]) };
+        T transformed[3];
+        applyPose(pose, src, transformed);
 
-        cv::Mat indices(m, 1, CV_32S);
-        cv::Mat dists(m, 1, CV_32F);
-        kdtree.knnSearch(queryMat, indices, dists, 1);
+        const T w = T(m_sqrtWeight);
+        residuals[0] = w * (transformed[0] - T(m_targetPoint[0]));
+        residuals[1] = w * (transformed[1] - T(m_targetPoint[1]));
+        residuals[2] = w * (transformed[2] - T(m_targetPoint[2]));
+        return true;
+    }
 
-        // Collect matching tracking pairs within Euclidean distance parameters
-        std::vector<Eigen::Vector3f> src, tgt, tgtNormal;
-        std::vector<float> srcWeights;
-        std::vector<bool> usePlaneForPair;
-        for (int i = 0; i < m; ++i)
+    static ceres::CostFunction* create(const Eigen::Vector3f& sourcePoint, const Eigen::Vector3f& targetPoint, float weight)
+    {
+        return new ceres::AutoDiffCostFunction<PointToPointConstraint, 3, 6>(
+            new PointToPointConstraint(sourcePoint, targetPoint, weight));
+    }
+
+protected:
+    const Eigen::Vector3d m_sourcePoint;
+    const Eigen::Vector3d m_targetPoint;
+    const double          m_sqrtWeight;
+};
+
+/**
+ * Confidence-weighted point-to-plane residual (1D, along the target normal).
+ */
+class PointToPlaneConstraint
+{
+public:
+    PointToPlaneConstraint(const Eigen::Vector3f& sourcePoint, const Eigen::Vector3f& targetPoint,
+                           const Eigen::Vector3f& targetNormal, float weight)
+        : m_sourcePoint{ sourcePoint.cast<double>() },
+          m_targetPoint{ targetPoint.cast<double>() },
+          m_targetNormal{ targetNormal.cast<double>() },
+          m_sqrtWeight{ std::sqrt(std::max(0.0, (double)weight)) }
+    { }
+
+    template <typename T>
+    bool operator()(const T* const pose, T* residuals) const
+    {
+        T src[3] = { T(m_sourcePoint[0]), T(m_sourcePoint[1]), T(m_sourcePoint[2]) };
+        T transformed[3];
+        applyPose(pose, src, transformed);
+
+        const T w = T(m_sqrtWeight);
+        residuals[0] = w * (T(m_targetNormal[0]) * (transformed[0] - T(m_targetPoint[0])) +
+                            T(m_targetNormal[1]) * (transformed[1] - T(m_targetPoint[1])) +
+                            T(m_targetNormal[2]) * (transformed[2] - T(m_targetPoint[2])));
+        return true;
+    }
+
+    static ceres::CostFunction* create(const Eigen::Vector3f& sourcePoint, const Eigen::Vector3f& targetPoint,
+                                       const Eigen::Vector3f& targetNormal, float weight)
+    {
+        return new ceres::AutoDiffCostFunction<PointToPlaneConstraint, 1, 6>(
+            new PointToPlaneConstraint(sourcePoint, targetPoint, targetNormal, weight));
+    }
+
+protected:
+    const Eigen::Vector3d m_sourcePoint;
+    const Eigen::Vector3d m_targetPoint;
+    const Eigen::Vector3d m_targetNormal;
+    const double          m_sqrtWeight;
+};
+
+// ============================================================================
+// ICPOptimizer (base): configuration + shared geometry helpers
+// ============================================================================
+
+ICPOptimizer::ICPOptimizer()
+    : m_usePointToPlane{ false },
+      m_useWeights{ true },
+      m_verbose{ true },
+      m_nIterations{ 30 },
+      m_lastMatchCount{ 0 }
+{
+    m_nearestNeighborSearch.setMatchingMaxDistance(0.1f);
+}
+
+void ICPOptimizer::setMatchingMaxDistance(float maxDistance) { m_nearestNeighborSearch.setMatchingMaxDistance(maxDistance); }
+void ICPOptimizer::setNbOfIterations(unsigned nIterations)   { m_nIterations = nIterations; }
+void ICPOptimizer::usePointToPlaneConstraints(bool enable)   { m_usePointToPlane = enable; }
+void ICPOptimizer::useWeights(bool enable)                   { m_useWeights = enable; }
+void ICPOptimizer::setVerbose(bool enable)                   { m_verbose = enable; }
+
+std::vector<Eigen::Vector3f> ICPOptimizer::transformPoints(
+    const std::vector<Eigen::Vector3f>& points, const Eigen::Matrix4f& pose) const
+{
+    const Eigen::Matrix3f R = pose.block<3, 3>(0, 0);
+    const Eigen::Vector3f t = pose.block<3, 1>(0, 3);
+    std::vector<Eigen::Vector3f> out;
+    out.reserve(points.size());
+    for (const auto& p : points)
+        out.push_back(R * p + t);
+    return out;
+}
+
+std::vector<Eigen::Vector3f> ICPOptimizer::transformNormals(
+    const std::vector<Eigen::Vector3f>& normals, const Eigen::Matrix4f& pose) const
+{
+    // Pose is rigid, so the rotation block transforms normals directly.
+    const Eigen::Matrix3f R = pose.block<3, 3>(0, 0);
+    std::vector<Eigen::Vector3f> out;
+    out.reserve(normals.size());
+    for (const auto& n : normals)
+        out.push_back(R * n);
+    return out;
+}
+
+void ICPOptimizer::pruneCorrespondences(
+    const std::vector<Eigen::Vector3f>& sourceNormals,
+    const std::vector<Eigen::Vector3f>& targetNormals,
+    const std::vector<bool>& targetValidNormal,
+    std::vector<Match>& matches) const
+{
+    // Requires per-point normals on both sides to be meaningful.
+    if (sourceNormals.size() != matches.size() || targetNormals.empty())
+        return;
+
+    for (size_t i = 0; i < matches.size(); ++i)
+    {
+        Match& match = matches[i];
+        if (match.idx < 0) continue;
+        if ((size_t)match.idx >= targetNormals.size()) continue;
+        if (!targetValidNormal.empty() && !targetValidNormal[match.idx]) continue;
+
+        const Eigen::Vector3f& sn = sourceNormals[i];
+        const Eigen::Vector3f& tn = targetNormals[match.idx];
+        if (!sn.allFinite() || !tn.allFinite()) continue;
+        // Invalid source normals are stored as zero vectors; they carry no
+        // orientation evidence, so the match must survive (it falls back to a
+        // point-to-point residual) instead of auto-failing the dot test.
+        if (sn.squaredNorm() < 1e-12f || tn.squaredNorm() < 1e-12f) continue;
+
+        // Reject correspondences whose normals disagree by more than 60 degrees.
+        if (sn.dot(tn) < 0.5f)
+            match.idx = -1;
+    }
+}
+
+// ============================================================================
+// CeresICPOptimizer
+// ============================================================================
+
+namespace {
+
+void configureSolver(ceres::Solver::Options& options)
+{
+    options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
+    options.use_nonmonotonic_steps     = false;
+    options.linear_solver_type         = ceres::DENSE_QR;
+    options.minimizer_progress_to_stdout = false;
+    options.max_num_iterations         = 10; // low per outer step; the KD-tree re-associates each iteration
+    options.num_threads                = 8;
+}
+
+} // namespace
+
+Eigen::Matrix4f CeresICPOptimizer::estimatePose(
+    const PointCloud& source, const PointCloud& target, const Eigen::Matrix4f& initialPose)
+{
+    m_lastMatchCount = 0;
+    m_nearestNeighborSearch.buildIndex(target.pts);
+
+    const bool haveSourceNormals = source.normals.size() == source.pts.size();
+    Eigen::Matrix4f estimatedPose = initialPose;
+
+    Eigen::Matrix4f bestPose = initialPose;
+    double bestMeanDist = std::numeric_limits<double>::max();
+    int bestMatchCount = 0;
+    int divergingStreak = 0;
+
+
+    // Outlier Rejection Lambda: transforms the source by the current pose, queries nearest neighbors, and prunes matches.
+    auto associate = [&](const Eigen::Matrix4f& pose,
+                         const std::vector<Eigen::Vector3f>& transformedPoints,
+                         int& matched, double& meanDist)
+    {
+        auto matches = m_nearestNeighborSearch.queryMatches(transformedPoints);
+
+        std::vector<float> validSq;
+        validSq.reserve(matches.size());
+        for (const auto& mm : matches)
+            if (mm.idx >= 0)
+                validSq.push_back(mm.distance);
+        if (!validSq.empty())
         {
-            if (dists.at<float>(i, 0) > distThresh * distThresh) continue;
-            int tgtIdx = indices.at<int>(i, 0);
-
-            src.push_back(source.pts[i]);
-            tgt.push_back(target.pts[tgtIdx]);
-            if (useWeights && i < (int)source.weights.size())
-                srcWeights.push_back(source.weights[i]);
-            else
-                srcWeights.push_back(1.0f);
-
-            // only use the plane residual where the matched target point has a valid normal
-            // otherwise fall back to point-to-point
-            bool pairHasNormal = targetHasNormals && target.validNormal[tgtIdx];
-            usePlaneForPair.push_back(wantPlane && pairHasNormal);
-            tgtNormal.push_back(pairHasNormal ? target.normals[tgtIdx] : Eigen::Vector3f::Zero());
+            const size_t mid = validSq.size() / 2;
+            std::nth_element(validSq.begin(), validSq.begin() + mid, validSq.end());
+            // 3x median distance == 9x median squared distance; the floor keeps
+            // the gate open once the clouds sit within sampling noise.
+            const float tauSq = std::max(9.0f * validSq[mid], 1e-8f);
+            for (auto& mm : matches)
+                if (mm.idx >= 0 && mm.distance > tauSq)
+                    mm.idx = -1;
         }
-        if ((int)src.size() < 6) {
-            // Report how far off things actually are, not just "it failed" --
-            // distinguishes "just barely missed the threshold" from "wildly misaligned".
-            float minDistSq = std::numeric_limits<float>::max();
-            float maxDistSq = 0.0f;
-            double sumDistSq = 0.0;
-            for (int i = 0; i < m; ++i) {
-                float d = dists.at<float>(i, 0);
-                minDistSq = std::min(minDistSq, d);
-                maxDistSq = std::max(maxDistSq, d);
-                sumDistSq += d;
-            }
-            double meanDistSq = (m > 0) ? (sumDistSq / m) : 0.0;
-            std::cout << "  [ICP iter " << iter << "] only " << src.size()
-                      << " correspondences survived distThresh=" << distThresh
-                      << " -- stopping (need >= 6).\n"
-                      << "    Actual nearest-neighbor distances (pre-threshold, all " << m << " source points):\n"
-                      << "    min=" << std::sqrt(minDistSq)
-                      << " mean=" << std::sqrt(meanDistSq)
-                      << " max=" << std::sqrt(maxDistSq)
-                      << "  (threshold=" << distThresh << ")\n";
+
+        if (m_usePointToPlane && haveSourceNormals)
+        {
+            const auto transformedNormals = transformNormals(source.normals, pose);
+            pruneCorrespondences(transformedNormals, target.normals, target.validNormal, matches);
+        }
+
+        matched = 0;
+        double sumDist = 0.0;
+        for (const auto& mm : matches)
+        {
+            if (mm.idx < 0) continue;
+            ++matched;
+            sumDist += std::sqrt((double)mm.distance);
+        }
+        meanDist = matched > 0 ? sumDist / matched : std::numeric_limits<double>::max();
+        return matches;
+    };
+
+    for (unsigned iter = 0; iter < m_nIterations; ++iter)
+    {
+        // Associate: transform source by the current estimate, then match
+        const auto transformedPoints = transformPoints(source.pts, estimatedPose);
+        int matched = 0;
+        double meanDist = 0.0;
+        auto matches = associate(estimatedPose, transformedPoints, matched, meanDist);
+        m_lastMatchCount = matched;
+
+        if (matched < 6)
+        {
+            // Report actual nearest-neighbor spread so "just missed" is distinguishable
+            // from "wildly misaligned".
+            float minD = std::numeric_limits<float>::max(), maxD = 0.0f;
+            double sumD = 0.0;
+            for (const auto& mm : matches) { minD = std::min(minD, mm.distance); maxD = std::max(maxD, mm.distance); sumD += mm.distance; }
+            const double meanD = matches.empty() ? 0.0 : sumD / matches.size();
+            std::cout << "  [ICP iter " << iter << "] only " << matched
+                      << " correspondences survived -- stopping (need >= 6).\n"
+                      << "    NN distances (all " << matches.size() << " source pts): min="
+                      << std::sqrt(minD) << " rms=" << std::sqrt(meanD)
+                      << " max=" << std::sqrt(maxD) << "\n";
             break;
         }
 
-        // --- Diagnostic: correspondence count and mean pre-optimization residual ---
+        if (meanDist < bestMeanDist)
         {
-            double sumDist = 0.0;
-            for (size_t i = 0; i < src.size(); ++i)
-                sumDist += (src[i] - tgt[i]).norm();
-            double meanDist = sumDist / src.size();
-            int planeCount = (int)std::count(usePlaneForPair.begin(), usePlaneForPair.end(), true);
-            std::cout << "  [ICP iter " << iter << "] correspondences=" << src.size()
-                      << "/" << m << " (" << (100.0 * src.size() / m) << "%)"
-                      << " | plane=" << planeCount << " point=" << (src.size() - planeCount)
+            bestMeanDist = meanDist;
+            bestPose = estimatedPose;
+            bestMatchCount = matched;
+            divergingStreak = 0;
+        }
+        // Early stopping if no divergence is observed
+        else if (++divergingStreak >= 5)
+        {
+            if (m_verbose)
+                std::cout << "  [ICP iter " << iter << "] mean distance has not improved for "
+                          << divergingStreak << " iterations (best " << bestMeanDist
+                          << ", now " << meanDist << ") -- stopping.\n";
+            break;
+        }
+
+        // --- Diagnostics ---
+        if (m_verbose)
+        {
+            int planeCount = 0;
+            for (size_t i = 0; i < matches.size(); ++i)
+            {
+                if (matches[i].idx < 0) continue;
+                if (m_usePointToPlane && matches[i].idx < (int)target.normals.size()
+                    && (target.validNormal.empty() || target.validNormal[matches[i].idx]))
+                    ++planeCount;
+            }
+            std::cout << "  [ICP iter " << iter << "] correspondences=" << matched
+                      << "/" << source.pts.size()
+                      << " | plane=" << planeCount << " point=" << (matched - planeCount)
                       << " | mean pre-opt dist=" << meanDist << "\n";
         }
-        
-        // Initialize optimization params: 3 for angle-axis, 3 for translation
-        // start with an identity transformation (0 rotation vector, 0 translation)
-        double camera_params[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
+        // --- Solve for the incremental pose (starts at identity each iteration) ---
+        double poseIncrement[6] = { 0, 0, 0, 0, 0, 0 };
 
         ceres::Problem problem;
-        for (size_t i = 0; i < src.size(); ++i) {
-            if (usePlaneForPair[i]) {
-                ceres::CostFunction* cost_function =
-                    new ceres::AutoDiffCostFunction<WeightedPointToPlaneError, 1, 6>(
-                        new WeightedPointToPlaneError(src[i], tgt[i], tgtNormal[i], srcWeights[i]));
-                problem.AddResidualBlock(cost_function, nullptr, camera_params);
-            } else {
-                ceres::CostFunction* cost_function =
-                    new ceres::AutoDiffCostFunction<WeightedPointToPointError, 3, 6>(
-                        new WeightedPointToPointError(src[i], tgt[i], srcWeights[i]));
-                problem.AddResidualBlock(cost_function, nullptr, camera_params);
-            }
+        for (size_t i = 0; i < matches.size(); ++i)
+        {
+            const Match& match = matches[i];
+            if (match.idx < 0) continue;
+
+            const Eigen::Vector3f& sp = transformedPoints[i];
+            const Eigen::Vector3f& tp = target.pts[match.idx];
+            if (!sp.allFinite() || !tp.allFinite()) continue;
+
+            const float weight = (m_useWeights && i < source.weights.size()) ? source.weights[i] : 1.0f;
+
+            const bool usePlane = m_usePointToPlane
+                                && match.idx < (int)target.normals.size()
+                                && (target.validNormal.empty() || target.validNormal[match.idx])
+                                && target.normals[match.idx].allFinite();
+
+            if (usePlane)
+                problem.AddResidualBlock(
+                    PointToPlaneConstraint::create(sp, tp, target.normals[match.idx], weight),
+                    nullptr, poseIncrement);
+            else
+                problem.AddResidualBlock(
+                    PointToPointConstraint::create(sp, tp, weight),
+                    nullptr, poseIncrement);
         }
 
         ceres::Solver::Options options;
-        options.linear_solver_type = ceres::DENSE_QR;
-        options.max_num_iterations = 10; // Low iteration count per ICP step as KD-tree re-associates
-        options.minimizer_progress_to_stdout = false; // Keep console clean
-
+        configureSolver(options);
         ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
 
-        std::cout << "    Ceres: initial_cost=" << summary.initial_cost
-                  << " final_cost=" << summary.final_cost
-                  << " iterations=" << summary.iterations.size()
-                  << " (" << summary.BriefReport() << ")\n";
+        if (m_verbose)
+            std::cout << "    Ceres: " << summary.BriefReport() << "\n";
 
-        // Convert the optimization results back into an Eigen 4x4 Transformation Matrix
-        Eigen::Vector3d omega(camera_params[0], camera_params[1], camera_params[2]);
-        Eigen::Vector3d trans(camera_params[3], camera_params[4], camera_params[5]);
+        // Accumulate from the left (left-increment notation).
+        estimatedPose = poseVectorToMatrix(poseIncrement) * estimatedPose;
 
-        double R_arr[9];
-        ceres::AngleAxisToRotationMatrix(camera_params, R_arr);
+        const double omegaNorm = std::sqrt(poseIncrement[0] * poseIncrement[0] +
+                                           poseIncrement[1] * poseIncrement[1] +
+                                           poseIncrement[2] * poseIncrement[2]);
+        const double transNorm = std::sqrt(poseIncrement[3] * poseIncrement[3] +
+                                           poseIncrement[4] * poseIncrement[4] +
+                                           poseIncrement[5] * poseIncrement[5]);
+        if (m_verbose)
+            std::cout << "    iter " << iter << " step: |trans|=" << transNorm
+                      << " |omega|=" << omegaNorm << "\n";
 
-        Eigen::Matrix4f T_iter = Eigen::Matrix4f::Identity();
-        T_iter(0,0) = static_cast<float>(R_arr[0]); T_iter(0,1) = static_cast<float>(R_arr[3]); T_iter(0,2) = static_cast<float>(R_arr[6]);
-        T_iter(1,0) = static_cast<float>(R_arr[1]); T_iter(1,1) = static_cast<float>(R_arr[4]); T_iter(1,2) = static_cast<float>(R_arr[7]);
-        T_iter(2,0) = static_cast<float>(R_arr[2]); T_iter(2,1) = static_cast<float>(R_arr[5]); T_iter(2,2) = static_cast<float>(R_arr[8]);
-        
-        T_iter(0,3) = static_cast<float>(trans.x());
-        T_iter(1,3) = static_cast<float>(trans.y());
-        T_iter(2,3) = static_cast<float>(trans.z());
-
-        // Update the source point clouds using the transformation computed
-        for (auto& pt : source.pts) {
-            Eigen::Vector4f p_h(pt.x(), pt.y(), pt.z(), 1.0f);
-            pt = (T_iter * p_h).head<3>();
-        }
-        for (auto& n : source.normals) {
-            n = T_iter.block<3,3>(0,0) * n;
-        }
-
-        // Accumulate global incremental transform matrix
-        T = T_iter * T;
-
-        std::cout << "    iter " << iter << " step: |trans|=" << trans.norm()
-                  << " |omega|=" << omega.norm() << "\n";
-
-        // Check for early termination if incremental update step is minuscule
-        if (trans.norm() < 1e-5 && omega.norm() < 1e-5) {
-            std::cout << "  [ICP] converged at iter " << iter << "\n";
+        if (transNorm < 1e-4 && omegaNorm < 1e-4)
+        {
+            if (m_verbose) std::cout << "  [ICP] converged at iter " << iter << "\n";
             break;
         }
     }
 
-    return T;
+    {
+        const auto transformedPoints = transformPoints(source.pts, estimatedPose);
+        int matched = 0;
+        double meanDist = 0.0;
+        associate(estimatedPose, transformedPoints, matched, meanDist);
+        if (matched >= 6 && meanDist < bestMeanDist)
+        {
+            bestMeanDist = meanDist;
+            bestPose = estimatedPose;
+            bestMatchCount = matched;
+        }
+    }
+    m_lastMatchCount = bestMatchCount;
+
+    if (m_verbose)
+        std::cout << "  [ICP] returning best pose (mean correspondence dist "
+                  << bestMeanDist << ", " << m_lastMatchCount << " matches).\n";
+
+    return bestPose;
 }
