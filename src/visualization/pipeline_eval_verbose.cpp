@@ -1,6 +1,7 @@
 #include <iostream>
 #include "DTULoader.hpp"
 #include "SparseKeyPointMatcher.hpp"
+#include "Rectification.hpp"
 #include "ImgUtils.hpp"
 #include "PipelineConfig.hpp"
 #include "VisualizationUtils.hpp"
@@ -62,23 +63,68 @@ int main(int argc, char **argv)
     std::vector<bool> inliers;
     VisualizationData visualization;
 
-    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, inliers, visualization, config.fundamental, 1.0, 0.99, 1000);
+    double threshold = 1.0;
 
-    VisualizationUtils::fundamentalExplorationVideo(grayLeft, grayRight, visualization, "U-SAC Method");
+    if (config.fundamental == FundamentalMethod::CustomMAGSAC)
+    {
+        // sigmaMax value not actually threshold
+        threshold = 10.0;
+    };
+
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, inliers, config.rng, visualization, config.fundamental, threshold, 0.99, 100000);
+
+    VisualizationUtils::fundamentalExplorationVideo(grayLeft, grayRight, visualization, "Random Sampling Optimization Process");
 
     VisualizationUtils::fundamentalComparison(F, R_gt, t_gt, K);
 
+    cv::Mat F_cv = toCvMat(F);
+    cv::Mat E = K.t() * F_cv * K;
     cv::Mat R, t;
-    GeometryUtils::extractPoseFromFundamental(F, ptsL, ptsR, inliers, K, R, t);
+    std::vector<cv::Point2f> inL, inR;
+    for (size_t i = 0; i < ptsL.size(); ++i)
+    {
+        if (inliers[i])
+        {
+            inL.push_back(ptsL[i]);
+            inR.push_back(ptsR[i]);
+        }
+    }
+    if (inL.size() < 8)
+        return false;
 
-    double rot_error_deg, trans_error_deg;
-    Eigen::Matrix3d R_est = toEigenMat(R);
-    Eigen::Vector3d t_est = toEigenVec(t);
-    Evaluator::evaluatePose(R_est, t_est, R_gt, t_gt, rot_error_deg, trans_error_deg);
+    cv::recoverPose(E, inL, inR, K, R, t);
+    // Evaluation
+    EightPointParams initParams = {ptsL, ptsR, F_cv, inliers, R_gt, t_gt, toEigenMat(R), toEigenVec(t)};
+    EightPointRes metricsRes = Evaluator::evaluateEightPoint(initParams);
+    Evaluator::printEightPoint(metricsRes);
 
-    double epipolar_err = Evaluator::evaluateEpipolarError(F, ptsL, ptsR, inliers);
+    VisualizationUtils::displayEpipolarMatches("Sample of 20 Epipolar Matches (Before Rectification)", pair.imageLeft, pair.imageRight, ptsL, ptsR, inliers, F, metricsRes.rot_error_deg, metricsRes.trans_error_deg, metricsRes.epipolar_error);
 
-    VisualizationUtils::displayEpipolarMatches("Epipolar Matches", pair.imageLeft, pair.imageRight, ptsL, ptsR, inliers, F, rot_error_deg, trans_error_deg, epipolar_err);
+    // Optional: non-linear refinement of (R, t) directly on the
+    // essential-matrix space
+    // See comments in FundamentalMatrix.cpp for details on why we do this
+    if (config.refinePose) // flag here is just for comparison, remove it later
+    {
+        GeometryUtils::refinePose(K, inL, inR, R, t);
+        // Recompute E = [t]x * R from the new pose as its used for evaluation
+        cv::Mat tx = (cv::Mat_<double>(3, 3) << 0, -t.at<double>(2), t.at<double>(1),
+                      t.at<double>(2), 0, -t.at<double>(0),
+                      -t.at<double>(1), t.at<double>(0), 0);
+        E = tx * R;
+    }
 
+    cv::Size sz = grayLeft.size();
+    cv::Mat bgr1 = pair.imageLeft;
+
+    // --- 4. Stereo Rectification ---
+    RectifyResult rect;
+    if (!Rectification::computeCalibrated(K, R, t, sz, grayLeft, grayRight, bgr1, rect, config.rectification))
+    {
+        std::cerr << "ERROR: Stereo rectification execution failure.\n";
         return 0;
+    }
+
+    VisualizationUtils::visualizeRectification(rect, inL, inR, K);
+
+    return 0;
 }

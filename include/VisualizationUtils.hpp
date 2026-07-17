@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <FundamentalMatrix.hpp>
+#include "Rectification.hpp"
 
 namespace VisualizationUtils
 {
@@ -41,4 +42,11 @@ namespace VisualizationUtils
         const Eigen::Matrix3d R_gt,
         const Eigen::Vector3d t_gt,
         const cv::Mat K);
+
+    void visualizeRectification(
+        const RectifyResult &rect,
+        const std::vector<cv::Point2f> &inL,
+        const std::vector<cv::Point2f> &inR,
+        const cv::Mat &K,
+        const std::string &windowName = "Rectification Verification");
 }

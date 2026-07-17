@@ -97,6 +97,7 @@ namespace VisualizationUtils
 
         cv::namedWindow(windowTitle, cv::WINDOW_NORMAL);
         cv::imshow(windowTitle, combined);
+        cv::waitKey(0);
     }
 
     void visualizeOutliers(const std::vector<cv::Point2f> &ptsL,
@@ -171,12 +172,12 @@ namespace VisualizationUtils
             for (size_t i = 0; i < visualize.history_L[it].size(); ++i)
             {
                 // Draw the CURRENT 8 points in bright RED (active)
-                cv::circle(frameL, visualize.history_L[it][i], 6, cv::Scalar(0, 0, 255), -1, cv::LINE_AA);
-                cv::circle(frameR, visualize.history_R[it][i], 6, cv::Scalar(0, 0, 255), -1, cv::LINE_AA);
+                cv::circle(frameL, visualize.history_L[it][i], 4, cv::Scalar(0, 255, 0), -1, cv::LINE_AA);
+                cv::circle(frameR, visualize.history_R[it][i], 4, cv::Scalar(0, 255, 0), -1, cv::LINE_AA);
 
                 // Add them to the permanent accumulation trail as tiny GREEN dots
-                cv::circle(accumL, visualize.history_L[it][i], 3, cv::Scalar(0, 255, 0), -1, cv::LINE_AA);
-                cv::circle(accumR, visualize.history_R[it][i], 3, cv::Scalar(0, 255, 0), -1, cv::LINE_AA);
+                cv::circle(accumL, visualize.history_L[it][i], 3, cv::Scalar(255, 0, 255), -1, cv::LINE_AA);
+                cv::circle(accumR, visualize.history_R[it][i], 3, cv::Scalar(255, 0, 255), -1, cv::LINE_AA);
             }
 
             // Stitch images together
@@ -184,7 +185,7 @@ namespace VisualizationUtils
             cv::hconcat(frameL, frameR, displayImg);
 
             // --- FORMAT TEXT STRINGS ---
-            std::string iterText = "Iteration: " + std::to_string(it + 1) + " / " + std::to_string(visualize.history_L.size());
+            std::string iterText = "Improvement Step: " + std::to_string(it + 1) + " / " + std::to_string(visualize.history_L.size());
 
             std::string inlierCountText = std::to_string(visualize.inLierCount[it]) + " inliers.";
 
@@ -216,7 +217,7 @@ namespace VisualizationUtils
             }
             else
             {
-                c = (char)cv::waitKey(10); // Standard 10ms playback delay
+                c = (char)cv::waitKey(750); // Standard 10ms playback delay
             }
 
             if (c == 27)
@@ -228,7 +229,7 @@ namespace VisualizationUtils
 
         std::cout << windowName << " finished. Press any key to continue...\n";
         cv::waitKey(0);
-
+        cv::destroyAllWindows();
         std::cout << "\nFinal " << windowName << " Sampson Error: " << visualize.final_sampson_err << " px.\n";
         std::cout << "Final " << windowName << " Inlier Count: " << visualize.final_inlier_count << "\n";
     }
@@ -290,5 +291,87 @@ namespace VisualizationUtils
         double frobenius_error = (F_norm - F_gt_norm).norm();
         std::cout << "--> Frobenius Distance Error: " << frobenius_error << "\n";
         std::cout << "\n";
+    }
+
+    void visualizeRectification(
+        const RectifyResult &rect,
+        const std::vector<cv::Point2f> &inL,
+        const std::vector<cv::Point2f> &inR,
+        const cv::Mat &K,
+        const std::string &windowName)
+    {
+        // 1. Map points to rectified space
+        cv::Mat dist = cv::Mat::zeros(5, 1, CV_64F);
+        std::vector<cv::Point2f> rL, rR;
+        cv::undistortPoints(inL, rL, K, dist, rect.R1, rect.P1);
+        cv::undistortPoints(inR, rR, K, dist, rect.R2, rect.P2);
+
+        // 2. Prepare images
+        cv::Mat vizL, vizR;
+        cv::cvtColor(rect.rectLeft, vizL, cv::COLOR_GRAY2BGR);
+        cv::cvtColor(rect.rectRight, vizR, cv::COLOR_GRAY2BGR);
+
+        // 3. Draw horizontal alignment grid
+        for (int y = 0; y < vizL.rows; y += 50)
+        {
+            cv::line(vizL, {0, y}, {vizL.cols, y}, {80, 80, 80}, 1);
+            cv::line(vizR, {0, y}, {vizR.cols, y}, {80, 80, 80}, 1);
+        }
+
+        // 4. Combine images to prepare for connectors and metrics
+        cv::Mat combined;
+        cv::hconcat(vizL, vizR, combined);
+        int xOff = vizL.cols;
+
+        // Variables for our metrics
+        double sumErr = 0.0;
+        double maxErr = 0.0;
+        int goodCount = 0;
+
+        // 5. Draw matches and calculate errors
+        for (size_t i = 0; i < rL.size(); ++i)
+        {
+            double dy = std::abs(rL[i].y - rR[i].y);
+
+            // Track metrics
+            sumErr += dy;
+            if (dy > maxErr)
+                maxErr = dy;
+            if (dy <= 1.0)
+                goodCount++;
+
+            // Determine color based on strict error thresholds
+            cv::Scalar color = (dy <= 1.0) ? cv::Scalar(0, 255, 0) : (dy <= 3.0) ? cv::Scalar(0, 255, 255)
+                                                                                 : cv::Scalar(0, 0, 255);
+
+            // Cleanly round the floats to integers to prevent narrowing warnings
+            cv::Point pt1(cvRound(rL[i].x), cvRound(rL[i].y));
+            cv::Point pt2(cvRound(rR[i].x + xOff), cvRound(rR[i].y));
+
+            // Draw points and connector lines
+            cv::circle(combined, pt1, 3, color, -1);
+            cv::circle(combined, pt2, 3, color, -1);
+            cv::line(combined, pt1, pt2, color, 1, cv::LINE_AA);
+        }
+
+        // Calculate final metric values
+        double meanErr = rL.empty() ? 0.0 : sumErr / rL.size();
+        double pctWithin1px = rL.empty() ? 0.0 : (100.0 * goodCount) / rL.size();
+
+        // 6. Construct HUD Text
+        std::ostringstream hud;
+        hud << "mean dy=" << std::fixed << std::setprecision(2) << meanErr << "px  "
+            << "max=" << std::fixed << std::setprecision(2) << maxErr << "px  "
+            << "within 1px=" << std::fixed << std::setprecision(2) << pctWithin1px << "%";
+
+        // Draw text with a thick black outline for visibility over bright images
+        cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8, {0, 0, 0}, 4, cv::LINE_AA);
+
+        // Draw the actual text color based on the mean alignment quality
+        cv::Scalar textColor = (meanErr <= 1.0) ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+        cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8, textColor, 1, cv::LINE_AA);
+
+        cv::imshow(windowName, combined);
+        cv::waitKey(0);
     }
 }
