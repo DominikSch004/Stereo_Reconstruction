@@ -56,7 +56,7 @@ int main()
         }
     }
     if (inL.size() < 8)
-        return false;
+        return 0;
 
     int nInliers = std::count(mask.begin(), mask.end(), true);
     std::cout << "MAGSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
