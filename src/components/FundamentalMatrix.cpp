@@ -1,11 +1,9 @@
 #include "FundamentalMatrix.hpp"
 #include "Magsac.hpp"
-#include <opencv2/calib3d.hpp>
 #include <opencv2/opencv.hpp>
 #include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
-#include <iomanip>
 #include <sstream>
 #include <iostream>
 
@@ -152,7 +150,7 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
     case FundamentalMethod::CustomMAGSAC:
-        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
+        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, rng, visualize, threshold, confidence, maxIter);
     case FundamentalMethod::CustomPROSAC:
         return computeCustomPROSAC(ptsL, ptsR, inlierMask, rng, visualize, confidence, threshold, maxIter);
     }
@@ -407,6 +405,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
+    VisualizationData &visualize,
     double sigmaMax,
     double confidence,
     int maxIter)
@@ -481,7 +480,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             currentTotalLoss += magsacCore.calculateLoss(e2);
 
             // Count inliers using the strict threshold
-            if (std::sqrt(e2) < strictStoppingThreshold)
+            if (e2 < strictStoppingThreshold)
             {
                 approxInliers++;
             }
@@ -496,6 +495,24 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             bestF = F;
             int requiredIters = calculateRequiredIterations(approxInliers, N, sampleSize, confidence);
             dynamicMaxIter = std::min(maxIter, requiredIters);
+
+            std::vector<cv::Point2f> currentBestL, currentBestR;
+            currentBestL.reserve(approxInliers);
+            currentBestR.reserve(approxInliers);
+
+            // Extract the actual points that fit this new best model
+            for (int i = 0; i < N; ++i)
+            {
+                if (sampsonError(F, ptsL[i], ptsR[i]) < sigmaMaxSquared)
+                {
+                    currentBestL.push_back(ptsL[i]);
+                    currentBestR.push_back(ptsR[i]);
+                }
+            }
+            visualize.history_L.push_back(currentBestL);
+            visualize.history_R.push_back(currentBestR);
+            visualize.inLierCount.push_back(currentBestL.size());
+            visualize.currBestInlier.push_back(approxInliers);
         }
     }
 
@@ -541,6 +558,11 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             {
                 bestTotalLoss = newLoss;
                 polishedF = newF;
+
+                visualize.history_L.push_back(inL);
+                visualize.history_R.push_back(inR);
+                visualize.inLierCount.push_back(inL.size());
+                visualize.currBestInlier.push_back(inL.size());
             }
             else
             {
@@ -556,6 +578,8 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     // 3. Final Inlier Mask Generation
     inlierMask.assign(N, false);
     int bestInliers = 0;
+    double final_total_sampson = 0.0;
+
     for (int i = 0; i < N; ++i)
     {
         double e2 = sampsonError(polishedF, ptsL[i], ptsR[i]);
@@ -563,8 +587,12 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         {
             inlierMask[i] = true;
             bestInliers++;
+            final_total_sampson += std::sqrt(e2);
         }
     }
+
+    visualize.final_inlier_count = bestInliers;
+    visualize.final_sampson_err = (bestInliers > 0) ? (final_total_sampson / bestInliers) : 0.0;
 
     std::cout << "[MAGSAC] Terminated after " << it
               << ". Number of degenerate samplings rejected: " << degenerateFails
@@ -594,8 +622,6 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     inlierMask.assign(N, false);
 
     int degenerateCount = 0;
-
-    const double thresholdSq = threshold * threshold;
 
     // dynamic iterator T_N (stopping criterion)
     int dynamicIter = maxIter;

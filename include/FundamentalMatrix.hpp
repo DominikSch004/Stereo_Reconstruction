@@ -174,6 +174,7 @@ private:
         const std::vector<cv::Point2f> &ptsR,
         std::vector<bool> &inlierMask,
         std::mt19937 &rng,
+        VisualizationData &visualize,
         double sigmaMax,
         double confidence,
         int maxIter);
