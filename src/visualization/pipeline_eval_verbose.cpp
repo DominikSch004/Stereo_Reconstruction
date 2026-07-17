@@ -12,6 +12,12 @@ int main(int argc, char **argv)
 {
     std::cout << "Initializing Pipeline Evaluation\n";
 
+    std::string out_dir = "../images";
+    if (!std::filesystem::exists(out_dir))
+    {
+        std::filesystem::create_directories(out_dir);
+    }
+
     const std::string configPath = (argc > 1) ? argv[1] : "../config.yaml";
     PipelineConfig config;
     try
@@ -50,7 +56,7 @@ int main(int argc, char **argv)
     SparseKeyPointMatcher matcher(config.ratioThreshold);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
-    matcher.visualize(result, grayLeft, grayRight);
+    VisualizationUtils::visualizeSparseKeypoint(result, grayLeft, grayRight);
 
     // 8-point algorithm
     std::vector<cv::Point2f> ptsL, ptsR;
@@ -73,7 +79,7 @@ int main(int argc, char **argv)
 
     Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, inliers, config.rng, visualization, config.fundamental, threshold, 0.99, 100000);
 
-    VisualizationUtils::fundamentalExplorationVideo(grayLeft, grayRight, visualization, "Random Sampling Optimization Process");
+    VisualizationUtils::fundamentalExplorationVideo(grayLeft, grayRight, visualization, "Random Sampling Optimization Process", 0, out_dir + "/fundamental_iterations.mp4");
 
     VisualizationUtils::fundamentalComparison(F, R_gt, t_gt, K);
 
@@ -90,7 +96,7 @@ int main(int argc, char **argv)
         }
     }
     if (inL.size() < 8)
-        return false;
+        return 0;
 
     cv::recoverPose(E, inL, inR, K, R, t);
     // Evaluation
@@ -125,6 +131,37 @@ int main(int argc, char **argv)
     }
 
     VisualizationUtils::visualizeRectification(rect, inL, inR, K);
+
+    int minDisp = 0;
+    int numDisp = 0;
+
+    // Pass the inliers and the individual matrices from the rect struct
+    Disparity::computeDynamicSearchRangeCalibrated(
+        inL, inR, K,
+        rect.R1, rect.P1,
+        rect.R2, rect.P2,
+        sz, minDisp, numDisp);
+
+    std::cout << "\n--- Disparity Parameters ---\n";
+    std::cout << "Dynamic minDisp: " << minDisp << "\n";
+    std::cout << "Dynamic numDisp: " << numDisp << "\n";
+
+    // --- 6. Dense Stereo Matching ---
+    const int blockSize = 7;
+
+    // Compute the dense disparity map using the rectified images and dynamic bounds
+    cv::Mat denseDisparity = Disparity::computeDisparity(
+        rect.rectLeft, rect.rectRight,
+        minDisp, numDisp,
+        blockSize, config.disparity);
+
+    if (denseDisparity.empty())
+    {
+        std::cerr << "ERROR: Dense stereo matching returned an empty disparity map.\n";
+        return 0;
+    }
+
+    VisualizationUtils::visualizeDisparity(denseDisparity, rect, inL, inR, K, minDisp, numDisp);
 
     return 0;
 }
