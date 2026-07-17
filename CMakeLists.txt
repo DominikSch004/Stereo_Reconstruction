@@ -23,6 +23,7 @@ add_library(stereo_core STATIC
     src/utils/MeshUtils.cpp
     src/utils/GeometryUtils.cpp
     src/utils/VisualizationUtils.cpp
+    src/utils/Experiments.cpp
     benchmark/Evaluator.cpp
 )
 
@@ -57,7 +58,8 @@ target_link_libraries(IcpFusion PRIVATE stereo_core glog::glog Ceres::ceres)
 
 # Visualization / verification executables
 register_visualisation_target(SparseKeyPointMatching src/visualization/sparse_key_point_matching.cpp)
-register_visualisation_target(EightPointRansac       src/visualization/8point_ransac.cpp)
+register_visualisation_target(EightPoint      src/visualization/8point.cpp)
+register_visualisation_target(EightPointRobustness   src/visualization/8point_robustness.cpp)
 register_visualisation_target(StereoRectification    src/visualization/stereo_rectification.cpp)
 register_visualisation_target(StereoMatching         src/visualization/stereo_matching.cpp)
 register_visualisation_target(TriangulationVerification     src/visualization/triangulation_verification.cpp)

@@ -24,7 +24,7 @@ EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
 
         // Pose Error
         evaluatePose(R_est, t_est, params.R_gt, params.t_gt,
-                     result.rot_error_deg, result.trans_error_deg);
+                     result.eightRes.rot_error_deg, result.eightRes.trans_error_deg);
 
         // Reprojection Error (Triangulation Consistency)
         if (!params.res.K.empty() && !params.res.inPtsL.empty())
@@ -36,8 +36,8 @@ EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
     }
     else
     {
-        result.rot_error_deg = -1.0;
-        result.trans_error_deg = -1.0;
+        result.eightRes.rot_error_deg = -1.0;
+        result.eightRes.trans_error_deg = -1.0;
     }
 
     // epipolar error
@@ -49,16 +49,16 @@ EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
         Eigen::Matrix3d F_est = K_inv.transpose() * E_est * K_inv;
         cv::Mat F_cv = toCvMat(F_est);
 
-        result.epipolar_error = computeSymmetricEpipolarDistance(
+        result.eightRes.epipolar_error = computeSymmetricEpipolarDistance(
             params.res.inPtsL, params.res.inPtsR, F_cv);
     }
     else
     {
-        result.epipolar_error = -1.0;
+        result.eightRes.epipolar_error = -1.0;
     }
 
     // inlier ratio
-    result.inlier_ratio = computeInlierRatio(params.res.inlierMask);
+    result.eightRes.inlier_ratio = computeInlierRatio(params.res.inlierMask);
 
     // champfer and mean absolute distance
     if (!params.res.dense3DPoints.empty() && !params.gt_pointcloud.empty())
@@ -71,11 +71,44 @@ EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
     return result;
 }
 
-void Evaluator::printMetrics(const EvaluatorRes &res)
+EightPointRes Evaluator::evaluateEightPoint(const EightPointParams &eightParams)
 {
-    std::cout << "\n Pipeline Evaluation Metrics \n";
+    EightPointRes result;
+    Eigen::Matrix3d R_est = eightParams.R_est;
+    Eigen::Vector3d t_est = eightParams.t_est;
 
-    std::cout << " 8-Point Metrics \n";
+    // reprojection error
+    if (R_est.size() != 0 && t_est.size() != 0)
+    {
+        // Pose Error
+        evaluatePose(R_est, t_est, eightParams.R_gt, eightParams.t_gt,
+                     result.rot_error_deg, result.trans_error_deg);
+    }
+    else
+    {
+        result.rot_error_deg = -1.0;
+        result.trans_error_deg = -1.0;
+    }
+
+    // epipolar error
+    if (!eightParams.F_est.empty() && !eightParams.ptsL.empty())
+    {
+        result.epipolar_error = evaluateEpipolarError(eightParams.F_est, eightParams.ptsL,
+                                                      eightParams.ptsR, eightParams.inlierMask);
+    }
+    else
+    {
+        result.epipolar_error = -1.0;
+    }
+
+    // inlier ratio
+    result.inlier_ratio = computeInlierRatio(eightParams.inlierMask);
+    return result;
+}
+
+void Evaluator::printEightPoint(const EightPointRes &res)
+{
+    std::cout << " 8-Point Evaluation Metrics \n";
 
     std::cout << std::fixed << std::setprecision(4);
 
@@ -101,6 +134,39 @@ void Evaluator::printMetrics(const EvaluatorRes &res)
     if (res.inlier_ratio >= 0)
     {
         std::cout << "Inlier Ratio      : " << res.inlier_ratio << " %\n";
+    }
+}
+
+void Evaluator::printMetrics(const EvaluatorRes &res)
+{
+    std::cout << "\n Pipeline Evaluation Metrics \n";
+
+    std::cout << " 8-Point Metrics \n";
+
+    std::cout << std::fixed << std::setprecision(4);
+
+    if (res.eightRes.rot_error_deg >= 0)
+    {
+        std::cout << "Geodesic Rotation : " << res.eightRes.rot_error_deg << " deg\n";
+        std::cout << "Angular Translation: " << res.eightRes.trans_error_deg << " deg\n";
+    }
+    else
+    {
+        std::cout << "Pose Error        : [Missing / Failed]\n";
+    }
+
+    if (res.eightRes.epipolar_error >= 0)
+    {
+        std::cout << "Epipolar Error    : " << res.eightRes.epipolar_error << " px\n";
+    }
+    else
+    {
+        std::cout << "Epipolar Error    : [Missing / Failed]\n";
+    }
+
+    if (res.eightRes.inlier_ratio >= 0)
+    {
+        std::cout << "Inlier Ratio      : " << res.eightRes.inlier_ratio << " %\n";
     }
 
     std::cout << " 3D Reconstruction Quality \n";
@@ -183,7 +249,7 @@ double Evaluator::computeSymmetricEpipolarDistance(const std::vector<cv::Point2f
     return total_error / (2.0 * pts1.size());
 }
 
-double Evaluator::evaluateEpipolarError(const Eigen::Matrix3d &F_eigen,
+double Evaluator::evaluateEpipolarError(const cv::Mat &F,
                                         const std::vector<cv::Point2f> &ptsL,
                                         const std::vector<cv::Point2f> &ptsR,
                                         const std::vector<bool> &inlierMask)
@@ -202,9 +268,7 @@ double Evaluator::evaluateEpipolarError(const Eigen::Matrix3d &F_eigen,
     if (inL.empty())
         return -1.0;
 
-    cv::Mat F_cv = toCvMat(F_eigen);
-
-    return computeSymmetricEpipolarDistance(inL, inR, F_cv);
+    return computeSymmetricEpipolarDistance(inL, inR, F);
 }
 
 double Evaluator::computeInlierRatio(const std::vector<bool> &inlierMask)

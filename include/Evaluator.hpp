@@ -7,19 +7,34 @@
 struct EvaluatorParams
 {
     PipelineResult &res;
-    Eigen::Matrix3d &R_gt;
-    Eigen::Vector3d &t_gt;
+    const Eigen::Matrix3d &R_gt;
+    const Eigen::Vector3d &t_gt;
     const std::vector<cv::Point3f> &gt_pointcloud;
+};
+
+struct EightPointParams
+{
+    const std::vector<cv::Point2f> &ptsL, &ptsR;
+    const cv::Mat &F_est;
+    const std::vector<bool> &inlierMask;
+    const Eigen::Matrix3d &R_gt;
+    const Eigen::Vector3d &t_gt;
+    Eigen::Matrix3d R_est;
+    Eigen::Vector3d t_est;
+};
+
+struct EightPointRes
+{
+    double rot_error_deg;
+    double trans_error_deg;
+    double epipolar_error;
+    double inlier_ratio;
 };
 
 struct EvaluatorRes
 {
     // 8-point metrics
-    double rot_error_deg;
-    double trans_error_deg;
-    double epipolar_error;
-    double inlier_ratio;
-
+    EightPointRes eightRes;
     // Point cloud & mesh metrics
     double reprojection_error;
     double mean_absolute_distance;
@@ -33,8 +48,13 @@ public:
     // High-level orchestrator for computing all metrics
     static EvaluatorRes evaluateMetrics(const EvaluatorParams &params);
 
+    // Evaluate only 8-point metrics
+    static EightPointRes evaluateEightPoint(const EightPointParams &eightParams);
+
     // New cleanly formatted print function
     static void printMetrics(const EvaluatorRes &res);
+
+    static void printEightPoint(const EightPointRes &res);
 
     // Computes the absolute geometric error between an estimated pose and ground truth.
     // Rotation Error: The geodesic distance (angle in degrees) required to align R_est with R_gt.
@@ -50,7 +70,7 @@ public:
                                                    const std::vector<cv::Point2f> &pts2,
                                                    const cv::Mat &F);
 
-    static double evaluateEpipolarError(const Eigen::Matrix3d &F_eigen,
+    static double evaluateEpipolarError(const cv::Mat &F,
                                         const std::vector<cv::Point2f> &ptsL,
                                         const std::vector<cv::Point2f> &ptsR,
                                         const std::vector<bool> &inlierMask);
