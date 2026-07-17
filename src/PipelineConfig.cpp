@@ -50,7 +50,15 @@ PipelineConfig PipelineConfig::load(const std::string &path)
 
     PipelineConfig cfg;
 
-    std::string v = readKey(fs, "fundamental_matrix", "opencv");
+    std::string v = readKey(fs, "feature_detector", "sift");
+    if (v == "sift")
+        cfg.featureDetector = FeatureDetector::SIFT;
+    else if (v == "orb")
+        cfg.featureDetector = FeatureDetector::ORB;
+    else
+        invalidValue("feature_detector", v, "sift | orb");
+
+    v = readKey(fs, "fundamental_matrix", "opencv");
     if (v == "opencv")
         cfg.fundamental = FundamentalMethod::OpenCVRANSAC;
     else if (v == "custom")
@@ -104,6 +112,15 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     {
         cfg.rng = std::mt19937(cfg.rngSeed);
     }
+
+    v = readKey(fs, "pose_refinement", "false");
+    if (v == "true")
+        cfg.refinePose = true;
+    else if (v == "false")
+        cfg.refinePose = false;
+    else
+        invalidValue("pose_refinement", v, "true | false");
+
     return cfg;
 }
 
@@ -113,6 +130,7 @@ void PipelineConfig::print() const
     { return isOpenCV ? "opencv" : "custom"; };
 
     std::cout << "[Config] Pipeline step backends:\n"
+              << "  feature_detector:   " << (featureDetector == FeatureDetector::SIFT ? "sift" : "orb") << "\n"
               << "  fundamental_matrix: "
               << (fundamental == FundamentalMethod::OpenCVRANSAC   ? "opencv"
                   : fundamental == FundamentalMethod::CustomRANSAC ? "custom"
@@ -123,5 +141,6 @@ void PipelineConfig::print() const
               << "  disparity:          " << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
               << "  triangulation:      " << name(triangulation == TriangulationMethod::OpenCV) << "\n"
               << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane")
-              << "\n";
+              << "\n"
+              << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n";
 }

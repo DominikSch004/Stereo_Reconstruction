@@ -4,9 +4,11 @@
 # default is ../config.yaml relative to the build directory).
 #
 # Steps without an alternative implementation are not configurable:
-#   - sparse feature matching (always OpenCV SIFT + FLANN)
 #   - essential matrix / pose recovery (always cv::findEssentialMat + cv::recoverPose;
 #     see the comment in Pipeline.cpp step 3 for why E-from-F was abandoned)
+
+# sift | orb
+feature_detector: sift
 
 # opencv | custom | custom_magsac | custom_prosac
 fundamental_matrix: custom_magsac
@@ -17,11 +19,16 @@ rng_seed: 42
 # opencv | custom  (custom = Loop & Zhang projective rectification)
 rectification: opencv
 
-# opencv | custom  (WARNING: custom dense matching is not implemented yet)
-disparity: opencv
+# opencv | custom  (custom = simplified semi-global matching (Hirschmüller 2008),
+# Birchfield-Tomasi cost + 16-direction path aggregation)
+disparity: custom
 
 # opencv | custom  (custom = per-pixel DLT triangulation)
 triangulation: custom
 
 # point_to_point | point_to_plane  (only used by the IcpFusion executable)
 icp_mode: point_to_point
+
+# true | false non-linear refinement of (R, t) directly on the essential-matrix 
+# space after recoverPose
+pose_refinement: true
