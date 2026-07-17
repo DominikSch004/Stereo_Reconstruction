@@ -226,20 +226,13 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
     const bool haveSourceNormals = source.normals.size() == source.pts.size();
     Eigen::Matrix4f estimatedPose = initialPose;
 
-    // The pose with the smallest observed mean correspondence distance. ICP on
-    // real data is not monotone (re-association noise, biased normals), so the
-    // final iterate is NOT necessarily the best one; returning the best guards
-    // against late-iteration drift.
     Eigen::Matrix4f bestPose = initialPose;
     double bestMeanDist = std::numeric_limits<double>::max();
     int bestMatchCount = 0;
     int divergingStreak = 0;
 
-    // Associates source (under `pose`) to the target: NN query, adaptive
-    // distance gate at 3x the median NN distance (standard outlier rejection --
-    // a fixed gate is either too tight for the initial error or too loose near
-    // convergence), then normal-agreement pruning. Returns matches plus the
-    // surviving count and their mean Euclidean distance.
+
+    // Outlier Rejection Lambda: transforms the source by the current pose, queries nearest neighbors, and prunes matches.
     auto associate = [&](const Eigen::Matrix4f& pose,
                          const std::vector<Eigen::Vector3f>& transformedPoints,
                          int& matched, double& meanDist)
@@ -283,7 +276,7 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
 
     for (unsigned iter = 0; iter < m_nIterations; ++iter)
     {
-        // --- Associate: transform source by the current estimate, then match ---
+        // Associate: transform source by the current estimate, then match
         const auto transformedPoints = transformPoints(source.pts, estimatedPose);
         int matched = 0;
         double meanDist = 0.0;
@@ -306,7 +299,6 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             break;
         }
 
-        // --- Best-pose tracking and divergence stop ---
         if (meanDist < bestMeanDist)
         {
             bestMeanDist = meanDist;
@@ -314,6 +306,7 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             bestMatchCount = matched;
             divergingStreak = 0;
         }
+        // Early stopping if no divergence is observed
         else if (++divergingStreak >= 5)
         {
             if (m_verbose)
@@ -391,8 +384,6 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             std::cout << "    iter " << iter << " step: |trans|=" << transNorm
                       << " |omega|=" << omegaNorm << "\n";
 
-        // 1e-4 normalized units is far below the correspondence noise floor on
-        // real data; the old 1e-5 threshold effectively never fired.
         if (transNorm < 1e-4 && omegaNorm < 1e-4)
         {
             if (m_verbose) std::cout << "  [ICP] converged at iter " << iter << "\n";
@@ -400,8 +391,6 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
         }
     }
 
-    // The last solve's pose was never evaluated inside the loop; score it once
-    // so it can win over the tracked best.
     {
         const auto transformedPoints = transformPoints(source.pts, estimatedPose);
         int matched = 0;

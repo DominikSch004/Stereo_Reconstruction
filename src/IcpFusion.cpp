@@ -16,7 +16,6 @@
 
 int main(int argc, char **argv)
 {
-    // Per-step backend selection shared with the main stereo reconstruction pipeline
     const std::string configPath = (argc > 1) ? argv[1] : "../config.yaml";
     PipelineConfig config;
     try
@@ -46,8 +45,7 @@ int main(int argc, char **argv)
 
     std::vector<PointCloud> clouds;
     clouds.reserve(selectedPairs.size());
-    // Ordered (left, right) view label for each collected cloud, index-aligned with `clouds`.
-    // Used to name the individual per-pair PLY files written out below.
+    // Ordered (left, right) view label for each collected cloud
     std::vector<std::pair<int, int>> cloudPairs;
     cloudPairs.reserve(selectedPairs.size());
     DTULoader loader("../data/dtu/");
@@ -91,6 +89,7 @@ int main(int argc, char **argv)
         PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, config.triangulation);
 
         const size_t beforeCull = cloud.pts.size();
+        // Remove the lowest 'confidenceKeepFrac'% of points by weight (Mostly noise)
         const size_t culled = IcpUtils::cullByConfidence(cloud, confidenceKeepFrac);
         if (culled > 0)
             std::cout << "  Confidence cull (keep weight >= " << confidenceKeepFrac
@@ -106,11 +105,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // NO GT pre-registration: the cloud stays in its own RECTIFIED
-        // left-camera frame (camToWorld is identity in the pipeline) and ICP
-        // alone registers it to the fused reference. The first kept cloud
-        // defines the fusion frame; remember its world transform as the
-        // output anchor (gauge only, see above).
+        // The first cloud's placement is the anchor for the world frame
         if (clouds.empty())
             worldAnchor = IcpUtils::rectToWorldTransform(res.R1, poseLeft);
 
@@ -145,19 +140,14 @@ int main(int argc, char **argv)
     {
         std::cout << "\nICP aligning cloud " << i + 1 << " to fused reference...\n";
 
-        // Refine a working copy so clouds[i] keeps its raw camera-frame placement
-        // for the pre-ICP reference cloud and the *_preicp diagnostics.
         PointCloud refined = clouds[i];
 
         CeresICPOptimizer icp;
         icp.setMode(config.icpMode);
 
-        // Coarse: subsampled source against the FULL fused cloud. A subsampled
+        // Coarse: subsampled source against the full fused cloud. A subsampled
         // target would impose an NN-spacing error floor (~1.5 mm at 4000 points)
-        // that caps the whole fusion. The 0.5 gate covers the full initial
-        // misalignment (~one orbit step between consecutive rectified camera
-        // frames, ~0.1-0.3 normalized); the optimizer's adaptive 3x-median gate
-        // anneals it as alignment improves.
+        // that caps the whole fusion
         PointCloud srcSub = PlyUtils::subsample(refined, icpSamples, rng);
         icp.setMatchingMaxDistance(0.5f);
         icp.setNbOfIterations(40);
@@ -165,7 +155,7 @@ int main(int argc, char **argv)
         Eigen::Matrix4f coarseT = icp.estimatePose(srcSub, fused);
         IcpUtils::applyRigid(refined, coarseT);
 
-        // Fine: denser source subsample, tight gate (basic unweighted ICP).
+        // Fine: denser source subsample, tight gate
         PointCloud srcFine = PlyUtils::subsample(refined, icpFineSamples, rng);
         icp.setMatchingMaxDistance(0.1f);
         icp.setNbOfIterations(30);
@@ -189,9 +179,6 @@ int main(int argc, char **argv)
 
         if (!trustRefinement)
         {
-            // Without GT pre-registration there is no fallback placement: the
-            // raw camera-frame pose is arbitrary in the fusion frame, so a
-            // rejected refinement means the cloud must be dropped entirely.
             std::cerr << "  NOTE: low ICP overlap " << (100.0 * overlapFrac) << "% ("
                       << matched << " correspondences) -- rejecting refinement and "
                       << "SKIPPING this cloud (no registration available without GT poses).\n";
@@ -213,8 +200,6 @@ int main(int argc, char **argv)
         std::cout << "Current fused cloud size: " << fused.pts.size() << " points\n";
     }
 
-    // Outputs move into the DTU world frame via the single gauge anchor (for
-    // GT-based evaluation and visualization only; see worldAnchor above).
     PlyUtils::denormalise(fusedPreIcp, mean0, scale0);
     IcpUtils::applyRigid(fusedPreIcp, worldAnchor);
     PlyUtils::savePLY("pointcloud_fused_preicp.ply", fusedPreIcp);
@@ -225,11 +210,7 @@ int main(int argc, char **argv)
 
     std::cout << "\nFusion complete. Saved to pointcloud_fused.ply\n";
 
-    // Surface reconstruction: screened Poisson indicator function -> marching cubes.
-    // The fused cloud is back in the metric (mm) world frame and already carries the
-    // oriented per-point normals accumulated above, so Poisson consumes them directly
-    // (no PCA normal estimation). Raise Config::resolution for a finer mesh at the cost
-    // of a larger linear solve.
+    // Surface reconstruction: screened Poisson indicator function -> marching cubes
     std::cout << "\n=== Surface reconstruction (Poisson + marching cubes) ===\n";
     PoissonReconstruction poisson;
     IndicatorField field = poisson.computeIndicator(fused);
