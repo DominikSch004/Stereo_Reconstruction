@@ -10,7 +10,7 @@
 namespace VisualizationUtils
 {
 
-    void visualizeSparseKeypoint(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight);
+    void visualizeSparseKeypoint(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight, const std::string &savePath = "");
 
     // Draws epipolar lines and matching points then displays them
     void displayEpipolarMatches(const std::string &windowTitle,
@@ -23,7 +23,8 @@ namespace VisualizationUtils
                                 double rotErrorDeg,
                                 double transErrorDeg,
                                 double epipolarErrorPx,
-                                int maxDrawn = 20);
+                                int maxDrawn = 20,
+                                const std::string &savePath = "");
 
     void visualizeOutliers(const std::vector<cv::Point2f> &ptsL,
                            const std::vector<cv::Point2f> &ptsR,
@@ -52,7 +53,8 @@ namespace VisualizationUtils
         const std::vector<cv::Point2f> &inL,
         const std::vector<cv::Point2f> &inR,
         const cv::Mat &K,
-        const std::string &windowName = "Rectification Verification");
+        const std::string &windowName = "Rectification Verification",
+        const std::string &savePath = "");
 
     void visualizeDisparity(
         const cv::Mat &disp,
@@ -62,5 +64,6 @@ namespace VisualizationUtils
         const cv::Mat &K,
         int minDisp,
         int numDisp,
-        const std::string &windowName = "Disparity Verification");
+        const std::string &windowName = "Disparity Verification",
+        const std::string &savePath = "");
 }

@@ -56,7 +56,7 @@ int main(int argc, char **argv)
     SparseKeyPointMatcher matcher(config.ratioThreshold);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
-    VisualizationUtils::visualizeSparseKeypoint(result, grayLeft, grayRight);
+    VisualizationUtils::visualizeSparseKeypoint(result, grayLeft, grayRight, out_dir + "/sparseKeypointVisualization.png");
 
     // 8-point algorithm
     std::vector<cv::Point2f> ptsL, ptsR;
@@ -104,7 +104,9 @@ int main(int argc, char **argv)
     EightPointRes metricsRes = Evaluator::evaluateEightPoint(initParams);
     Evaluator::printEightPoint(metricsRes);
 
-    VisualizationUtils::displayEpipolarMatches("Sample of 20 Epipolar Matches (Before Rectification)", pair.imageLeft, pair.imageRight, ptsL, ptsR, inliers, F, metricsRes.rot_error_deg, metricsRes.trans_error_deg, metricsRes.epipolar_error);
+    VisualizationUtils::displayEpipolarMatches("Sample of 20 Epipolar Matches (Before Rectification)", pair.imageLeft, pair.imageRight,
+                                               ptsL, ptsR, inliers, F, metricsRes.rot_error_deg, metricsRes.trans_error_deg, metricsRes.epipolar_error,
+                                               20, out_dir + "/epipolarMatchesVisualization.png");
 
     // Optional: non-linear refinement of (R, t) directly on the
     // essential-matrix space
@@ -130,7 +132,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    VisualizationUtils::visualizeRectification(rect, inL, inR, K);
+    VisualizationUtils::visualizeRectification(rect, inL, inR, K, "Rectification Verification", out_dir + "/rectificationVisualization.png");
 
     int minDisp = 0;
     int numDisp = 0;
@@ -161,7 +163,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    VisualizationUtils::visualizeDisparity(denseDisparity, rect, inL, inR, K, minDisp, numDisp);
+    VisualizationUtils::visualizeDisparity(denseDisparity, rect, inL, inR, K, minDisp, numDisp, "Disparity Verification", out_dir + "/disparityVisualization.png");
 
     return 0;
 }

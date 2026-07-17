@@ -45,7 +45,7 @@ namespace // Anonymous namespace for private helper functions
 namespace VisualizationUtils
 {
 
-    void visualizeSparseKeypoint(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight)
+    void visualizeSparseKeypoint(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight, const std::string &savePath)
     {
         size_t good_matches = result.matches.size();
         size_t total_kpts_left = result.keypointsLeft.size();
@@ -98,25 +98,23 @@ namespace VisualizationUtils
             cv::putText(vis, text3, cv::Point(25, 110), font, scale, color, thick);
         }
 
-        const std::string outPath = "sparse_matches.png";
-        cv::imwrite(outPath, vis);
-        std::cout << "Saved visualization to " << outPath << "\n";
+        if (cv::imwrite(savePath, vis))
+        {
+            std::cout << "Saved sparse keypoint image to: " << savePath << "\n";
+        }
+        else
+        {
+            std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
+        }
 
         cv::imshow("Sparse Key Point Matching correspondences", vis);
         cv::waitKey(0);
     }
 
-    void displayEpipolarMatches(const std::string &windowTitle,
-                                const cv::Mat &imgL,
-                                const cv::Mat &imgR,
-                                const std::vector<cv::Point2f> &ptsL,
-                                const std::vector<cv::Point2f> &ptsR,
-                                const std::vector<bool> &inlierMask,
-                                const Eigen::Matrix3d &F,
-                                double rotErrorDeg,
-                                double transErrorDeg,
-                                double epipolarErrorPx,
-                                int maxDrawn)
+    void displayEpipolarMatches(const std::string &windowTitle, const cv::Mat &imgL, const cv::Mat &imgR,
+                                const std::vector<cv::Point2f> &ptsL, const std::vector<cv::Point2f> &ptsR, const std::vector<bool> &inlierMask,
+                                const Eigen::Matrix3d &F, double rotErrorDeg, double transErrorDeg, double epipolarErrorPx,
+                                int maxDrawn, const std::string &savePath)
     {
         // Clone and convert to color for drawing
         cv::Mat vizL = imgL.clone();
@@ -193,6 +191,14 @@ namespace VisualizationUtils
 
         cv::namedWindow(windowTitle, cv::WINDOW_NORMAL);
         cv::imshow(windowTitle, combined);
+        if (cv::imwrite(savePath, combined))
+        {
+            std::cout << "Saved epipolar image to: " << savePath << "\n";
+        }
+        else
+        {
+            std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
+        }
         cv::waitKey(0);
         cv::destroyAllWindows();
         cv::waitKey(1);
@@ -324,7 +330,8 @@ namespace VisualizationUtils
             {
                 // Open the writer on the first frame once displayImg size is known
                 int fps = 2; // Adjusted to 2 FPS since waitKey is 750ms
-                int fourcc = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
+                int fourcc = cv::VideoWriter::fourcc('a', 'v', 'c', '1');
+
                 video.open(savePath, fourcc, fps, displayImg.size(), true);
 
                 if (!video.isOpened())
@@ -435,12 +442,8 @@ namespace VisualizationUtils
         std::cout << "\n";
     }
 
-    void visualizeRectification(
-        const RectifyResult &rect,
-        const std::vector<cv::Point2f> &inL,
-        const std::vector<cv::Point2f> &inR,
-        const cv::Mat &K,
-        const std::string &windowName)
+    void visualizeRectification(const RectifyResult &rect, const std::vector<cv::Point2f> &inL, const std::vector<cv::Point2f> &inR, const cv::Mat &K,
+                                const std::string &windowName, const std::string &savePath)
     {
         // 1. Map points to rectified space
         cv::Mat dist = cv::Mat::zeros(5, 1, CV_64F);
@@ -513,16 +516,23 @@ namespace VisualizationUtils
         cv::Scalar textColor = (meanErr <= 1.0) ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
         cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8, textColor, 1, cv::LINE_AA);
 
+        if (cv::imwrite(savePath, combined))
+        {
+            std::cout << "Saved rectification image to: " << savePath << "\n";
+        }
+        else
+        {
+            std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
+        }
         cv::imshow(windowName, combined);
         cv::waitKey(0);
         cv::destroyAllWindows();
         cv::waitKey(1);
     }
 
-    void visualizeDisparity(
-        const cv::Mat &disp, const RectifyResult &rect,
-        const std::vector<cv::Point2f> &inPtsL, const std::vector<cv::Point2f> &inPtsR,
-        const cv::Mat &K, int minDisp, int numDisp, const std::string &windowName)
+    void visualizeDisparity(const cv::Mat &disp, const RectifyResult &rect,
+                            const std::vector<cv::Point2f> &inPtsL, const std::vector<cv::Point2f> &inPtsR,
+                            const cv::Mat &K, int minDisp, int numDisp, const std::string &windowName, const std::string &savePath)
     {
         const cv::Mat &rectL = rect.rectLeft;
         const cv::Mat &rectR = rect.rectRight;
@@ -683,6 +693,14 @@ namespace VisualizationUtils
 
         // Render and handle MacOS GUI loop
         cv::namedWindow(windowName, cv::WINDOW_NORMAL);
+        if (cv::imwrite(savePath, combined))
+        {
+            std::cout << "Saved disparity image to: " << savePath << "\n";
+        }
+        else
+        {
+            std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
+        }
         cv::imshow(windowName, combined);
         cv::waitKey(0);
         cv::destroyAllWindows();
