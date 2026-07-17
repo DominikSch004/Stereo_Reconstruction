@@ -85,7 +85,7 @@ int main(int argc, char **argv)
         Eigen::Vector3d t_est;
 
         // ================= evaluate openCV =================
-        double epi_err_opencv = Evaluator::evaluateEpipolarError(F_opencv, ptsL, ptsR, OpenCVInliers);
+        double epi_err_opencv = Evaluator::evaluateEpipolarError(toCvMat(F_custom), ptsL, ptsR, OpenCVInliers);
         double opencv_ratio = Evaluator::computeInlierRatio(OpenCVInliers);
 
         if (GeometryUtils::extractPoseFromFundamental(F_opencv, ptsL, ptsR, OpenCVInliers, K, R_est, t_est))
@@ -109,7 +109,7 @@ int main(int argc, char **argv)
         }
 
         // ================= evaluate custom RANSAC =================
-        double epi_err_custom = Evaluator::evaluateEpipolarError(F_custom, ptsL, ptsR, CustomInliers);
+        double epi_err_custom = Evaluator::evaluateEpipolarError(toCvMat(F_custom), ptsL, ptsR, CustomInliers);
         double custom_ratio = Evaluator::computeInlierRatio(CustomInliers);
 
         if (GeometryUtils::extractPoseFromFundamental(F_custom, ptsL, ptsR, CustomInliers, K, R_est, t_est))
@@ -133,7 +133,7 @@ int main(int argc, char **argv)
         }
 
         // ================= evaluate MAGSAC =================
-        double epi_err_magsac = Evaluator::evaluateEpipolarError(F_magsac, ptsL, ptsR, Custommagsacinliers);
+        double epi_err_magsac = Evaluator::evaluateEpipolarError(toCvMat(F_magsac), ptsL, ptsR, Custommagsacinliers);
         double magsac_ratio = Evaluator::computeInlierRatio(Custommagsacinliers);
 
         if (GeometryUtils::extractPoseFromFundamental(F_magsac, ptsL, ptsR, Custommagsacinliers, K, R_est, t_est))
@@ -157,7 +157,7 @@ int main(int argc, char **argv)
         }
 
         // ================= evaluate PROSAC =================
-        double epi_err_prosac = Evaluator::evaluateEpipolarError(F_prosac, ptsL, ptsR, Customprosacinliers);
+        double epi_err_prosac = Evaluator::evaluateEpipolarError(toCvMat(F_prosac), ptsL, ptsR, Customprosacinliers);
         double prosac_ratio = Evaluator::computeInlierRatio(Customprosacinliers);
 
         if (GeometryUtils::extractPoseFromFundamental(F_prosac, ptsL, ptsR, Customprosacinliers, K, R_est, t_est))
