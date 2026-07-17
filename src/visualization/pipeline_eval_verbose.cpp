@@ -170,25 +170,6 @@ int main(int argc, char **argv)
 
     VisualizationUtils::visualizeDisparity(denseDisparity, rect, inL, inR, K, minDisp, numDisp, "Disparity Verification", out_dir + "/disparityVisualization.png");
 
-    std::cout << "\n--- Triangulating 3D Point Cloud ---\n";
-
-    cv::Mat dense3DPoints = Triangulation::reprojectDisparityTo3D(denseDisparity, rect.Q, rect.P1, rect.P2, minDisp, config.triangulation);
-
-    if (dense3DPoints.empty())
-    {
-        std::cerr << "ERROR: 3D point cloud generation failed.\n";
-        return 0;
-    }
-
-    if (dense3DPoints.empty())
-    {
-        std::cerr << "ERROR: 3D point cloud generation failed.\n";
-        return 0;
-    }
-
-    std::cout << "Successfully generated 3D point cloud (Matrix size: "
-              << dense3DPoints.cols << "x" << dense3DPoints.rows << ", 3 Channels).\n";
-
     std::cout << "\n--- Exporting 3D Point Cloud ---\n";
     std::string plyFilename = out_dir + "/pointcloud.ply";
     std::cout << "Saving cloud to: " << plyFilename << "\n";
@@ -214,33 +195,25 @@ int main(int argc, char **argv)
         colorizedCloud = rect.rectLeft;
     }
 
-    cv::Mat trueDisparity;
-    if (denseDisparity.type() == CV_16S)
-    {
-        // Divide by 16.0 to convert OpenCV format to true floating-point pixels
-        denseDisparity.convertTo(trueDisparity, CV_32F, 1.0 / 16.0);
-    }
-    else
-    {
-        // If your custom SGM already outputs floats, just safely copy it.
-        // Note: If your custom SGM outputs floats but STILL multiplies by 16,
-        // you will need to add: trueDisparity /= 16.0f; right here.
-        denseDisparity.convertTo(trueDisparity, CV_32F);
-    }
-
     cv::Mat camToWorld = cv::Mat::eye(3, 4, CV_64F);
 
-    PlyUtils::buildAndSavePLY(
-        plyFilename,
-        trueDisparity,
-        rect.Q,
-        rect.P1,
-        rect.P2,
-        camToWorld,
-        colorizedCloud,
-        minDisp,
-        globalConfidence,
-        config.triangulation);
+    // Disparity::computeDisparity always returns CV_32F (both OpenCV SGBM and the
+    // custom backend convert internally), so no CV_16S -> float rescale is needed here.
+    if (!PlyUtils::buildAndSavePLY(
+            plyFilename,
+            denseDisparity,
+            rect.Q,
+            rect.P1,
+            rect.P2,
+            camToWorld,
+            colorizedCloud,
+            minDisp,
+            globalConfidence,
+            config.triangulation))
+    {
+        std::cerr << "ERROR: Point cloud export failed.\n";
+        return 0;
+    }
 
     std::cout << "End-to-End Execution Completed Successfully.\n";
 
