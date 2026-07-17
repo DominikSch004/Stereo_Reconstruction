@@ -3,11 +3,14 @@
 #include <Eigen/Dense>
 #include <vector>
 #include <string>
-#include <FundamentalMatrix.hpp>
+#include "SparseKeyPointMatcher.hpp"
+#include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
 
 namespace VisualizationUtils
 {
+
+    void visualizeSparseKeypoint(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight);
 
     // Draws epipolar lines and matching points then displays them
     void displayEpipolarMatches(const std::string &windowTitle,
@@ -35,7 +38,8 @@ namespace VisualizationUtils
         const cv::Mat &imgR,
         const VisualizationData &visualize,
         const std::string &windowName,
-        int pauseInterval = 0);
+        int pauseInterval = 0,
+        const std::string &savePath = "");
 
     void fundamentalComparison(
         const Eigen::Matrix3d &F,

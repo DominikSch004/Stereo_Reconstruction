@@ -29,8 +29,6 @@ public:
                               std::vector<cv::Point2f> &ptsLeft,
                               std::vector<cv::Point2f> &ptsRight);
 
-    static void visualize(const MatchResult &result, const cv::Mat &grayLeft, const cv::Mat &grayRight);
-
 private:
     float ratioThreshold_;
     FeatureDetector detector_;

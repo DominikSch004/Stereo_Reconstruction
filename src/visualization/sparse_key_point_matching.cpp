@@ -2,6 +2,7 @@
 #include "SparseKeyPointMatcher.hpp"
 #include "ImgUtils.hpp"
 #include "PipelineConfig.hpp"
+#include "VisualizationUtils.hpp"
 
 int main(int argc, char **argv)
 {
@@ -30,7 +31,7 @@ int main(int argc, char **argv)
     SparseKeyPointMatcher matcher(0.75f, config.featureDetector);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
-    matcher.visualize(result, grayLeft, grayRight);
+    VisualizationUtils::visualizeSparseKeypoint(result, grayLeft, grayRight);
 
     return 0;
 }
