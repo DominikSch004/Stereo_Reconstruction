@@ -306,7 +306,7 @@ namespace VisualizationUtils
             cv::hconcat(frameL, frameR, displayImg);
 
             // --- FORMAT TEXT STRINGS ---
-            std::string iterText = "Improvement Step: " + std::to_string(it + 1) + " / " + std::to_string(visualize.history_L.size());
+            std::string iterText = "Step: " + std::to_string(it + 1) + " / " + std::to_string(visualize.history_L.size());
             std::string inlierCountText = std::to_string(visualize.inLierCount[it]) + " inliers.";
             std::string bestInlierText = "Best Inlier Count: " + std::to_string(visualize.currBestInlier[it]);
 
