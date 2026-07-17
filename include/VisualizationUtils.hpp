@@ -49,4 +49,14 @@ namespace VisualizationUtils
         const std::vector<cv::Point2f> &inR,
         const cv::Mat &K,
         const std::string &windowName = "Rectification Verification");
+
+    void visualizeDisparity(
+        const cv::Mat &disp,
+        const RectifyResult &rect,
+        const std::vector<cv::Point2f> &inPtsL,
+        const std::vector<cv::Point2f> &inPtsR,
+        const cv::Mat &K,
+        int minDisp,
+        int numDisp,
+        const std::string &windowName = "Disparity Verification");
 }

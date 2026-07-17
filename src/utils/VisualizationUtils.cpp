@@ -8,6 +8,38 @@
 #include <sstream>
 #include <iostream>
 
+namespace // Anonymous namespace for private helper functions
+{
+    cv::Mat colorizeDisparity(const cv::Mat &disp, int minDisp, int numDisp)
+    {
+        cv::Mat norm(disp.size(), CV_8U, cv::Scalar(0));
+        const float lo = float(minDisp);
+        const float hi = float(minDisp + numDisp);
+        for (int y = 0; y < disp.rows; ++y)
+        {
+            for (int x = 0; x < disp.cols; ++x)
+            {
+                float d = disp.at<float>(y, x);
+                if (d >= lo && d < hi)
+                    norm.at<uchar>(y, x) = cv::saturate_cast<uchar>(255.0f * (d - lo) / (hi - lo));
+            }
+        }
+        cv::Mat color;
+        cv::applyColorMap(norm, color, cv::COLORMAP_JET);
+
+        // Force invalid pixels to black
+        for (int y = 0; y < disp.rows; ++y)
+        {
+            for (int x = 0; x < disp.cols; ++x)
+            {
+                float d = disp.at<float>(y, x);
+                if (!(d >= lo && d < hi))
+                    color.at<cv::Vec3b>(y, x) = {0, 0, 0};
+            }
+        }
+        return color;
+    }
+}
 namespace VisualizationUtils
 {
     void displayEpipolarMatches(const std::string &windowTitle,
@@ -98,6 +130,8 @@ namespace VisualizationUtils
         cv::namedWindow(windowTitle, cv::WINDOW_NORMAL);
         cv::imshow(windowTitle, combined);
         cv::waitKey(0);
+        cv::destroyAllWindows();
+        cv::waitKey(1);
     }
 
     void visualizeOutliers(const std::vector<cv::Point2f> &ptsL,
@@ -134,6 +168,7 @@ namespace VisualizationUtils
         std::cout << "Press any key on the image window to continue to the experiments...\n";
         cv::waitKey(0);
         cv::destroyAllWindows();
+        cv::waitKey(1);
     }
 
     void fundamentalExplorationVideo(
@@ -230,6 +265,7 @@ namespace VisualizationUtils
         std::cout << windowName << " finished. Press any key to continue...\n";
         cv::waitKey(0);
         cv::destroyAllWindows();
+        cv::waitKey(1);
         std::cout << "\nFinal " << windowName << " Sampson Error: " << visualize.final_sampson_err << " px.\n";
         std::cout << "Final " << windowName << " Inlier Count: " << visualize.final_inlier_count << "\n";
     }
@@ -373,5 +409,177 @@ namespace VisualizationUtils
 
         cv::imshow(windowName, combined);
         cv::waitKey(0);
+        cv::destroyAllWindows();
+        cv::waitKey(1);
+    }
+
+    void visualizeDisparity(
+        const cv::Mat &disp, const RectifyResult &rect,
+        const std::vector<cv::Point2f> &inPtsL, const std::vector<cv::Point2f> &inPtsR,
+        const cv::Mat &K, int minDisp, int numDisp, const std::string &windowName)
+    {
+        const cv::Mat &rectL = rect.rectLeft;
+        const cv::Mat &rectR = rect.rectRight;
+        const float lo = float(minDisp);
+        const float hi = float(minDisp + numDisp);
+
+        // --- 1. Coverage Stats ---
+        long valid = 0;
+        for (int y = 0; y < disp.rows; ++y)
+        {
+            for (int x = 0; x < disp.cols; ++x)
+            {
+                float d = disp.at<float>(y, x);
+                if (d >= lo && d < hi)
+                    ++valid;
+            }
+        }
+        cv::Mat nonBlackMask = rectL > 0;
+        long nonBlackPixels = cv::countNonZero(nonBlackMask);
+        double coverage = nonBlackPixels > 0 ? 100.0 * valid / nonBlackPixels : 0.0;
+
+        // --- 2. Ground-Truth Check (Sparse vs Dense) ---
+        cv::Mat distC = cv::Mat::zeros(5, 1, CV_64F);
+        std::vector<cv::Point2f> rL, rR;
+        cv::undistortPoints(inPtsL, rL, K, distC, rect.R1, rect.P1);
+        cv::undistortPoints(inPtsR, rR, K, distC, rect.R2, rect.P2);
+
+        std::vector<double> sparseErr;
+        for (size_t i = 0; i < rL.size(); ++i)
+        {
+            int x = cvRound(rL[i].x), y = cvRound(rL[i].y);
+            if (x < 0 || y < 0 || x >= disp.cols || y >= disp.rows)
+                continue;
+
+            float dDense = disp.at<float>(y, x);
+            if (!(std::isfinite(dDense) && dDense >= lo && dDense < hi))
+                continue;
+
+            double dTrue = rL[i].x - rR[i].x;
+            sparseErr.push_back(std::abs(dDense - dTrue));
+        }
+
+        double sMean = 0;
+        int within2 = 0;
+        for (double e : sparseErr)
+        {
+            sMean += e;
+            if (e <= 2.0)
+                ++within2;
+        }
+        sMean = sparseErr.empty() ? 0 : sMean / sparseErr.size();
+
+        // --- 3. Photometric Check ---
+        cv::Mat warpedR(rectL.size(), rectL.type(), cv::Scalar(0));
+        cv::Mat photoMask(rectL.size(), CV_8U, cv::Scalar(0));
+        double photoSum = 0;
+        long photoN = 0;
+
+        for (int y = 0; y < disp.rows; ++y)
+        {
+            for (int x = 0; x < disp.cols; ++x)
+            {
+                float d = disp.at<float>(y, x);
+                if (!(d >= lo && d < hi))
+                    continue;
+
+                int xr = cvRound(x - d);
+                if (xr < 0 || xr >= rectR.cols)
+                    continue;
+
+                uchar vr = rectR.at<uchar>(y, xr);
+                warpedR.at<uchar>(y, x) = vr;
+                photoMask.at<uchar>(y, x) = 255;
+                photoSum += std::abs((int)rectL.at<uchar>(y, x) - (int)vr);
+                ++photoN;
+            }
+        }
+        double photoMAE = photoN ? photoSum / photoN : 0;
+
+        // --- 4. Textureless Analysis ---
+        cv::Mat gradX, gradY, gradMag;
+        cv::Sobel(rectL, gradX, CV_32F, 1, 0, 3);
+        cv::Sobel(rectL, gradY, CV_32F, 0, 1, 3);
+        cv::magnitude(gradX, gradY, gradMag);
+        const float textureThresh = 5.0f;
+        cv::Mat texturelessMask = (gradMag < textureThresh) & nonBlackMask;
+        long texturelessCount = cv::countNonZero(texturelessMask);
+
+        // --- 5. Visualizations Assembly ---
+        cv::Mat vizL;
+        cv::cvtColor(rectL, vizL, cv::COLOR_GRAY2BGR);
+        cv::Mat vizDisp = colorizeDisparity(disp, minDisp, numDisp);
+
+        cv::Mat vizTex;
+        cv::cvtColor(rectL, vizTex, cv::COLOR_GRAY2BGR);
+        for (int y = 0; y < disp.rows; ++y)
+        {
+            for (int x = 0; x < disp.cols; ++x)
+            {
+                if (!texturelessMask.at<uchar>(y, x))
+                    continue;
+                float d = disp.at<float>(y, x);
+                bool isInvalid = !(d >= lo && d < hi);
+                vizTex.at<cv::Vec3b>(y, x) = isInvalid ? cv::Vec3b(0, 0, 255) : cv::Vec3b(255, 255, 0);
+            }
+        }
+
+        cv::Mat absErr(rectL.size(), CV_8U, cv::Scalar(0));
+        cv::absdiff(rectL, warpedR, absErr);
+        absErr.setTo(0, photoMask == 0);
+        cv::Mat vizErr;
+        cv::applyColorMap(absErr, vizErr, cv::COLORMAP_HOT);
+        vizErr.setTo(cv::Scalar(0, 0, 0), photoMask == 0);
+
+        // Draw Inliers on Disparity map
+        for (size_t i = 0; i < rL.size(); ++i)
+        {
+            int x = cvRound(rL[i].x), y = cvRound(rL[i].y);
+            if (x < 0 || y < 0 || x >= disp.cols || y >= disp.rows)
+                continue;
+
+            float dDense = disp.at<float>(y, x);
+            cv::Scalar c;
+            if (!(dDense >= lo && dDense < hi))
+                c = {255, 0, 255};
+            else if (std::abs(dDense - (rL[i].x - rR[i].x)) <= 2.0)
+                c = {0, 255, 0};
+            else
+                c = {0, 0, 255};
+            cv::circle(vizDisp, {x, y}, 3, c, 1, cv::LINE_AA);
+        }
+
+        // Text HUDs
+        auto label = [](cv::Mat &img, const std::string &s)
+        {
+            cv::putText(img, s, {12, 26}, cv::FONT_HERSHEY_SIMPLEX, 0.7, {0, 0, 0}, 4, cv::LINE_AA);
+            cv::putText(img, s, {12, 26}, cv::FONT_HERSHEY_SIMPLEX, 0.7, {255, 255, 255}, 1, cv::LINE_AA);
+        };
+
+        label(vizL, "Rectified Left");
+
+        std::ostringstream sDisp;
+        sDisp << "Disparity cover=" << std::fixed << std::setprecision(0) << coverage << "% dErr=" << std::setprecision(2) << sMean << "px";
+        label(vizDisp, sDisp.str());
+
+        std::ostringstream sErr;
+        sErr << "Photo error MAE=" << std::fixed << std::setprecision(1) << photoMAE;
+        label(vizErr, sErr.str());
+
+        std::ostringstream sTex;
+        sTex << "Textureless " << std::fixed << std::setprecision(0)
+             << (nonBlackPixels ? 100.0 * texturelessCount / nonBlackPixels : 0.0)
+             << "% (cyan=matched, red=invalid)";
+        label(vizTex, sTex.str());
+
+        cv::Mat combined;
+        cv::hconcat(std::vector<cv::Mat>{vizL, vizDisp, vizErr, vizTex}, combined);
+
+        // Render and handle MacOS GUI loop
+        cv::namedWindow(windowName, cv::WINDOW_NORMAL);
+        cv::imshow(windowName, combined);
+        cv::waitKey(0);
+        cv::destroyAllWindows();
+        cv::waitKey(1); // Flush event queue
     }
 }

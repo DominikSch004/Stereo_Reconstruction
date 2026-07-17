@@ -38,8 +38,18 @@ public:
         int blockSize,
         DisparityMethod method);
 
+    static void computeDynamicSearchRangeCalibrated(
+        const std::vector<cv::Point2f> &inPtsL,
+        const std::vector<cv::Point2f> &inPtsR,
+        const cv::Mat &K,
+        const cv::Mat &R1, const cv::Mat &P1,
+        const cv::Mat &R2, const cv::Mat &P2,
+        const cv::Size &imgSize,
+        int &minDisp,
+        int &numDisp);
+
 private:
-     // OpenCV and custom SGM backend implementations
+    // OpenCV and custom SGM backend implementations
     static cv::Mat computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
     static cv::Mat computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize);
 
