@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <filesystem>
 #include "PlyUtils.hpp"
 #include <Eigen/Dense>
 #include <opencv2/calib3d.hpp>
