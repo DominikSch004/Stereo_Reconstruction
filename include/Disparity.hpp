@@ -43,7 +43,7 @@ public:
         int numDisp,
         int blockSize,
         DisparityMethod method,
-        double scale = 0.5,
+        double scale = 1.0,
         bool useIntensityConsistentSelection = false,
         bool useGapFill = false);
 
@@ -69,7 +69,7 @@ private:
     static void computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &Imax);
     static void aggregateDirection(const std::vector<uint16_t> &C, std::vector<uint16_t> &S, const cv::Mat &baseF, int rows, int cols, int numDisp, int dx, int dy, int P1, int P2Base);
     static cv::Mat computeWTADisparity(const cv::Mat &left, const cv::Mat &right, int rows, int cols, int minDisp, int numDisp, int P1, int P2Base, bool rightBase);
-    static cv::Mat interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, int minDisp, int numDisp);
+    static cv::Mat interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, const cv::Mat &baseF, int minDisp, int numDisp);
     static cv::Mat nearestValidInDirection(const cv::Mat &disp, int minDisp, int rows, int cols, int dx, int dy);
     static cv::Mat removePeaks(const cv::Mat &disparity, int minDisp, int minSegmentSize, float maxSegmentDispDiff = 1.0f);
     static cv::Mat meanShiftModes(const cv::Mat &baseF, int sigmaS, float sigmaR, int maxIters = 20, float convergeEps = 0.1f);

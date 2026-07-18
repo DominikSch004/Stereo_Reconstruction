@@ -476,7 +476,7 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
     return disparity;
 }
 
-cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, int minDisp, int numDisp)
+cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, const cv::Mat &baseF, int minDisp, int numDisp)
 {
     // Hirschmuller 2008, Sec 2.5.3
     static const int dirs[8][2] = {
@@ -500,6 +500,10 @@ cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &disp
             float d = disparity.at<float>(y, x);
             if (d >= static_cast<float>(minDisp))
                 continue; // already valid, nothing to fill
+
+            // Black rectification border
+            if (baseF.at<float>(y, x) <= 0.0f)
+                continue;
 
             wasInvalid.at<uchar>(y, x) = 255;
 
@@ -1182,5 +1186,5 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     // worsens accuracy (mean error 31->34px, photometric MAE 3.9->34.2) as >80% of
     // pixels start invalid. This should be used to fill small gaps not going to help with such
     // low coverage. Kept available, off by default (see PipelineConfig).
-    return useGapFill ? interpolateGaps(disparity, dispRight, minDisp, numDisp) : disparity;
+    return useGapFill ? interpolateGaps(disparity, dispRight, leftF, minDisp, numDisp) : disparity;
 }

@@ -11,6 +11,7 @@
 #include "PlyUtils.hpp"
 #include "ICP.hpp"
 #include "IcpUtils.hpp"
+#include "Evaluator.hpp"
 #include "PoissonReconstruction.hpp"
 #include "MeshUtils.hpp"
 
@@ -86,7 +87,17 @@ int main(int argc, char **argv)
             continue;
         }
 
-        PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, config.triangulation);
+        // Measured dense-vs-sparse disparity accuracy (pixels) for this pair, used as the
+        // point cloud's depth-confidence sigma_d = agreementMean.
+        DisparityRes dispRes = Evaluator::evaluateDisparity(
+            res.denseDisparity, res.rectLeft, res.rectRight,
+            res.inPtsL, res.inPtsR, res.K,
+            res.R1, res.P1r, res.R2, res.P2r,
+            res.minDisp, res.numDisp);
+
+        PointCloudConfidence confidence{res.globalConfidence, static_cast<float>(dispRes.agreementMean)};
+        PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp,
+                                                     confidence, config.triangulation);
 
         const size_t beforeCull = cloud.pts.size();
         // Remove the lowest 'confidenceKeepFrac'% of points by weight (Mostly noise)
