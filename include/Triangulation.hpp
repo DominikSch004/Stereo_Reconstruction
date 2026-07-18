@@ -19,18 +19,6 @@ enum class TriangulationMethod {
 class Triangulation
 {
 public:
-    // TODO: This was method was left here but not sure where it's used in code
-    /**
-     * @brief Sparse multi-point triangulation helper.
-     */
-    static void triangulatePoints(
-        const cv::Mat& p1, 
-        const cv::Mat& p2,
-        const std::vector<cv::Vec2d>& pts1,
-        const std::vector<cv::Vec2d>& pts2,
-        std::vector<cv::Vec3d>& pts3D
-    );
-
     /**
      * @brief Transforms a rectified floating-point disparity map into a dense grid of 3D points.
      * @param disp32f The input floating-point disparity map.
