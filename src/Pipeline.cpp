@@ -31,32 +31,46 @@ void Pipeline::rescaleToTrueBaseline(const Eigen::Vector3d &C1, const Eigen::Vec
     }
 }
 
-bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, const PipelineConfig &config, const Eigen::Vector3d &C1, const Eigen::Vector3d &C2)
+void Pipeline::preprocessScale(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, double scale,
+                               cv::Mat &gray1, cv::Mat &gray2, cv::Mat &bgrLeft, cv::Mat &bgrRight, cv::Mat &K, cv::Size &sz)
 {
-    // --- 0. Preprocessing: grayscale conversion + half-resolution processing scale ---
-    cv::Mat bgr1 = imgLeft.clone();
-    cv::Mat gray1, gray2;
-    cv::cvtColor(imgLeft, gray1, cv::COLOR_BGR2GRAY);
-    cv::cvtColor(imgRight, gray2, cv::COLOR_BGR2GRAY);
+    bgrLeft = imgLeft.clone();
+    bgrRight = imgRight.clone();
+    gray1 = toGray(imgLeft);
+    gray2 = toGray(imgRight);
 
-    const double scale = 0.5;
-    cv::Size sz(cvRound(gray1.cols * scale), cvRound(gray1.rows * scale));
+    sz = cv::Size(cvRound(gray1.cols * scale), cvRound(gray1.rows * scale));
     cv::resize(gray1, gray1, sz);
     cv::resize(gray2, gray2, sz);
-    cv::resize(bgr1, bgr1, sz);
-    res.imgSize = sz;
+    cv::resize(bgrLeft, bgrLeft, sz);
+    cv::resize(bgrRight, bgrRight, sz);
 
-    res.rectColor = bgr1;
-
-    cv::Mat K = K_in.clone();
+    K = K_in.clone();
     K.at<double>(0, 0) *= scale;
     K.at<double>(1, 1) *= scale;
     K.at<double>(0, 2) *= scale;
     K.at<double>(1, 2) *= scale;
+}
+
+int Pipeline::scaledBlockSize(int baseBlockSize, double scale)
+{
+    // SGBM requires an odd block size >= 3
+    // | 1 to get nearest odd value
+    return std::max(3, static_cast<int>(std::round(baseBlockSize * scale))) | 1;
+}
+
+bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, const PipelineConfig &config, const Eigen::Vector3d &C1, const Eigen::Vector3d &C2)
+{
+    // --- 0. Preprocessing: grayscale conversion + config.processingScale downscale ---
+    cv::Mat bgr1, bgrRightUnused, gray1, gray2, K;
+    cv::Size sz;
+    preprocessScale(imgLeft, imgRight, K_in, config.processingScale, gray1, gray2, bgr1, bgrRightUnused, K, sz);
+    res.imgSize = sz;
+    res.rectColor = bgr1;
     res.K = K.clone();
 
     // --- 1. Sparse Feature Matching ---
-    SparseKeyPointMatcher matcher(0.75f, config.featureDetector);
+    SparseKeyPointMatcher matcher(config.ratioThreshold, config.featureDetector);
     MatchResult matchRes = matcher.match(gray1, gray2);
 
     std::vector<cv::Point2f> ptsL, ptsR;
@@ -68,9 +82,11 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
         return false;
     }
 
+    VisualizationData visualize;
+
     // --- 2. Epipolar Geometry & Fundamental Matrix Estimation ---
     std::vector<bool> inlierMask;
-    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, config.fundamental, 1.0, 0.99, 1000);
+    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, visualize, config.fundamental, 1.0, 0.99, 1000);
     cv::Mat F_cv = toCvMat(F_eigen);
     res.inlierMask = inlierMask;
 
@@ -105,11 +121,18 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     // The projection was also hurting the Evaluator's Epipolar Error
     // metric: 0.538px with it vs 0.211px without,
     // since we're now using the E that best fits the inlier correspondences,
-    // without constraining it unnecessarily. Confirmed via Evaluator.cpp with 
+    // without constraining it unnecessarily. Confirmed via Evaluator.cpp with
     // pose_refinement=false as refinePose overwrites E.
-    
+
     // TODO: clean up these comments later before final delivery
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
+
+    // Rescale t from recoverPose's unit-norm convention to the true DTU metric baseline
+    rescaleToTrueBaseline(C1, C2, t);
+    // save result for evaluation
+    res.R_est = R.clone();
+    res.t_est = t.clone();
+    res.E = E.clone();
 
     res.inPtsL.clear();
     res.inPtsR.clear();
@@ -125,12 +148,11 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     // Optional: non-linear refinement of (R, t) directly on the
     // essential-matrix space
     // See comments in FundamentalMatrix.cpp for details on why we do this
-    if (config.refinePose) // flag here is just for comparison, remove it later
+    if (config.refinePose)
     {
         GeometryUtils::refinePose(K, res.inPtsL, res.inPtsR, R, t);
         // Recompute E = [t]x * R from the new pose as its used for evaluation
-        cv::Mat tx = (cv::Mat_<double>(3, 3) <<
-                      0, -t.at<double>(2), t.at<double>(1),
+        cv::Mat tx = (cv::Mat_<double>(3, 3) << 0, -t.at<double>(2), t.at<double>(1),
                       t.at<double>(2), 0, -t.at<double>(0),
                       -t.at<double>(1), t.at<double>(0), 0);
         E = tx * R;
@@ -207,8 +229,8 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     res.numDisp = (res.numDisp / 16) * 16;
 
     // --- 6. Dense Stereo Matching ---
-    const int blockSize = 7;
-    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity);
+    const int blockSize = scaledBlockSize(7, config.processingScale);
+    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity, config.processingScale);
     if (res.denseDisparity.empty())
     {
         std::cerr << "ERROR: Dense stereo matching returned an empty disparity map.\n";

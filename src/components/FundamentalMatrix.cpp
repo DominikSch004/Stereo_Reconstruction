@@ -1,9 +1,10 @@
 #include "FundamentalMatrix.hpp"
 #include "Magsac.hpp"
-#include <opencv2/calib3d.hpp>
+#include <opencv2/opencv.hpp>
 #include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 #include <iostream>
 
 // Sampson distance: first-order approximation to geometric epipolar error
@@ -47,7 +48,7 @@ Eigen::Matrix3d FundamentalMatrix::normalizePoints(
     const std::vector<cv::Point2f> &pts,
     std::vector<cv::Point2f> &ptsNorm)
 {
-    // centroid (mean x, y) of the 2D point cloud
+    // centroid of the 2D point cloud
     double cx = 0, cy = 0;
     for (const auto &p : pts)
     {
@@ -67,7 +68,6 @@ Eigen::Matrix3d FundamentalMatrix::normalizePoints(
     // Scale factor sets average distance of transformed points to sqrt(2)
     scale = std::sqrt(2.0) * pts.size() / scale;
 
-    // Shift points to centroid and scale
     ptsNorm.resize(pts.size());
     for (size_t i = 0; i < pts.size(); ++i)
     {
@@ -76,7 +76,7 @@ Eigen::Matrix3d FundamentalMatrix::normalizePoints(
             float((pts[i].y - cy) * scale));
     }
 
-    // 3x3 transformation matrix T: p_norm = T * p
+    // p_norm = T * p
     Eigen::Matrix3d T = Eigen::Matrix3d::Zero();
     T(0, 0) = scale;
     T(1, 1) = scale;
@@ -107,20 +107,20 @@ Eigen::Matrix3d FundamentalMatrix::compute8Point(
         A.row(i) << xr * xl, xr * yl, xr, yr * xl, yr * yl, yr, xl, yl, 1.0;
     }
 
-    // solution vector f is the last column of V (smallest singular value)
+    // solution: eigenvector with smallest singular value
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeFullV);
     Eigen::VectorXd f = svd.matrixV().col(8);
 
     Eigen::Matrix3d F;
     F << f(0), f(1), f(2), f(3), f(4), f(5), f(6), f(7), f(8);
 
-    // Enforce the Singularity Constraint (Rank-2 condition, det(F) = 0)
+    // enforce the Singularity Constraint (Rank-2 condition)
     Eigen::JacobiSVD<Eigen::Matrix3d> svdF(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
     Eigen::Vector3d s = svdF.singularValues();
     s(2) = 0.0; // Force smallest singular value to zero to collapse the rank
     F = svdF.matrixU() * s.asDiagonal() * svdF.matrixV().transpose();
 
-    // Denormalize: map F_norm back to pixel space coords using transformation matrices
+    // Denormalize: map F_norm back to pixel space
     Eigen::Matrix3d Fdenorm = Tr.transpose() * F * Tl;
 
     // Normalize last matrix element to 1 for standard scaling consistency
@@ -136,6 +136,7 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
+    VisualizationData &visualize,
     FundamentalMethod method,
     double threshold,
     double confidence,
@@ -144,13 +145,13 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     switch (method)
     {
     case FundamentalMethod::CustomRANSAC:
-        return computeCustomRANSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
+        return computeCustomRANSAC(ptsL, ptsR, inlierMask, rng, visualize, threshold, confidence, maxIter);
     case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
     case FundamentalMethod::CustomMAGSAC:
-        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
+        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, rng, visualize, threshold, confidence, maxIter);
     case FundamentalMethod::CustomPROSAC:
-        return computeCustomPROSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
+        return computeCustomPROSAC(ptsL, ptsR, inlierMask, rng, visualize, confidence, threshold, maxIter);
     }
 
     inlierMask.assign(ptsL.size(), false);
@@ -162,6 +163,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
+    VisualizationData &visualize,
     double threshold,
     double confidence,
     int maxIter)
@@ -186,11 +188,10 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     int degenerateFails = 0;
     const int MAX_FAILS = maxIter * 10;
 
-    // RANSAC Sampling Loop
     for (int it = 0; it < maxIter; ++it)
     {
         std::vector<int> idx;
-        // Randomly select 8 unique point pair indexes
+        // sample 8 correspondences randomly
         while ((int)idx.size() < 8)
         {
             int r = dist(rng);
@@ -210,8 +211,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
         if (isCoplanar(sL, sR, 1.5))
         {
             degenerateFails++;
-            // Refund the iteration so we don't waste our budget on planes,
-            // but cap it so we don't infinite-loop on flat walls.
+
             if (degenerateFails < MAX_FAILS)
             {
                 --it;
@@ -219,12 +219,15 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
             continue;
         }
 
+        visualize.history_L.push_back(sL);
+        visualize.history_R.push_back(sR);
+
         // matrix hypothesis
         Eigen::Matrix3d F = compute8Point(sL, sR);
         std::vector<bool> mask(N);
         int inliers = 0;
 
-        // Evaluate model fit quality over the whole population using Sampson distance
+        // evaluate model fit quality
         for (int i = 0; i < N; ++i)
         {
             mask[i] = sampsonError(F, ptsL[i], ptsR[i]) < thresholdSq;
@@ -232,7 +235,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
                 ++inliers;
         }
 
-        // Keep model track records if consensus exceeds previous records
+        // select current best model
         if (inliers > bestInliers)
         {
             bestInliers = inliers;
@@ -242,6 +245,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
             int iter_needed = calculateRequiredIterations(bestInliers, N, 8, confidence);
             dynamicMaxIter = std::min(dynamicMaxIter, iter_needed);
         }
+
+        visualize.inLierCount.push_back(inliers);
+        visualize.currBestInlier.push_back(bestInliers);
 
         if (it >= dynamicMaxIter)
         {
@@ -263,15 +269,38 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
         }
     }
 
-    // Recompute if the global inlier pool satisfies basic system dimensions
+    double acc_error = 0.0;
+    int final_inlier_count = 0;
+
     if (inL.size() >= 8)
     {
         bestF = compute8Point(inL, inR);
-        // Refresh final outlier rejection tracking arrays
         for (int i = 0; i < N; ++i)
         {
-            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < thresholdSq;
+            double e = sampsonError(bestF, ptsL[i], ptsR[i]);
+
+            if (e < thresholdSq)
+            {
+                inlierMask[i] = true;
+                acc_error += e;
+                final_inlier_count++;
+            }
+            else
+            {
+                inlierMask[i] = false;
+            }
         }
+    }
+
+    if (final_inlier_count > 0)
+    {
+        visualize.final_sampson_err = acc_error / final_inlier_count;
+        visualize.final_inlier_count = final_inlier_count;
+    }
+    else
+    {
+        visualize.final_sampson_err = -1.0;
+        visualize.final_inlier_count = -1;
     }
     return bestF;
 }
@@ -284,10 +313,9 @@ Eigen::Matrix3d FundamentalMatrix::computeOpenCVRANSAC(
     double confidence)
 {
     cv::Mat cvInlierMask;
-    // Call OpenCV's native RANSAC implementation
     cv::Mat F_cv = cv::findFundamentalMat(ptsL, ptsR, cv::FM_RANSAC, threshold, confidence, cvInlierMask);
 
-    // Map internal status back to our boolean inlier mask format
+    // select inliers with sampson distance
     inlierMask.resize(ptsL.size());
     for (size_t i = 0; i < ptsL.size(); ++i)
     {
@@ -297,7 +325,6 @@ Eigen::Matrix3d FundamentalMatrix::computeOpenCVRANSAC(
     Eigen::Matrix3d F_eigen = Eigen::Matrix3d::Identity();
     if (!F_cv.empty())
     {
-        // Enforce conversion format safety bounds between OpenCV types and Eigen
         if (F_cv.type() == CV_64F)
         {
             for (int r = 0; r < 3; ++r)
@@ -373,6 +400,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
+    VisualizationData &visualize,
     double sigmaMax,
     double confidence,
     int maxIter)
@@ -425,8 +453,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         if (isCoplanar(sL, sR, 1.5))
         {
             degenerateFails++;
-            // Refund the iteration so we don't waste our budget on planes,
-            // but cap it so we don't infinite-loop on flat walls.
+            // cap degenerate discartion to avoid infinite loops
             if (degenerateFails < MAX_FAILS)
             {
                 --it;
@@ -446,8 +473,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             double e2 = sampsonError(F, ptsL[i], ptsR[i]);
             currentTotalLoss += magsacCore.calculateLoss(e2);
 
-            // Count inliers using the strict threshold
-            if (std::sqrt(e2) < strictStoppingThreshold)
+            if (e2 < strictStoppingThreshold)
             {
                 approxInliers++;
             }
@@ -462,10 +488,28 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             bestF = F;
             int requiredIters = calculateRequiredIterations(approxInliers, N, sampleSize, confidence);
             dynamicMaxIter = std::min(maxIter, requiredIters);
+
+            std::vector<cv::Point2f> currentBestL, currentBestR;
+            currentBestL.reserve(approxInliers);
+            currentBestR.reserve(approxInliers);
+
+            // extract the actual points that fit this new best model
+            for (int i = 0; i < N; ++i)
+            {
+                if (sampsonError(F, ptsL[i], ptsR[i]) < sigmaMaxSquared)
+                {
+                    currentBestL.push_back(ptsL[i]);
+                    currentBestR.push_back(ptsR[i]);
+                }
+            }
+            visualize.history_L.push_back(currentBestL);
+            visualize.history_R.push_back(currentBestR);
+            visualize.inLierCount.push_back(currentBestL.size());
+            visualize.currBestInlier.push_back(approxInliers);
         }
     }
 
-    // 2. Iteratively Re-weighted Least Squares (IRLS) Polish
+    // Iteratively Re-weighted Least Squares (IRLS) polish
     int irwls_iterations = 5;
     Eigen::Matrix3d polishedF = bestF;
 
@@ -507,6 +551,11 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             {
                 bestTotalLoss = newLoss;
                 polishedF = newF;
+
+                visualize.history_L.push_back(inL);
+                visualize.history_R.push_back(inR);
+                visualize.inLierCount.push_back(inL.size());
+                visualize.currBestInlier.push_back(inL.size());
             }
             else
             {
@@ -519,9 +568,11 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         }
     }
 
-    // 3. Final Inlier Mask Generation
+    // final model evaluation
     inlierMask.assign(N, false);
     int bestInliers = 0;
+    double final_total_sampson = 0.0;
+
     for (int i = 0; i < N; ++i)
     {
         double e2 = sampsonError(polishedF, ptsL[i], ptsR[i]);
@@ -529,8 +580,12 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         {
             inlierMask[i] = true;
             bestInliers++;
+            final_total_sampson += std::sqrt(e2);
         }
     }
+
+    visualize.final_inlier_count = bestInliers;
+    visualize.final_sampson_err = (bestInliers > 0) ? (final_total_sampson / bestInliers) : 0.0;
 
     std::cout << "[MAGSAC] Terminated after " << it
               << ". Number of degenerate samplings rejected: " << degenerateFails
@@ -544,8 +599,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
-    double threshold,
+    VisualizationData &visualize,
     double confidence,
+    double threshold,
     int maxIter)
 {
     const int N = (int)ptsL.size();
@@ -554,11 +610,11 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     Eigen::Matrix3d bestF = Eigen::Matrix3d::Identity();
     int bestInliers = 0;
 
+    const double thresholdSq = threshold * threshold;
+
     inlierMask.assign(N, false);
 
     int degenerateCount = 0;
-
-    const double thresholdSq = threshold * threshold;
 
     // dynamic iterator T_N (stopping criterion)
     int dynamicIter = maxIter;
@@ -609,7 +665,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
             {
                 int r = dist(rng);
 
-                // Ensure we don't pick duplicates
+                // ensure no duplicates
                 if (std::find(idx.begin(), idx.end(), r) == idx.end())
                 {
                     idx.push_back(r);
@@ -628,7 +684,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         if (isCoplanar(sL, sR, 2.5))
         {
             degenerateCount++;
-            t++; // Advance the PROSAC schedule to grow the pool out of the plane
+            t++;
             continue;
         }
 
@@ -649,7 +705,6 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
                 mask[i] = true;
                 ++inliers_total;
 
-                // Assuming ptsL/ptsR are sorted by quality, check if it's in the current pool
                 if (i < pool_size)
                 {
                     ++inliers_pool;
@@ -657,12 +712,18 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
             }
         }
 
+        visualize.history_L.push_back(sL);
+        visualize.history_R.push_back(sR);
+
         if (inliers_total > bestInliers)
         {
             bestInliers = inliers_total;
             bestF = F;
             inlierMask = mask;
         }
+
+        visualize.inLierCount.push_back(inliers_total);
+        visualize.currBestInlier.push_back(bestInliers);
 
         // non-randomness check
 
@@ -713,14 +774,38 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         }
     }
 
+    double acc_error = 0.0;
+    int final_inlier_count = 0;
+
     if (inL.size() >= 8)
     {
         bestF = compute8Point(inL, inR);
-
         for (int i = 0; i < N; ++i)
         {
-            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < thresholdSq;
+            double e = sampsonError(bestF, ptsL[i], ptsR[i]);
+
+            if (e < thresholdSq)
+            {
+                inlierMask[i] = true;
+                acc_error += e;
+                final_inlier_count++;
+            }
+            else
+            {
+                inlierMask[i] = false;
+            }
         }
+    }
+
+    if (final_inlier_count > 0)
+    {
+        visualize.final_sampson_err = acc_error / final_inlier_count;
+        visualize.final_inlier_count = final_inlier_count;
+    }
+    else
+    {
+        visualize.final_sampson_err = -1.0;
+        visualize.final_inlier_count = -1;
     }
 
     return bestF;
@@ -743,13 +828,13 @@ int FundamentalMatrix::calculateRequiredIterations(int bestInliers, int N, int s
 
     const double required = std::ceil(log_prob / log_fail);
 
-  if (!std::isfinite(required) ||
-      required >= static_cast<double>(std::numeric_limits<int>::max()))
-  {
-      return std::numeric_limits<int>::max();
-  }
+    if (!std::isfinite(required) ||
+        required >= static_cast<double>(std::numeric_limits<int>::max()))
+    {
+        return std::numeric_limits<int>::max();
+    }
 
-  return std::max(1, static_cast<int>(required));
+    return std::max(1, static_cast<int>(required));
 }
 
 bool FundamentalMatrix::isCoplanar(const std::vector<cv::Point2f> &sL,
@@ -768,6 +853,6 @@ bool FundamentalMatrix::isCoplanar(const std::vector<cv::Point2f> &sL,
             inlierCount++;
     }
 
-    // If 6 or more of the 8 points fit a perfect flat plane, it's a degenerate sample.
+    // If 5 or more of the 8 points fit a perfect flat plane, it's a degenerate sample.
     return inlierCount >= 5;
 }

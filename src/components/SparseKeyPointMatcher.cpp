@@ -1,5 +1,9 @@
 #include "SparseKeyPointMatcher.hpp"
-#include <algorithm>
+#include <iostream>
+#include <iomanip>
+#include <sstream>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
 
 SparseKeyPointMatcher::SparseKeyPointMatcher(float ratioThreshold, FeatureDetector detector)
     : ratioThreshold_(ratioThreshold), detector_(detector),
@@ -62,7 +66,8 @@ MatchResult SparseKeyPointMatcher::match(const cv::Mat &grayLeft,
     }
 
     std::sort(rankedMatches.begin(), rankedMatches.end(),
-              [](const auto &a, const auto &b) {
+              [](const auto &a, const auto &b)
+              {
                   return a.first < b.first;
               });
 

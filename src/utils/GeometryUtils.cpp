@@ -118,8 +118,8 @@ namespace GeometryUtils
                                     const std::vector<cv::Point2f> &ptsR,
                                     const std::vector<bool> &inlierMask,
                                     const cv::Mat &K,
-                                    Eigen::Matrix3d &R_est,
-                                    Eigen::Vector3d &t_est)
+                                    cv::Mat &R_est,
+                                    cv::Mat &t_est)
     {
         // filter points to only include the robust inliers
         std::vector<cv::Point2f> inL, inR;
@@ -142,11 +142,7 @@ namespace GeometryUtils
         // E = K^T * F * K
         cv::Mat E = K.t() * F_cv * K;
 
-        cv::Mat R_cv, t_cv;
-        cv::recoverPose(E, inL, inR, K, R_cv, t_cv);
-
-        cv::cv2eigen(R_cv, R_est);
-        cv::cv2eigen(t_cv, t_est);
+        cv::recoverPose(E, inL, inR, K, R_est, t_est);
 
         return true;
     }
