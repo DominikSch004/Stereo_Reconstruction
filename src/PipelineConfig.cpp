@@ -146,13 +146,29 @@ PipelineConfig PipelineConfig::load(const std::string &path)
         cfg.rng = std::mt19937(cfg.rngSeed);
     }
 
-    v = readKey(fs, "pose_refinement", "false");
+    v = readKey(fs, "pose_refinement", "true");
     if (v == "true")
         cfg.refinePose = true;
     else if (v == "false")
         cfg.refinePose = false;
     else
         invalidValue("pose_refinement", v, "true | false");
+
+    v = readKey(fs, "intensity_consistent_disparity", "false");
+    if (v == "true")
+        cfg.useIntensityConsistentSelection = true;
+    else if (v == "false")
+        cfg.useIntensityConsistentSelection = false;
+    else
+        invalidValue("intensity_consistent_disparity", v, "true | false");
+
+    v = readKey(fs, "disparity_gap_fill", "false");
+    if (v == "true")
+        cfg.useGapFill = true;
+    else if (v == "false")
+        cfg.useGapFill = false;
+    else
+        invalidValue("disparity_gap_fill", v, "true | false");
 
     return cfg;
 }
@@ -184,5 +200,7 @@ void PipelineConfig::print() const
     std::cout << "\n[Config] Tunable parameters:\n"
               << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n"
               << "  processing_scale:   " << processingScale << "\n"
-              << "  ratio_threshold:    " << ratioThreshold << "\n";
+              << "  ratio_threshold:    " << ratioThreshold << "\n"
+              << "  intensity_consistent_disparity: " << (useIntensityConsistentSelection ? "true" : "false") << "\n"
+              << "  disparity_gap_fill: " << (useGapFill ? "true" : "false") << "\n";
 }
