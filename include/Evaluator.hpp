@@ -42,6 +42,46 @@ struct EvaluatorRes
     double chamfer_completeness;
 };
 
+struct DisparityRes
+{
+    int minDisp = 0, numDisp = 0;
+
+    // Coverage / range over valid pixels
+    double coverage = 0.0;
+    long nonBlackPixels = 0;
+    long validPixels = 0;
+    double dispMin = 0.0, dispMax = 0.0, dispMean = 0.0;
+
+    // Sparse inlier disparity distribution (xL_rect - xR_rect)
+    size_t sparseCount = 0;
+    double sparseMin = 0.0, sparseP2 = 0.0, sparseMean = 0.0, sparseMedian = 0.0, sparseP98 = 0.0, sparseMax = 0.0;
+    int negativeCount = 0;
+
+    // Dense-vs-sparse disparity agreement
+    size_t checkedCount = 0;
+    double agreementMean = 0.0, agreementMedian = 0.0, agreementMax = 0.0;
+    int within2px = 0;
+
+    // Photometric reconstruction error (right -> left warp)
+    double photometricMAE = 0.0;
+    long photometricSamples = 0;
+
+    // Textureless region analysis (gradient magnitude < 5.0)
+    long texturelessCount = 0;
+    long invalidNonBlack = 0;
+    long invalidAndTextureless = 0;
+
+    bool pass = false;
+};
+
+struct RectificationRes
+{
+    size_t correspondences = 0;
+    double meanErr = 0.0, medianErr = 0.0, maxErr = 0.0;
+    int within1px = 0;
+    bool pass = false;
+};
+
 class Evaluator
 {
 public:
@@ -86,4 +126,32 @@ public:
                                          const std::vector<cv::Point3f> &gt_cloud,
                                          double &mad_accuracy,
                                          double &completeness);
+
+    // Dense disparity quality: coverage, sparse-vs-dense agreement, photometric
+    // consistency and textureless-region correlation. inPtsL/inPtsR are the
+    // (unrectified) sparse RANSAC inlier correspondences; R1/P1/R2/P2 are the
+    // rectifying transforms used to bring them into the same frame as disp.
+    static DisparityRes evaluateDisparity(const cv::Mat &disp,
+                                          const cv::Mat &rectL, const cv::Mat &rectR,
+                                          const std::vector<cv::Point2f> &inPtsL,
+                                          const std::vector<cv::Point2f> &inPtsR,
+                                          const cv::Mat &K,
+                                          const cv::Mat &R1, const cv::Mat &P1,
+                                          const cv::Mat &R2, const cv::Mat &P2,
+                                          int minDisp, int numDisp);
+
+    // Error is reported in native pixels plus a full-res equivalent (÷ scale) line when
+    // scale != 1.0, since 1px of error does not mean the same real-world distance at
+    // different processing resolutions
+    static void printDisparity(const DisparityRes &res, double scale = 0.5);
+
+    // Rectification vertical-alignment error. inL/inR are the (unrectified) sparse
+    // RANSAC inlier correspondences; R1/P1/R2/P2 are the rectifying transforms.
+    static RectificationRes evaluateRectification(const std::vector<cv::Point2f> &inL,
+                                                   const std::vector<cv::Point2f> &inR,
+                                                   const cv::Mat &K,
+                                                   const cv::Mat &R1, const cv::Mat &P1,
+                                                   const cv::Mat &R2, const cv::Mat &P2);
+
+    static void printRectification(const RectificationRes &res);
 };

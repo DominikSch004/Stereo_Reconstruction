@@ -6,6 +6,7 @@
 #include "SparseKeyPointMatcher.hpp"
 #include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
+#include "Evaluator.hpp"
 
 namespace VisualizationUtils
 {
@@ -48,14 +49,17 @@ namespace VisualizationUtils
         const Eigen::Vector3d t_gt,
         const cv::Mat K);
 
+    // metrics is the result of Evaluator::evaluateRectification on the same inL/inR/rect
     void visualizeRectification(
         const RectifyResult &rect,
         const std::vector<cv::Point2f> &inL,
         const std::vector<cv::Point2f> &inR,
         const cv::Mat &K,
+        const RectificationRes &metrics,
         const std::string &windowName = "Rectification Verification",
         const std::string &savePath = "");
 
+    // metrics is the result of Evaluator::evaluateDisparity on the same disp/rect/inliers
     void visualizeDisparity(
         const cv::Mat &disp,
         const RectifyResult &rect,
@@ -64,6 +68,7 @@ namespace VisualizationUtils
         const cv::Mat &K,
         int minDisp,
         int numDisp,
+        const DisparityRes &metrics,
         const std::string &windowName = "Disparity Verification",
         const std::string &savePath = "");
 }

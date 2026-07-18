@@ -9,6 +9,7 @@
 #include <sstream>
 #include <iostream>
 #include <filesystem>
+#include <cstdlib>
 
 namespace // Anonymous namespace for private helper functions
 {
@@ -107,8 +108,13 @@ namespace VisualizationUtils
             std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
         }
 
-        cv::imshow("Sparse Key Point Matching correspondences", vis);
-        cv::waitKey(0);
+        if (std::getenv("DISPLAY") != nullptr)
+        {
+            cv::imshow("Sparse Key Point Matching correspondences", vis);
+            cv::waitKey(0);
+            cv::destroyAllWindows();
+            cv::waitKey(1); 
+        }
     }
 
     void displayEpipolarMatches(const std::string &windowTitle, const cv::Mat &imgL, const cv::Mat &imgR,
@@ -189,8 +195,6 @@ namespace VisualizationUtils
                         font, fontScale, cv::Scalar(0, 255, 0), thickness, cv::LINE_AA);
         }
 
-        cv::namedWindow(windowTitle, cv::WINDOW_NORMAL);
-        cv::imshow(windowTitle, combined);
         if (cv::imwrite(savePath, combined))
         {
             std::cout << "Saved epipolar image to: " << savePath << "\n";
@@ -199,9 +203,15 @@ namespace VisualizationUtils
         {
             std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
         }
-        cv::waitKey(0);
-        cv::destroyAllWindows();
-        cv::waitKey(1);
+
+        if (std::getenv("DISPLAY") != nullptr)
+        {
+            cv::namedWindow(windowTitle, cv::WINDOW_NORMAL);
+            cv::imshow(windowTitle, combined);
+            cv::waitKey(0);
+            cv::destroyAllWindows();
+            cv::waitKey(1);
+        }
     }
 
     void visualizeOutliers(const std::vector<cv::Point2f> &ptsL,
@@ -233,12 +243,15 @@ namespace VisualizationUtils
         cv::resize(visLeft, displayImgLeft, cv::Size(), 0.5, 0.5);
         cv::resize(visRight, displayImgRight, cv::Size(), 0.5, 0.5);
 
-        cv::imshow(leftWindowTitle, displayImgLeft);
-        cv::imshow(rightWindowTitle, displayImgRight);
-        std::cout << "Press any key on the image window to continue to the experiments...\n";
-        cv::waitKey(0);
-        cv::destroyAllWindows();
-        cv::waitKey(1);
+        if (std::getenv("DISPLAY") != nullptr)
+        {
+            cv::imshow(leftWindowTitle, displayImgLeft);
+            cv::imshow(rightWindowTitle, displayImgRight);
+            std::cout << "Press any key on the image window to continue to the experiments...\n";
+            cv::waitKey(0);
+            cv::destroyAllWindows();
+            cv::waitKey(1);
+        }
     }
 
     void fundamentalExplorationVideo(
@@ -264,8 +277,10 @@ namespace VisualizationUtils
         else
             imgR.copyTo(baseR);
 
-        // 2. Setup the window
-        cv::namedWindow(windowName, cv::WINDOW_NORMAL);
+        // 2. Setup the window (skipped headless)
+        const bool hasDisplay = (std::getenv("DISPLAY") != nullptr);
+        if (hasDisplay)
+            cv::namedWindow(windowName, cv::WINDOW_NORMAL);
 
         // 3. Keep a "trail" image that accumulates past points
         cv::Mat accumL = baseL.clone();
@@ -347,24 +362,27 @@ namespace VisualizationUtils
             }
 
             // --- RENDER TO SCREEN ---
-            cv::imshow(windowName, displayImg);
-
-            char c = 0;
-
-            // If a pause interval is set and we've reached it
-            if (pauseInterval > 0 && (it + 1) % pauseInterval == 0)
+            if (hasDisplay)
             {
-                c = (char)cv::waitKey(0); // Wait infinitely for user input
-            }
-            else
-            {
-                c = (char)cv::waitKey(750); // Standard playback delay
-            }
+                cv::imshow(windowName, displayImg);
 
-            if (c == 27)
-            { // ESC key
-                std::cout << "Playback aborted by user.\n";
-                break;
+                char c = 0;
+
+                // If a pause interval is set and we've reached it
+                if (pauseInterval > 0 && (it + 1) % pauseInterval == 0)
+                {
+                    c = (char)cv::waitKey(0); // Wait infinitely for user input
+                }
+                else
+                {
+                    c = (char)cv::waitKey(750); // Standard playback delay
+                }
+
+                if (c == 27)
+                { // ESC key
+                    std::cout << "Playback aborted by user.\n";
+                    break;
+                }
             }
         }
 
@@ -374,10 +392,13 @@ namespace VisualizationUtils
             std::cout << "Saved iterations video to: " << savePath << "\n";
         }
 
-        std::cout << windowName << " finished. Press any key to continue...\n";
-        cv::waitKey(0);
-        cv::destroyAllWindows();
-        cv::waitKey(1);
+        if (hasDisplay)
+        {
+            std::cout << windowName << " finished. Press any key to continue...\n";
+            cv::waitKey(0);
+            cv::destroyAllWindows();
+            cv::waitKey(1);
+        }
 
         std::cout << "\nFinal " << windowName << " Sampson Error: " << visualize.final_sampson_err << " px.\n";
         std::cout << "Final " << windowName << " Inlier Count: " << visualize.final_inlier_count << "\n";
@@ -443,7 +464,7 @@ namespace VisualizationUtils
     }
 
     void visualizeRectification(const RectifyResult &rect, const std::vector<cv::Point2f> &inL, const std::vector<cv::Point2f> &inR, const cv::Mat &K,
-                                const std::string &windowName, const std::string &savePath)
+                                const RectificationRes &metrics, const std::string &windowName, const std::string &savePath)
     {
         // 1. Map points to rectified space
         cv::Mat dist = cv::Mat::zeros(5, 1, CV_64F);
@@ -468,22 +489,10 @@ namespace VisualizationUtils
         cv::hconcat(vizL, vizR, combined);
         int xOff = vizL.cols;
 
-        // Variables for our metrics
-        double sumErr = 0.0;
-        double maxErr = 0.0;
-        int goodCount = 0;
-
-        // 5. Draw matches and calculate errors
+        // 5. Draw matches, colored by their own per-point error
         for (size_t i = 0; i < rL.size(); ++i)
         {
             double dy = std::abs(rL[i].y - rR[i].y);
-
-            // Track metrics
-            sumErr += dy;
-            if (dy > maxErr)
-                maxErr = dy;
-            if (dy <= 1.0)
-                goodCount++;
 
             // Determine color based on strict error thresholds
             cv::Scalar color = (dy <= 1.0) ? cv::Scalar(0, 255, 0) : (dy <= 3.0) ? cv::Scalar(0, 255, 255)
@@ -499,21 +508,19 @@ namespace VisualizationUtils
             cv::line(combined, pt1, pt2, color, 1, cv::LINE_AA);
         }
 
-        // Calculate final metric values
-        double meanErr = rL.empty() ? 0.0 : sumErr / rL.size();
-        double pctWithin1px = rL.empty() ? 0.0 : (100.0 * goodCount) / rL.size();
+        double pctWithin1px = metrics.correspondences ? (100.0 * metrics.within1px) / metrics.correspondences : 0.0;
 
         // 6. Construct HUD Text
         std::ostringstream hud;
-        hud << "mean dy=" << std::fixed << std::setprecision(2) << meanErr << "px  "
-            << "max=" << std::fixed << std::setprecision(2) << maxErr << "px  "
+        hud << "mean dy=" << std::fixed << std::setprecision(2) << metrics.meanErr << "px  "
+            << "max=" << std::fixed << std::setprecision(2) << metrics.maxErr << "px  "
             << "within 1px=" << std::fixed << std::setprecision(2) << pctWithin1px << "%";
 
         // Draw text with a thick black outline for visibility over bright images
         cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8, {0, 0, 0}, 4, cv::LINE_AA);
 
         // Draw the actual text color based on the mean alignment quality
-        cv::Scalar textColor = (meanErr <= 1.0) ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+        cv::Scalar textColor = metrics.pass ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
         cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8, textColor, 1, cv::LINE_AA);
 
         if (cv::imwrite(savePath, combined))
@@ -524,73 +531,36 @@ namespace VisualizationUtils
         {
             std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
         }
-        cv::imshow(windowName, combined);
-        cv::waitKey(0);
-        cv::destroyAllWindows();
-        cv::waitKey(1);
+        if (std::getenv("DISPLAY") != nullptr)
+        {
+            cv::imshow(windowName, combined);
+            cv::waitKey(0);
+            cv::destroyAllWindows();
+            cv::waitKey(1);
+        }
     }
 
     void visualizeDisparity(const cv::Mat &disp, const RectifyResult &rect,
                             const std::vector<cv::Point2f> &inPtsL, const std::vector<cv::Point2f> &inPtsR,
-                            const cv::Mat &K, int minDisp, int numDisp, const std::string &windowName, const std::string &savePath)
+                            const cv::Mat &K, int minDisp, int numDisp, const DisparityRes &metrics,
+                            const std::string &windowName, const std::string &savePath)
     {
         const cv::Mat &rectL = rect.rectLeft;
         const cv::Mat &rectR = rect.rectRight;
         const float lo = float(minDisp);
         const float hi = float(minDisp + numDisp);
 
-        // --- 1. Coverage Stats ---
-        long valid = 0;
-        for (int y = 0; y < disp.rows; ++y)
-        {
-            for (int x = 0; x < disp.cols; ++x)
-            {
-                float d = disp.at<float>(y, x);
-                if (d >= lo && d < hi)
-                    ++valid;
-            }
-        }
+        // Aggregate numbers (coverage, sparse-vs-dense error, photometric MAE, textureless %)
+        // come from `metrics`.
         cv::Mat nonBlackMask = rectL > 0;
-        long nonBlackPixels = cv::countNonZero(nonBlackMask);
-        double coverage = nonBlackPixels > 0 ? 100.0 * valid / nonBlackPixels : 0.0;
 
-        // --- 2. Ground-Truth Check (Sparse vs Dense) ---
         cv::Mat distC = cv::Mat::zeros(5, 1, CV_64F);
         std::vector<cv::Point2f> rL, rR;
         cv::undistortPoints(inPtsL, rL, K, distC, rect.R1, rect.P1);
         cv::undistortPoints(inPtsR, rR, K, distC, rect.R2, rect.P2);
 
-        std::vector<double> sparseErr;
-        for (size_t i = 0; i < rL.size(); ++i)
-        {
-            int x = cvRound(rL[i].x), y = cvRound(rL[i].y);
-            if (x < 0 || y < 0 || x >= disp.cols || y >= disp.rows)
-                continue;
-
-            float dDense = disp.at<float>(y, x);
-            if (!(std::isfinite(dDense) && dDense >= lo && dDense < hi))
-                continue;
-
-            double dTrue = rL[i].x - rR[i].x;
-            sparseErr.push_back(std::abs(dDense - dTrue));
-        }
-
-        double sMean = 0;
-        int within2 = 0;
-        for (double e : sparseErr)
-        {
-            sMean += e;
-            if (e <= 2.0)
-                ++within2;
-        }
-        sMean = sparseErr.empty() ? 0 : sMean / sparseErr.size();
-
-        // --- 3. Photometric Check ---
         cv::Mat warpedR(rectL.size(), rectL.type(), cv::Scalar(0));
         cv::Mat photoMask(rectL.size(), CV_8U, cv::Scalar(0));
-        double photoSum = 0;
-        long photoN = 0;
-
         for (int y = 0; y < disp.rows; ++y)
         {
             for (int x = 0; x < disp.cols; ++x)
@@ -603,25 +573,19 @@ namespace VisualizationUtils
                 if (xr < 0 || xr >= rectR.cols)
                     continue;
 
-                uchar vr = rectR.at<uchar>(y, xr);
-                warpedR.at<uchar>(y, x) = vr;
+                warpedR.at<uchar>(y, x) = rectR.at<uchar>(y, xr);
                 photoMask.at<uchar>(y, x) = 255;
-                photoSum += std::abs((int)rectL.at<uchar>(y, x) - (int)vr);
-                ++photoN;
             }
         }
-        double photoMAE = photoN ? photoSum / photoN : 0;
 
-        // --- 4. Textureless Analysis ---
         cv::Mat gradX, gradY, gradMag;
         cv::Sobel(rectL, gradX, CV_32F, 1, 0, 3);
         cv::Sobel(rectL, gradY, CV_32F, 0, 1, 3);
         cv::magnitude(gradX, gradY, gradMag);
-        const float textureThresh = 5.0f;
+        const float textureThresh = 5.0f; // > threshold -> textureless
         cv::Mat texturelessMask = (gradMag < textureThresh) & nonBlackMask;
-        long texturelessCount = cv::countNonZero(texturelessMask);
 
-        // --- 5. Visualizations Assembly ---
+        // --- Visualizations Assembly ---
         cv::Mat vizL;
         cv::cvtColor(rectL, vizL, cv::COLOR_GRAY2BGR);
         cv::Mat vizDisp = colorizeDisparity(disp, minDisp, numDisp);
@@ -675,24 +639,23 @@ namespace VisualizationUtils
         label(vizL, "Rectified Left");
 
         std::ostringstream sDisp;
-        sDisp << "Disparity cover=" << std::fixed << std::setprecision(0) << coverage << "% dErr=" << std::setprecision(2) << sMean << "px";
+        sDisp << "Disparity cover=" << std::fixed << std::setprecision(0) << metrics.coverage
+              << "% dErr=" << std::setprecision(2) << metrics.agreementMean << "px";
         label(vizDisp, sDisp.str());
 
         std::ostringstream sErr;
-        sErr << "Photo error MAE=" << std::fixed << std::setprecision(1) << photoMAE;
+        sErr << "Photo error MAE=" << std::fixed << std::setprecision(1) << metrics.photometricMAE;
         label(vizErr, sErr.str());
 
         std::ostringstream sTex;
         sTex << "Textureless " << std::fixed << std::setprecision(0)
-             << (nonBlackPixels ? 100.0 * texturelessCount / nonBlackPixels : 0.0)
+             << (metrics.nonBlackPixels ? 100.0 * metrics.texturelessCount / metrics.nonBlackPixels : 0.0)
              << "% (cyan=matched, red=invalid)";
         label(vizTex, sTex.str());
 
         cv::Mat combined;
         cv::hconcat(std::vector<cv::Mat>{vizL, vizDisp, vizErr, vizTex}, combined);
 
-        // Render and handle MacOS GUI loop
-        cv::namedWindow(windowName, cv::WINDOW_NORMAL);
         if (cv::imwrite(savePath, combined))
         {
             std::cout << "Saved disparity image to: " << savePath << "\n";
@@ -701,9 +664,15 @@ namespace VisualizationUtils
         {
             std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
         }
-        cv::imshow(windowName, combined);
-        cv::waitKey(0);
-        cv::destroyAllWindows();
-        cv::waitKey(1); // Flush event queue
+
+        // Skip interactive display on headless runs
+        if (std::getenv("DISPLAY") != nullptr)
+        {
+            cv::namedWindow(windowName, cv::WINDOW_NORMAL);
+            cv::imshow(windowName, combined);
+            cv::waitKey(0);
+            cv::destroyAllWindows();
+            cv::waitKey(1);
+        }
     }
 }
