@@ -21,6 +21,44 @@ struct PointCloud
 };
 
 /**
+ * @brief Per-point decomposition of the stereo confidence used by weighted ICP.
+ *
+ * The vectors are emitted in exactly the same order as PointCloud::pts.  Keeping
+ * the factors separate is essential for a fair ablation: the geometry is built
+ * once and only the weights change between ICP variants.
+ */
+struct PointConfidenceBreakdown
+{
+    std::vector<float> cameraDepth;     // Z in the rectified camera frame [mm]
+    std::vector<float> depthConfidence; // relative inverse depth variance
+    std::vector<float> edgeConfidence;  // disparity-edge suppression
+    std::vector<float> stereoConfidence;// left/right + photometric consistency
+
+    void clear()
+    {
+        cameraDepth.clear();
+        depthConfidence.clear();
+        edgeConfidence.clear();
+        stereoConfidence.clear();
+    }
+};
+
+/**
+ * @brief Selects which factors enter w = c_global c_depth c_edge c_stereo.
+ *
+ * A disabled term contributes 1.0.  c_global is constant within one source
+ * cloud and therefore cannot change the minimizer of a single ICP problem; it
+ * remains explicit so that this structural null result can be verified.
+ */
+struct ConfidenceWeightConfig
+{
+    bool useGlobal = true;
+    bool useDepth = true;
+    bool useEdge = true;
+    bool useStereo = true;
+};
+
+/**
  * @class PlyUtils
  * @brief Coordinates dense point cloud generation, coordinate transformations, and PLY streaming.
  */
@@ -42,7 +80,9 @@ public:
         const cv::Mat &rectColor,
         int minDisp,
         float globalConfidence,
-        TriangulationMethod method = TriangulationMethod::OpenCV
+        TriangulationMethod method = TriangulationMethod::OpenCV,
+        const cv::Mat &disparityConfidence = cv::Mat(),
+        const ConfidenceWeightConfig &weightConfig = ConfidenceWeightConfig()
     );
 
     /**
@@ -65,7 +105,10 @@ public:
         const cv::Mat &rectColor,
         int minDisp,
         float globalConfidence,
-        TriangulationMethod method = TriangulationMethod::OpenCV
+        TriangulationMethod method = TriangulationMethod::OpenCV,
+        const cv::Mat &disparityConfidence = cv::Mat(),
+        const ConfidenceWeightConfig &weightConfig = ConfidenceWeightConfig(),
+        PointConfidenceBreakdown *breakdown = nullptr
     );
 
     /**

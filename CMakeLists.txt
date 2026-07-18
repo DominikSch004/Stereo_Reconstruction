@@ -69,6 +69,12 @@ add_executable(IcpBenchmark benchmark/IcpBenchmark.cpp)
 target_include_directories(IcpBenchmark PRIVATE include)
 target_link_libraries(IcpBenchmark PRIVATE stereo_core)
 
+# Paired factor ablation for w = c_global*c_depth*c_edge*c_stereo, including
+# independent transform recovery and structured-light reference metrics.
+add_executable(ConfidenceIcpAblation benchmark/ConfidenceIcpAblation.cpp)
+target_include_directories(ConfidenceIcpAblation PRIVATE include)
+target_link_libraries(ConfidenceIcpAblation PRIVATE stereo_core)
+
 # Chamfer accuracy of saved fused/per-pair clouds against the DTU GT scan
 add_executable(FusedCloudEval benchmark/FusedCloudEval.cpp)
 target_include_directories(FusedCloudEval PRIVATE include)

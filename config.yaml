@@ -23,6 +23,21 @@ rectification: opencv
 # Birchfield-Tomasi cost + 16-direction path aggregation)
 disparity: opencv
 
+# Confidence cue used by confidence-weighted ICP. The hard left/right check is
+# common to every ablation variant; the surviving soft confidence is c_stereo.
+# Booleans use 0/1 for OpenCV FileStorage portability.
+stereo_confidence_filter: 1
+stereo_lr_max_diff: 1.5
+stereo_photometric_scale: 25.0
+
+# w = c_global * c_depth * c_edge * c_stereo. Disable terms here for production
+# experiments; benchmark/ConfidenceIcpAblation.cpp composes every ablation from
+# one fixed point cloud, so its comparisons never change the sampled geometry.
+conf_use_global: 1
+conf_use_depth: 1
+conf_use_edge: 1
+conf_use_stereo: 1
+
 # opencv | custom  (custom = per-pixel DLT triangulation)
 triangulation: opencv
 
@@ -30,7 +45,7 @@ triangulation: opencv
 # point_to_point is the default: the per-point normals available here come from
 # +/-1px central differences on raw stereo disparity and are too noisy to
 # support point-to-plane residuals (they caused tangential drift in fusion).
-icp_mode: point_to_plane
+icp_mode: point_to_point
 
 # true | false non-linear refinement of (R, t) directly on the essential-matrix 
 # space after recoverPose

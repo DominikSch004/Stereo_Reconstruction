@@ -6,6 +6,8 @@
 #include "Evaluator.hpp"
 #include "ImgUtils.hpp"
 
+#include <filesystem>
+
 int main()
 {
     // 0. Setup & CSV Initialization

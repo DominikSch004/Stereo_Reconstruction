@@ -17,11 +17,15 @@ bool PlyUtils::buildAndSavePLY(
     const cv::Mat &rectColor,
     int minDisp,
     float globalConfidence,
-    TriangulationMethod method)
+    TriangulationMethod method,
+    const cv::Mat &disparityConfidence,
+    const ConfidenceWeightConfig &weightConfig)
 {
     std::cout << "Orchestrating point cloud export to: " << path << "\n";
     
-    PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld, rectColor, minDisp, globalConfidence, method);
+    PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld,
+                                       rectColor, minDisp, globalConfidence,
+                                       method, disparityConfidence, weightConfig);
     
     if (cloud.pts.empty()) {
         std::cerr << "WARNING: Point cloud generated no points. Aborting file write sequence.\n";
@@ -41,7 +45,10 @@ PointCloud PlyUtils::buildPointCloud(
     const cv::Mat &rectColor,
     int minDisp,
     float globalConfidence,
-    TriangulationMethod method)
+    TriangulationMethod method,
+    const cv::Mat &disparityConfidence,
+    const ConfidenceWeightConfig &weightConfig,
+    PointConfidenceBreakdown *breakdown)
 {
     cv::Mat disp32f;
     if (disparity.type() == CV_32F)
@@ -52,6 +59,8 @@ PointCloud PlyUtils::buildPointCloud(
     cv::Mat pts3D = Triangulation::reprojectDisparityTo3D(disp32f, Q, P1r, P2r, minDisp, method);
     if (pts3D.empty())
         return PointCloud();
+    if (breakdown)
+        breakdown->clear();
 
     cv::Mat gradX, gradY;
     cv::Sobel(disp32f, gradX, CV_32F, 1, 0, 3);
@@ -75,10 +84,42 @@ PointCloud PlyUtils::buildPointCloud(
         // Fallback safety
         fB = 1000.0; 
     
-    // TODO: Currently assuming a baseline sub-pixel matching accuracy of 0.5 pixels. 
-    // This value should be propagated from the stereo matching cost layer 
-    // or the geometric sparse RANSAC re-projection error.
+    // Baseline sub-pixel uncertainty.  The value is converted to depth variance
+    // with sigma_Z^2 = Z^4 sigma_d^2 / (fB)^2.  Only relative precision matters
+    // to ICP, so normalize it by the median valid depth variance below.  This
+    // avoids the unit-dependent 1/(1 + variance_mm2) formulation.
     const float sigma_d = 0.5f;
+
+    std::vector<float> depthVariances;
+    depthVariances.reserve(pts3D.total() / 2);
+    for (int y = 0; y < pts3D.rows; ++y)
+    {
+        for (int x = 0; x < pts3D.cols; ++x)
+        {
+            if (disp32f.at<float>(y, x) <= static_cast<float>(minDisp))
+                continue;
+            const cv::Vec3f p = pts3D.at<cv::Vec3f>(y, x);
+            if (!std::isfinite(p[2]) || p[2] <= 0.0f || p[2] > zMax)
+                continue;
+            const float zSq = p[2] * p[2];
+            depthVariances.push_back((zSq * zSq) /
+                                     static_cast<float>(fB * fB) *
+                                     (sigma_d * sigma_d));
+        }
+    }
+    float medianDepthVariance = 1.0f;
+    if (!depthVariances.empty())
+    {
+        auto middle = depthVariances.begin() + depthVariances.size() / 2;
+        std::nth_element(depthVariances.begin(), middle, depthVariances.end());
+        medianDepthVariance = std::max(*middle, 1e-12f);
+    }
+
+    const bool haveStereoConfidence =
+        !disparityConfidence.empty() &&
+        disparityConfidence.type() == CV_32F &&
+        disparityConfidence.size() == disp32f.size();
+
     for (int y = 0; y < pts3D.rows; ++y)
     {
         for (int x = 0; x < pts3D.cols; ++x)
@@ -96,7 +137,13 @@ PointCloud PlyUtils::buildPointCloud(
             float zSq = p[2] * p[2];
             float variance = (zSq * zSq) / static_cast<float>(fB * fB) * (sigma_d * sigma_d);
             
-            float depthConfidence = 1.0f / (1.0f + variance);
+            // Relative inverse variance.  The cap limits leverage from a small
+            // number of unusually close points while preserving the depth cue's
+            // ordering and dimensionless interpretation.
+            float depthConfidence = std::min(
+                100.0f,
+                medianDepthVariance /
+                    std::max(variance, 0.01f * medianDepthVariance));
 
             float edgeGradient = gradMag.at<float>(y, x);
 
@@ -105,7 +152,15 @@ PointCloud PlyUtils::buildPointCloud(
             // The denominator (5.0f) controls the sensitivity to edges.
             float edgeWeight = std::exp(-edgeGradient / 5.0f);
 
-            float finalWeight = globalConfidence * depthConfidence * edgeWeight;
+            const float stereoConfidence = haveStereoConfidence
+                ? std::clamp(disparityConfidence.at<float>(y, x), 0.0f, 1.0f)
+                : 1.0f;
+
+            const float finalWeight =
+                (weightConfig.useGlobal ? globalConfidence : 1.0f) *
+                (weightConfig.useDepth ? depthConfidence : 1.0f) *
+                (weightConfig.useEdge ? edgeWeight : 1.0f) *
+                (weightConfig.useStereo ? stereoConfidence : 1.0f);
 
             Eigen::Vector3f normalCam = Eigen::Vector3f::Zero();
             bool normalOk = false;
@@ -143,6 +198,14 @@ PointCloud PlyUtils::buildPointCloud(
             cloud.pts.push_back(Eigen::Vector3f((float)w[0], (float)w[1], (float)w[2]));
             cloud.colors.push_back(rectColor.at<cv::Vec3b>(y, x));
             cloud.weights.push_back(finalWeight);
+
+            if (breakdown)
+            {
+                breakdown->cameraDepth.push_back(p[2]);
+                breakdown->depthConfidence.push_back(depthConfidence);
+                breakdown->edgeConfidence.push_back(edgeWeight);
+                breakdown->stereoConfidence.push_back(stereoConfidence);
+            }
 
             if (normalOk) {
                 Eigen::Matrix3d R_eigen;

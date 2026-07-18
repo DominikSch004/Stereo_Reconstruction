@@ -156,6 +156,86 @@ cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, i
     }
 }
 
+cv::Mat Disparity::filterAndComputeConfidence(
+    const cv::Mat &left, const cv::Mat &right, cv::Mat &disparityLeft,
+    int minDisp, int numDisp, int blockSize, DisparityMethod method,
+    float lrMaxDiff, float photometricScale)
+{
+    CV_Assert(disparityLeft.type() == CV_32F && disparityLeft.size() == left.size());
+    CV_Assert(left.type() == CV_8U && right.type() == CV_8U && left.size() == right.size());
+
+    lrMaxDiff = std::max(lrMaxDiff, 1e-3f);
+    photometricScale = std::max(photometricScale, 1e-3f);
+
+    cv::Mat disparityRight;
+    bool rightUsesPositiveConvention = false;
+    if (method == DisparityMethod::OpenCVSGBM)
+    {
+        // Swapping the images reverses OpenCV's disparity sign.  Search the
+        // mirrored interval so d_left + d_right is the cycle-consistency error.
+        const int minRight = -(minDisp + numDisp);
+        disparityRight = computeSGBMOpenCV(right, left, minRight, numDisp, blockSize);
+    }
+    else
+    {
+        cv::Mat leftFloat, rightFloat;
+        left.convertTo(leftFloat, CV_32F);
+        right.convertTo(rightFloat, CV_32F);
+        disparityRight = computeWTADisparity(
+            leftFloat, rightFloat, left.rows, left.cols,
+            minDisp, numDisp, 8, 32, true);
+        rightUsesPositiveConvention = true;
+    }
+
+    cv::Mat confidence(left.size(), CV_32F, cv::Scalar(0.0f));
+    const float invalidDisparity = static_cast<float>(minDisp - 1);
+    size_t validBefore = 0;
+    size_t validAfter = 0;
+
+    for (int y = 0; y < left.rows; ++y)
+    {
+        for (int x = 0; x < left.cols; ++x)
+        {
+            float &d = disparityLeft.at<float>(y, x);
+            if (!std::isfinite(d) || d <= static_cast<float>(minDisp))
+                continue;
+            ++validBefore;
+
+            const int rightX = cvRound(static_cast<float>(x) - d);
+            if (rightX < 0 || rightX >= right.cols)
+            {
+                d = invalidDisparity;
+                continue;
+            }
+
+            const float dRight = disparityRight.at<float>(y, rightX);
+            const float lrError = rightUsesPositiveConvention
+                ? std::abs(d - dRight)
+                : std::abs(d + dRight);
+            if (!std::isfinite(dRight) || lrError > lrMaxDiff)
+            {
+                d = invalidDisparity;
+                continue;
+            }
+
+            const float photoError = std::abs(
+                static_cast<float>(left.at<uchar>(y, x)) -
+                static_cast<float>(right.at<uchar>(y, rightX)));
+            const float lrConfidence = std::exp(
+                -0.5f * lrError * lrError / (lrMaxDiff * lrMaxDiff));
+            const float photoConfidence = std::exp(-photoError / photometricScale);
+            confidence.at<float>(y, x) = lrConfidence * photoConfidence;
+            ++validAfter;
+        }
+    }
+
+    std::cout << "[Disparity] left/right validation kept " << validAfter << "/"
+              << validBefore << " valid disparities ("
+              << (validBefore ? 100.0 * static_cast<double>(validAfter) / validBefore : 0.0)
+              << "%).\n";
+    return confidence;
+}
+
 cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize)
 {
     int numChannels = left.channels(); // images are grayscale (1) & (3) BGR
