@@ -65,8 +65,7 @@ public:
      */
     static void preprocessScale(
         const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, double scale,
-        cv::Mat &gray1, cv::Mat &gray2, cv::Mat &bgrLeft, cv::Mat &bgrRight,
-        cv::Mat &K, cv::Size &sz);
+        cv::Mat &gray1, cv::Mat &gray2, cv::Mat &bgrLeft, cv::Mat &K, cv::Size &sz);
 
     /**
      * @brief Scales a disparity block size (in pixels) by `scale` so the matching window

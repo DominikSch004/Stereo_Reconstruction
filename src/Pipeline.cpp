@@ -35,8 +35,8 @@ void Pipeline::preprocessScale(const cv::Mat &imgLeft, const cv::Mat &imgRight, 
                                cv::Mat &gray1, cv::Mat &gray2, cv::Mat &bgrLeft, cv::Mat &K, cv::Size &sz)
 {
     bgrLeft = imgLeft.clone();
-    cv::cvtColor(imgLeft, gray1, cv::COLOR_BGR2GRAY);
-    cv::cvtColor(imgRight, gray2, cv::COLOR_BGR2GRAY);
+    gray1 = toGray(imgLeft);
+    gray2 = toGray(imgRight);
 
     sz = cv::Size(cvRound(gray1.cols * scale), cvRound(gray1.rows * scale));
     cv::resize(gray1, gray1, sz);

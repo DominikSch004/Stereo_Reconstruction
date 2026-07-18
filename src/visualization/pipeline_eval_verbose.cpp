@@ -1,6 +1,10 @@
 #include <iostream>
+#include <limits>
+#include <cmath>
+#include <algorithm>
 #include "DTULoader.hpp"
 #include "Evaluator.hpp"
+#include "Pipeline.hpp"
 
 #include "SparseKeyPointMatcher.hpp"
 #include "Rectification.hpp"
@@ -40,13 +44,20 @@ int main(int argc, char **argv)
 
     // Load image pair
     StereoPair pair = loader.loadPair(config.imageLeftId, config.imageRightId, config.datasetId, config.illuminationId);
-    cv::Mat grayLeft = toGray(pair.imageLeft);
-    cv::Mat grayRight = toGray(pair.imageRight);
 
     // Load full absolute poses for both cameras
     CameraPose poseLeft = loader.loadCameraPose(config.imageLeftId);
     CameraPose poseRight = loader.loadCameraPose(config.imageRightId);
-    cv::Mat K = toCvMat(poseLeft.K);
+    cv::Mat K_in = toCvMat(poseLeft.K);
+
+    // Grayscale conversion + config.processingScale downscale
+    // same preprocessing as Pipeline::runPipeline applies, so
+    // this runs at the same resolution as every other executable
+    // driven by the same config.yaml.
+    cv::Mat grayLeft, grayRight, bgrLeft, K;
+    cv::Size sz;
+    Pipeline::preprocessScale(pair.imageLeft, pair.imageRight, K_in, config.processingScale,
+                              grayLeft, grayRight, bgrLeft, K, sz);
 
     // Calculate Ground Truth relative pose
     Eigen::Matrix3d R_gt;
@@ -104,19 +115,22 @@ int main(int argc, char **argv)
         return 0;
 
     cv::recoverPose(E, inL, inR, K, R, t);
+    // recoverPose's t is unit-norm; rescale to the true DTU metric baseline (mm) so
+    // downstream triangulation comes out at real-world scale, same as Pipeline::runPipeline.
+    Pipeline::rescaleToTrueBaseline(poseLeft.t, poseRight.t, t);
     // Evaluation
     EightPointParams initParams = {ptsL, ptsR, F_cv, inliers, R_gt, t_gt, toEigenMat(R), toEigenVec(t)};
     EightPointRes metricsRes = Evaluator::evaluateEightPoint(initParams);
     Evaluator::printEightPoint(metricsRes);
 
-    VisualizationUtils::displayEpipolarMatches("Sample of 20 Epipolar Matches (Before Rectification)", pair.imageLeft, pair.imageRight,
+    VisualizationUtils::displayEpipolarMatches("Sample of 20 Epipolar Matches (Before Rectification)", bgrLeft, bgrRight,
                                                ptsL, ptsR, inliers, F, metricsRes.rot_error_deg, metricsRes.trans_error_deg, metricsRes.epipolar_error,
                                                20, out_dir + "/epipolarMatchesVisualization.png");
 
     // Optional: non-linear refinement of (R, t) directly on the
     // essential-matrix space
     // See comments in FundamentalMatrix.cpp for details on why we do this
-    if (config.refinePose) // flag here is just for comparison, remove it later
+    if (config.refinePose) // measured to meaningfully improve dense disparity quality; on by default (see config.yaml)
     {
         GeometryUtils::refinePose(K, inL, inR, R, t);
         // Recompute E = [t]x * R from the new pose as its used for evaluation
@@ -126,18 +140,21 @@ int main(int argc, char **argv)
         E = tx * R;
     }
 
-    cv::Size sz = grayLeft.size();
-    cv::Mat bgr1 = pair.imageLeft;
+    // refinePose can change t's scale/direction; rescale again, same as Pipeline::runPipeline.
+    Pipeline::rescaleToTrueBaseline(poseLeft.t, poseRight.t, t);
 
     std::cout << "\n--- Stereo Rectification ---\n";
     RectifyResult rect;
-    if (!Rectification::computeCalibrated(K, R, t, sz, grayLeft, grayRight, bgr1, rect, config.rectification))
+    if (!Rectification::computeCalibrated(K, R, t, sz, grayLeft, grayRight, bgrLeft, rect, config.rectification))
     {
         std::cerr << "ERROR: Stereo rectification execution failure.\n";
         return 0;
     }
 
-    VisualizationUtils::visualizeRectification(rect, inL, inR, K, "Rectification Verification", out_dir + "/rectificationVisualization.png");
+    RectificationRes rectRes = Evaluator::evaluateRectification(inL, inR, K, rect.R1, rect.P1, rect.R2, rect.P2);
+    Evaluator::printRectification(rectRes);
+
+    VisualizationUtils::visualizeRectification(rect, inL, inR, K, rectRes, "Rectification Verification", out_dir + "/rectificationVisualization.png");
 
     std::cout << "\n--- Dense Stereo Matching ---\n";
 
@@ -151,16 +168,17 @@ int main(int argc, char **argv)
         rect.R2, rect.P2,
         sz, minDisp, numDisp);
 
+    // Disparity
     std::cout << "Dynamic minDisp: " << minDisp << "\n";
     std::cout << "Dynamic numDisp: " << numDisp << "\n";
 
-    const int blockSize = 7;
+    const int blockSize = Pipeline::scaledBlockSize(7, config.processingScale);
 
     // Compute the dense disparity map using the rectified images and dynamic bounds
     cv::Mat denseDisparity = Disparity::computeDisparity(
         rect.rectLeft, rect.rectRight,
         minDisp, numDisp,
-        blockSize, config.disparity);
+        blockSize, config.disparity, config.processingScale);
 
     if (denseDisparity.empty())
     {
@@ -168,7 +186,42 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    VisualizationUtils::visualizeDisparity(denseDisparity, rect, inL, inR, K, minDisp, numDisp, "Disparity Verification", out_dir + "/disparityVisualization.png");
+    DisparityRes dispRes = Evaluator::evaluateDisparity(denseDisparity, rect.rectLeft, rect.rectRight,
+                                                        inL, inR, K, rect.R1, rect.P1, rect.R2, rect.P2,
+                                                        minDisp, numDisp);
+    Evaluator::printDisparity(dispRes, config.processingScale);
+
+    VisualizationUtils::visualizeDisparity(denseDisparity, rect, inL, inR, K, minDisp, numDisp, dispRes, "Disparity Verification", out_dir + "/disparityVisualization.png");
+
+    // Triangulation
+    cv::Mat dense3DPoints = Triangulation::reprojectDisparityTo3D(denseDisparity, rect.Q, rect.P1, rect.P2, minDisp, config.triangulation);
+    if (dense3DPoints.empty())
+    {
+        std::cerr << "ERROR: 3D point cloud generation failed.\n";
+        return 0;
+    }
+
+    const float maxValidZ = 9000.0f;
+    long validPts = 0;
+    double zSum = 0.0, zMin = std::numeric_limits<double>::max(), zMax = std::numeric_limits<double>::lowest();
+    for (int y = 0; y < dense3DPoints.rows; ++y)
+        for (int x = 0; x < dense3DPoints.cols; ++x)
+        {
+            const cv::Vec3f &p = dense3DPoints.at<cv::Vec3f>(y, x);
+            if (!std::isfinite(p[2]) || p[2] <= 0.0f || p[2] > maxValidZ)
+                continue;
+            ++validPts;
+            zSum += p[2];
+            zMin = std::min(zMin, static_cast<double>(p[2]));
+            zMax = std::max(zMax, static_cast<double>(p[2]));
+        }
+
+    std::cout << "\n--- Triangulation sanity check ---\n";
+    std::cout << "  valid 3D points : " << validPts << " / " << (dense3DPoints.rows * dense3DPoints.cols) << "\n";
+    if (validPts > 0)
+        std::cout << "  depth (Z) range : [" << zMin << ", " << zMax << "] mm, mean " << (zSum / validPts) << "\n";
+    else
+        std::cerr << "  WARNING: no pixel triangulated to a finite, positive depth.\n";
 
     std::cout << "\n--- Exporting 3D Point Cloud ---\n";
     std::string plyFilename = out_dir + "/pointcloud.ply";
