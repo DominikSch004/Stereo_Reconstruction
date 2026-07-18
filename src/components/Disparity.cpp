@@ -6,6 +6,19 @@
 #include <cstdint>
 #include <limits>
 #include <algorithm>
+#include <cmath>
+
+// Scales a pixel-unit threshold linearly with image scale
+int scaleLinear(double base, double scale, int minVal)
+{
+    return std::max(minVal, static_cast<int>(std::round(base * scale)));
+}
+
+// Scales a pixel-area threshold quadratically with image scale
+int scaleArea(double base, double scale, int minVal)
+{
+    return std::max(minVal, static_cast<int>(std::round(base * scale * scale)));
+}
 
 // For each pixel, the nearest valid (>= minDisp) disparity found by walking strictly in
 // direction (dx,dy) from that pixel (NaN if the walk reaches the image border without
@@ -152,14 +165,14 @@ cv::Mat Disparity::nearestValidInDirection(const cv::Mat &disp, int minDisp, int
     return result;
 }
 
-cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method)
+cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method, double scale)
 {
     switch (method)
     {
     case DisparityMethod::OpenCVSGBM:
-        return computeSGBMOpenCV(left, right, minDisp, numDisp, blockSize);
+        return computeSGBMOpenCV(left, right, minDisp, numDisp, blockSize, scale);
     case DisparityMethod::Custom:
-        return computeCustom(left, right, minDisp, numDisp, blockSize);
+        return computeCustom(left, right, minDisp, numDisp, blockSize, scale);
     default:
         std::cout << "Failed! Select a valid disparity method";
         return cv::Mat();
@@ -206,20 +219,33 @@ void Disparity::computeDynamicSearchRangeCalibrated(
     numDisp = (numDisp / 16) * 16;
 }
 
-cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize)
+cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale)
 {
     int numChannels = left.channels(); // images are grayscale (1) & (3) BGR
+
+    // disp12MaxDiff/speckleRange are disparity-unit tolerances -- scale linearly with
+    // disparity magnitude (scale=1.0 keeps the original values: 1, 32). speckleWindowSize
+    // is a minimum blob *area* -- scale quadratically (scale=1.0 keeps 100). In practice
+    // disp12MaxDiff stays clamped to 1 for any scale in the valid (0, 1] range, since it's
+    // already at its floor -- see the scaleLinear minVal comment above.
+    
+    // scale wtih given scale to make everything comparable as much as possible
+    // between scales/resolutions.
+    const int disp12MaxDiff = scaleLinear(1, scale, 1);     // simple unit tolerence -> scale linearly
+    const int speckleWindowSize = scaleArea(100, scale, 1); // window of base area   -> scale quadritically
+    const int speckleRange = scaleLinear(32, scale, 1);     // simple unit tolerence -> scale linearly
+
     auto sgbm = cv::StereoSGBM::create(
         minDisp,
         numDisp,
         blockSize,
         8 * numChannels * blockSize * blockSize,  // P1 smoothness penalty
         32 * numChannels * blockSize * blockSize, // P2 smoothness penalty
-        1,                                        // disp12MaxDiff
-        0,                                        // preFilterCap
-        10,                                       // uniquenessRatio
-        100,                                      // speckleWindowSize
-        32,                                       // speckleRange
+        disp12MaxDiff,
+        0,                                        // preFilterCap    (intensity  - scale invariant)
+        10,                                       // uniquenessRatio (percentage - invariant)
+        speckleWindowSize,
+        speckleRange,
         cv::StereoSGBM::MODE_SGBM);
 
     cv::Mat disp16;
@@ -553,7 +579,7 @@ cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &disp
 // minSegmentSize. This removes small isolated patches of incorrect disparity
 // ("peaks", e.g. from noise/low texture) while preserving real scene
 // strucutre, which forms much larger connected segments.
-cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSegmentSize)
+cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSegmentSize, float maxSegmentDispDiff)
 {
     const int rows = disparity.rows;
     const int cols = disparity.cols;
@@ -615,8 +641,8 @@ cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSeg
                     float dn = disparity.at<float>(ny, nx);
 
                     // accept the neighbour only if it has a valid disparity
-                    // and differs by at most 1 px from the current pixel.
-                    if (!(dn > minDispF) || std::abs(dn - dp) > 1.0f)
+                    // and differs by at most maxSegmentDispDiff px from the current pixel.
+                    if (!(dn > minDispF) || std::abs(dn - dp) > maxSegmentDispDiff)
                         continue;
 
                     visited.at<uchar>(ny, nx) = 255;
@@ -635,13 +661,18 @@ cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSeg
     return result;
 }
 
-cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize)
+cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale)
 {
     // blockSize is not used as BT cost volume is computer per-pixel and not within a window
     const int P1 = 8;  // smoothness penalty for disparity change of 1
     const int P2 = 32; // smoothness penalty for disparity change greater than
     const int rows = left.rows;
     const int cols = left.cols;
+
+    // Mirrors computeSGBMOpenCV's disp12MaxDiff/speckleWindowSize scaling
+    const float LRConsistencyTol = static_cast<float>(scaleLinear(1, scale, 1));   // cv::StereoSGBM's disp12MaxDiff
+    const int minPeakSegment = scaleArea(100, scale, 1);                           // cv::StereoSGBM's speckleWindowSize
+    const float maxSegmentDispDiff = static_cast<float>(scaleLinear(1, scale, 1)); // cv::StereoSGBM's speckleRange
 
     cv::Mat leftF, rightF;
     left.convertTo(leftF, CV_32F);
@@ -665,7 +696,7 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
             float d = dispLeft.at<float>(r, c);
             int qx = cvRound(c - d); // corresponding x in the right image
 
-            bool consistent = (qx >= 0 && qx < cols) && (std::abs(d - dispRight.at<float>(r, qx)) <= 1.0f);
+            bool consistent = (qx >= 0 && qx < cols) && (std::abs(d - dispRight.at<float>(r, qx)) <= LRConsistencyTol);
             disparity.at<float>(r, c) = consistent ? d : static_cast<float>(minDisp - 1);
         }
     }
@@ -679,8 +710,7 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     // NOTE: coverage vs. dense-vs-sparse accuracy is a continuous tradeoff here
     // As we increase minPeakSegment, it decreases coverage and increases
     // dense-vs-sparse accuracy.
-    const int minPeakSegment = 100; // cv::StereoSGBM's speckleWindowSize
-    disparity = removePeaks(disparity, minDisp, minPeakSegment);
+    disparity = removePeaks(disparity, minDisp, minPeakSegment, maxSegmentDispDiff);
 
     // Gap interpolation (Hirschmuller 2008, Sec 2.5.3): pushes coverage to 100% but currently
     // worsens accuracy (mean error 31->34px, photometric MAE 3.9->34.2) as >80% of
