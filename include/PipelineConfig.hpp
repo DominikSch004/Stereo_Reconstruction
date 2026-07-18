@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <utility>
+#include <vector>
 #include "FundamentalMatrix.hpp"
 #include "Rectification.hpp"
 #include "Disparity.hpp"
@@ -51,6 +53,11 @@ struct PipelineConfig
     int imageLeftId = 1;
     int imageRightId = 2;
     int illuminationId = 3;
+
+    // Image pairs fused by the IcpFusion executable. Filled from
+    // 'icp_image_pairs' (explicit list) or 'icp_view_range' (expanded to
+    // consecutive pairs). Default: consecutive pairs over views 6..19.
+    std::vector<std::pair<int, int>> icpImagePairs;
 
     // threshold for FLANN after SIFT
     float ratioThreshold = 0.75f;

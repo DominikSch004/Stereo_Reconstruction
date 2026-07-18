@@ -29,9 +29,8 @@ int main(int argc, char **argv)
     }
     config.print();
 
-    std::vector<std::pair<int, int>> selectedPairs;
-    for (int v = 6; v < 19; ++v)
-        selectedPairs.emplace_back(v, v + 1);
+    // Image pairs come from the config: 'icp_image_pairs' or 'icp_view_range'
+    const std::vector<std::pair<int, int>> &selectedPairs = config.icpImagePairs;
 
     const size_t icpSamples = 4000;      // coarse-stage source subsample
     const size_t icpFineSamples = 30000; // fine-stage source subsample (plenty for 6 DOF)
@@ -64,7 +63,8 @@ int main(int argc, char **argv)
         std::cout << "\n=== Processing Pair (" << leftView << ", " << rightView << ") ["
                   << (clouds.size() + 1) << "/" << selectedPairs.size() << "] ===\n";
 
-        StereoPair pair = loader.loadPair(leftView, rightView);
+        StereoPair pair = loader.loadPair(leftView, rightView,
+                                          config.datasetId, config.illuminationId);
         cv::Mat K(3, 3, CV_64F);
         for (int r = 0; r < 3; ++r)
             for (int c = 0; c < 3; ++c)

@@ -229,7 +229,6 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
     Eigen::Matrix4f bestPose = initialPose;
     double bestMeanDist = std::numeric_limits<double>::max();
     int bestMatchCount = 0;
-    int divergingStreak = 0;
 
 
     // Outlier Rejection Lambda: transforms the source by the current pose, queries nearest neighbors, and prunes matches.
@@ -304,16 +303,6 @@ Eigen::Matrix4f CeresICPOptimizer::estimatePose(
             bestMeanDist = meanDist;
             bestPose = estimatedPose;
             bestMatchCount = matched;
-            divergingStreak = 0;
-        }
-        // Early stopping if no divergence is observed
-        else if (++divergingStreak >= 5)
-        {
-            if (m_verbose)
-                std::cout << "  [ICP iter " << iter << "] mean distance has not improved for "
-                          << divergingStreak << " iterations (best " << bestMeanDist
-                          << ", now " << meanDist << ") -- stopping.\n";
-            break;
         }
 
         // --- Diagnostics ---
