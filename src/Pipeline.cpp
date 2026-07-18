@@ -32,9 +32,10 @@ void Pipeline::rescaleToTrueBaseline(const Eigen::Vector3d &C1, const Eigen::Vec
 }
 
 void Pipeline::preprocessScale(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, double scale,
-                               cv::Mat &gray1, cv::Mat &gray2, cv::Mat &bgrLeft, cv::Mat &K, cv::Size &sz)
+                               cv::Mat &gray1, cv::Mat &gray2, cv::Mat &bgrLeft, cv::Mat &bgrRight, cv::Mat &K, cv::Size &sz)
 {
     bgrLeft = imgLeft.clone();
+    bgrRight = imgRight.clone();
     gray1 = toGray(imgLeft);
     gray2 = toGray(imgRight);
 
@@ -42,6 +43,7 @@ void Pipeline::preprocessScale(const cv::Mat &imgLeft, const cv::Mat &imgRight, 
     cv::resize(gray1, gray1, sz);
     cv::resize(gray2, gray2, sz);
     cv::resize(bgrLeft, bgrLeft, sz);
+    cv::resize(bgrRight, bgrRight, sz);
 
     K = K_in.clone();
     K.at<double>(0, 0) *= scale;
@@ -60,9 +62,9 @@ int Pipeline::scaledBlockSize(int baseBlockSize, double scale)
 bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, const PipelineConfig &config, const Eigen::Vector3d &C1, const Eigen::Vector3d &C2)
 {
     // --- 0. Preprocessing: grayscale conversion + config.processingScale downscale ---
-    cv::Mat bgr1, gray1, gray2, K;
+    cv::Mat bgr1, bgrRightUnused, gray1, gray2, K;
     cv::Size sz;
-    preprocessScale(imgLeft, imgRight, K_in, config.processingScale, gray1, gray2, bgr1, K, sz);
+    preprocessScale(imgLeft, imgRight, K_in, config.processingScale, gray1, gray2, bgr1, bgrRightUnused, K, sz);
     res.imgSize = sz;
     res.rectColor = bgr1;
     res.K = K.clone();

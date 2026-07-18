@@ -54,10 +54,10 @@ int main(int argc, char **argv)
     // same preprocessing as Pipeline::runPipeline applies, so
     // this runs at the same resolution as every other executable
     // driven by the same config.yaml.
-    cv::Mat grayLeft, grayRight, bgrLeft, K;
+    cv::Mat grayLeft, grayRight, bgrLeft, bgrRight, K;
     cv::Size sz;
     Pipeline::preprocessScale(pair.imageLeft, pair.imageRight, K_in, config.processingScale,
-                              grayLeft, grayRight, bgrLeft, K, sz);
+                              grayLeft, grayRight, bgrLeft, bgrRight, K, sz);
 
     // Calculate Ground Truth relative pose
     Eigen::Matrix3d R_gt;
