@@ -54,24 +54,16 @@ triangulation: custom
 # point_to_point is the default: the per-point normals available here come from
 # +/-1px central differences on raw stereo disparity and are too noisy to
 # support point-to-plane residuals (they caused tangential drift in fusion).
-icp_mode: point_to_point
+icp_mode: point_to_plane
 
-# true | false non-linear refinement of (R, t) directly on the essential-matrix
+# true | false non-linear refinement of (R, t) directly on the essential-matrix 
 # space after recoverPose
 pose_refinement: true
 
-# true | false  Custom disparity backend only (Hirschmuller 2008 Sec 2.5.2): fits
-# competing plane hypotheses per intensity segment to recover coverage/accuracy in
-# untextured interiors. Helps on genuinely planar scenes like scan6 but hurts on
-# curved objects like scan1, as it violate the paper's Assumption 3
-# ("surface approximable by a plane").
-intensity_consistent_disparity: true
-
-# true | false  Custom disparity backend only (Hirschmuller 2008 Sec 2.5.3): pushes
-# coverage to 100% by interpolating remaining gaps. Off by default as we have a low
-# coverage.
-disparity_gap_fill: false
-
 # (0, 1.0]  image downscale factor applied before every pipeline step, via
 # Pipeline::preprocessScale. 1.0 = full resolution, no downscale.
-processing_scale: 0.5
+processing_scale: 1
+
+
+
+

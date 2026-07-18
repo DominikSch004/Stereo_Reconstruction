@@ -165,15 +165,14 @@ cv::Mat Disparity::nearestValidInDirection(const cv::Mat &disp, int minDisp, int
     return result;
 }
 
-cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method, double scale,
-                                    bool useIntensityConsistentSelection, bool useGapFill)
+cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method, double scale)
 {
     switch (method)
     {
     case DisparityMethod::OpenCVSGBM:
         return computeSGBMOpenCV(left, right, minDisp, numDisp, blockSize, scale);
     case DisparityMethod::Custom:
-        return computeCustom(left, right, minDisp, numDisp, blockSize, scale, useIntensityConsistentSelection, useGapFill);
+        return computeCustom(left, right, minDisp, numDisp, blockSize, scale);
     default:
         std::cout << "Failed! Select a valid disparity method";
         return cv::Mat();
@@ -303,6 +302,12 @@ void Disparity::computeDynamicSearchRangeCalibrated(
 cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale)
 {
     int numChannels = left.channels(); // images are grayscale (1) & (3) BGR
+
+    // disp12MaxDiff/speckleRange are disparity-unit tolerances -- scale linearly with
+    // disparity magnitude (scale=1.0 keeps the original values: 1, 32). speckleWindowSize
+    // is a minimum blob *area* -- scale quadratically (scale=1.0 keeps 100). In practice
+    // disp12MaxDiff stays clamped to 1 for any scale in the valid (0, 1] range, since it's
+    // already at its floor -- see the scaleLinear minVal comment above.
     
     // scale wtih given scale to make everything comparable as much as possible
     // between scales/resolutions.
@@ -358,14 +363,6 @@ void Disparity::computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &I
     }
 }
 
-// Birchfield & Tomasi (BT) 98
-float Disparity::btCost(float baseVal, float minBase, float maxBase, float matchVal, float minMatch, float maxMatch)
-{
-    float cost_base_match = std::max({0.0f, baseVal - maxMatch, minMatch - baseVal});
-    float cost_match_base = std::max({0.0f, matchVal - maxBase, minBase - matchVal});
-    return std::min(cost_base_match, cost_match_base);
-}
-
 std::vector<uint16_t> Disparity::computeCostVolume(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, bool rightBase)
 {
     // Birchfield & Tomasi (BT) 98 - Pixel Dissimilarity d(xi, yi) Section 2.1.2
@@ -410,7 +407,10 @@ std::vector<uint16_t> Disparity::computeCostVolume(const cv::Mat &left, const cv
                     float Imin_match_val = Imin_match.at<float>(r, matchCol);
                     float Imax_match_val = Imax_match.at<float>(r, matchCol);
 
-                    float cost_value = btCost(base_val, Imin_base_val, Imax_base_val, match_val, Imin_match_val, Imax_match_val);
+                    float cost_base_match = std::max({0.0f, base_val - Imax_match_val, Imin_match_val - base_val});
+                    float cost_match_base = std::max({0.0f, match_val - Imax_base_val, Imin_base_val - match_val});
+
+                    float cost_value = std::min(cost_base_match, cost_match_base);
 
                     int idx = (r * base.cols + c) * numDisp + d;
                     costVolume[idx] = static_cast<uint16_t>(std::min(cost_value, 2047.0f));
@@ -421,8 +421,8 @@ std::vector<uint16_t> Disparity::computeCostVolume(const cv::Mat &left, const cv
     return costVolume;
 }
 
-void Disparity::aggregateDirection(const std::vector<uint16_t> &C, std::vector<uint16_t> &S, const cv::Mat &baseF,
-                                   int rows, int cols, int numDisp, int dx, int dy, int P1, int P2Base)
+void Disparity::aggregateDirection(const std::vector<uint16_t> &C, std::vector<uint16_t> &S,
+                                   int rows, int cols, int numDisp, int dx, int dy, int P1, int P2)
 {
     std::vector<int> Lr(static_cast<size_t>(rows) * cols * numDisp);
 
@@ -458,15 +458,6 @@ void Disparity::aggregateDirection(const std::vector<uint16_t> &C, std::vector<u
                 //                min_k Lr(p-r, k) + P2  // any larger change
                 //              )
                 //            - min_k Lr(p-r, k)         // subtract to keep values bounded (16-bit safe)
-                //
-                // P2 adapts to the base-image intensity gradient along this path step
-                // (Hirschmuller 2008, Eq. after (13)): P2 = P2' / |I_p - I_{p-r}|, clamped
-                // to >= P1. Real depth discontinuities usually coincide with intensity
-                // edges, so this lets the disparity jump freely there while keeping the
-                // full penalty in flat/textured regions.
-                float intensityDiff = std::abs(baseF.at<float>(y, x) - baseF.at<float>(py, px));
-                int P2 = std::max(P1, static_cast<int>(std::round(P2Base / std::max(1.0f, intensityDiff))));
-
                 int predIdx = (py * cols + px) * numDisp;                              // predecessor pixel index
                 int minPrev = *std::min_element(&Lr[predIdx], &Lr[predIdx + numDisp]); // min_k Lr(p-r, k)
 
@@ -490,7 +481,7 @@ void Disparity::aggregateDirection(const std::vector<uint16_t> &C, std::vector<u
 }
 
 // Full cost volume -> 16-direction aggregation -> WTA pipeline for one base image.
-cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right, int rows, int cols, int minDisp, int numDisp, int P1, int P2Base, bool rightBase)
+cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right, int rows, int cols, int minDisp, int numDisp, int P1, int P2, bool rightBase)
 {
     static const int dirs[16][2] = {// All 16 directions for aggregation
                                     {1, 0},
@@ -512,13 +503,9 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
 
     std::vector<uint16_t> costVolume = computeCostVolume(left, right, minDisp, numDisp, rightBase);
 
-    // P2 adapts to gradients in whichever image is the base for this pass (Hirschmuller
-    // 2008 defines it over I_b specifically, not a fixed image).
-    const cv::Mat &baseF = rightBase ? right : left;
-
     std::vector<uint16_t> S(static_cast<size_t>(rows) * cols * numDisp, 0);
     for (auto &d : dirs)
-        aggregateDirection(costVolume, S, baseF, rows, cols, numDisp, d[0], d[1], P1, P2Base);
+        aggregateDirection(costVolume, S, rows, cols, numDisp, d[0], d[1], P1, P2);
 
     cv::Mat disparity(rows, cols, CV_32F);
     for (int r = 0; r < rows; ++r)
@@ -556,7 +543,7 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
     return disparity;
 }
 
-cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, const cv::Mat &baseF, int minDisp, int numDisp)
+cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, int minDisp, int numDisp)
 {
     // Hirschmuller 2008, Sec 2.5.3
     static const int dirs[8][2] = {
@@ -580,10 +567,6 @@ cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &disp
             float d = disparity.at<float>(y, x);
             if (d >= static_cast<float>(minDisp))
                 continue; // already valid, nothing to fill
-
-            // Black rectification border
-            if (baseF.at<float>(y, x) <= 0.0f)
-                continue;
 
             wasInvalid.at<uchar>(y, x) = 255;
 
@@ -758,447 +741,11 @@ cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSeg
     return result;
 }
 
-// --- Hirschmuller 2008 Sec 2.5.2: Intensity Consistent Disparity Selection ---
-//
-// Why: adaptive P2 (on aggregateDirection, above) already places disparity discontinuities
-// correctly at intensity edges, but SGM only aggregates along 1D paths, so large
-// untextured interiors (walls, floors, tables) can still come out fuzzy/noisy. This
-// section recovers a clean disparity there by assuming each such interior is a single
-// *plane*, then picking whichever candidate plane the actual stereo cost supports best.
-//
-// Three steps, one function each, called in this order from selectIntensityConsistentDisparity:
-//   1. meanShiftModes                     -- groups the base image into same-intensity regions.
-//   2. segmentByIntensity                 -- turns those regions into labeled connected segments.
-//   3. selectIntensityConsistentDisparity -- per segment, fits candidate planes from the
-//      segment's own (possibly noisy) disparity, scores each against the real stereo
-//      cost, and overwrites the whole segment with the winner.
-//
-// Step 1: per-pixel mode-seeking (fixed-bandwidth Mean Shift) over the base image's
-// (x, y, intensity) domain. Starting at each pixel, repeatedly average the (x, y, I) of
-// every pixel within a sigmaS x sigmaS window whose intensity is within sigmaR of the
-// current estimate, then move to that average. This "climbs" toward the nearest mode
-// (intensity plateau). sigmaS=5 (paper: "a rather low value for fast processing", an
-// 11x11 window), sigmaR=P1 (paper's exact value). Returns each pixel's converged mode
-// intensity; pixels on the same plateau converge to nearly the same value.
-cv::Mat Disparity::meanShiftModes(const cv::Mat &baseF, int sigmaS, float sigmaR, int maxIters, float convergeEps)
-{
-    const int rows = baseF.rows;
-    const int cols = baseF.cols;
-    cv::Mat modes(rows, cols, CV_32F);
-
-    for (int y = 0; y < rows; ++y)
-    {
-        for (int x = 0; x < cols; ++x)
-        {
-            float zx = static_cast<float>(x);
-            float zy = static_cast<float>(y);
-            float zI = baseF.at<float>(y, x);
-
-            for (int iter = 0; iter < maxIters; ++iter)
-            {
-                int cx = cvRound(zx), cy = cvRound(zy);
-                int xlo = std::max(0, cx - sigmaS), xhi = std::min(cols - 1, cx + sigmaS);
-                int ylo = std::max(0, cy - sigmaS), yhi = std::min(rows - 1, cy + sigmaS);
-
-                double sumX = 0.0, sumY = 0.0, sumI = 0.0;
-                int count = 0;
-                for (int yy = ylo; yy <= yhi; ++yy)
-                {
-                    for (int xx = xlo; xx <= xhi; ++xx)
-                    {
-                        float v = baseF.at<float>(yy, xx);
-                        if (std::abs(v - zI) > sigmaR)
-                            continue;
-                        sumX += xx;
-                        sumY += yy;
-                        sumI += v;
-                        ++count;
-                    }
-                }
-                if (count == 0)
-                    break; // (x,y) itself always satisfies the range test, so this can't happen
-
-                float nzx = static_cast<float>(sumX / count);
-                float nzy = static_cast<float>(sumY / count);
-                float nzI = static_cast<float>(sumI / count);
-
-                float shift = std::abs(nzx - zx) + std::abs(nzy - zy) + std::abs(nzI - zI);
-                zx = nzx;
-                zy = nzy;
-                zI = nzI;
-                if (shift < convergeEps)
-                    break;
-            }
-
-            modes.at<float>(y, x) = zI;
-        }
-    }
-
-    return modes;
-}
-
-// Step 2: turns the per-pixel modes from meanShiftModes into labeled segments, using the
-// same 4-connected flood-fill DFS as removePeaks. Here the merge test is "modes within
-// mergeTolerance. mergeTolerance is deliberately tight: pixels on the same mode plateau
-// already converged to nearly identical values in step 1, so this only needs to absorb
-// float/iteration-cap noise, not do the actual grouping. Segments smaller than
-// minSegmentSize are left unlabeled (-1): the paper only wants this to fix large uniform
-// interiors, not small textured detail which SGM already handles fine.
-//
-// The rectified image's black border (from rectification's rotation/skew) is not real
-// content and must never join a segment: if it did, the whole segment (border included)
-// would later inherit that segment's winning plane hypothesis, producing "valid" disparity
-// outside the actual photo leading to a bug: coverage() > 100%.
-cv::Mat Disparity::segmentByIntensity(const cv::Mat &modes, float mergeTolerance, int minSegmentSize)
-{
-    const int rows = modes.rows;
-    const int cols = modes.cols;
-
-    cv::Mat labels(rows, cols, CV_32S, cv::Scalar(-1));
-    cv::Mat visited = cv::Mat::zeros(rows, cols, CV_8U);
-
-    std::vector<cv::Point> stack, segment;
-    static const int dxs[4] = {1, -1, 0, 0};
-    static const int dys[4] = {0, 0, 1, -1};
-
-    int nextLabel = 0;
-    for (int y = 0; y < rows; ++y)
-    {
-        for (int x = 0; x < cols; ++x)
-        {
-            if (visited.at<uchar>(y, x))
-                continue;
-
-            // Black rectification border (see comment above).
-            if (modes.at<float>(y, x) <= 0.0f)
-            {
-                visited.at<uchar>(y, x) = 255;
-                continue;
-            }
-
-            segment.clear();
-            stack.clear();
-            stack.push_back({x, y});
-            visited.at<uchar>(y, x) = 255;
-
-            while (!stack.empty())
-            {
-                cv::Point p = stack.back();
-                stack.pop_back();
-                segment.push_back(p);
-                float ip = modes.at<float>(p.y, p.x);
-
-                for (int k = 0; k < 4; ++k)
-                {
-                    int nx = p.x + dxs[k], ny = p.y + dys[k];
-                    if (nx < 0 || nx >= cols || ny < 0 || ny >= rows)
-                        continue;
-                    if (visited.at<uchar>(ny, nx))
-                        continue;
-
-                    float in = modes.at<float>(ny, nx);
-                    if (in <= 0.0f)
-                        continue; // border pixel, never join a real segment
-                    if (std::abs(in - ip) > mergeTolerance)
-                        continue;
-
-                    visited.at<uchar>(ny, nx) = 255;
-                    stack.push_back({nx, ny});
-                }
-            }
-
-            if (static_cast<int>(segment.size()) >= minSegmentSize)
-            {
-                for (const auto &p : segment)
-                    labels.at<int32_t>(p.y, p.x) = nextLabel;
-                ++nextLabel;
-            }
-        }
-    }
-
-    return labels;
-}
-
-bool Disparity::fitPlane(const std::vector<cv::Point> &pixels, const cv::Mat &disparity, PlaneHypothesis &out)
-{
-    // Normal equations for [a b c] minimizing sum (a*x + b*y + c - d)^2.
-    double Sxx = 0, Sxy = 0, Sx = 0, Syy = 0, Sy = 0, S1 = 0, Sxd = 0, Syd = 0, Sd = 0;
-    for (const auto &p : pixels)
-    {
-        double x = p.x, y = p.y, d = disparity.at<float>(p.y, p.x);
-        Sxx += x * x; Sxy += x * y; Sx += x;
-        Syy += y * y; Sy += y; S1 += 1.0;
-        Sxd += x * d; Syd += y * d; Sd += d;
-    }
-    cv::Matx33d A(Sxx, Sxy, Sx,
-                  Sxy, Syy, Sy,
-                  Sx, Sy, S1);
-    cv::Vec3d B(Sxd, Syd, Sd);
-    cv::Vec3d sol;
-    if (!cv::solve(A, B, sol, cv::DECOMP_SVD))
-        return false;
-    out.a = sol[0]; out.b = sol[1]; out.c = sol[2];
-    return true;
-}
-
-// Step 3 of Sec 2.5.2 (the segment-level decision, see the pipeline overview above
-// meanShiftModes): for each intensity segment, decide what disparity it should have.
-// Three parts, one function each:
-//   a. findPlaneHypotheses (here) -- sub-segment the segment by disparity continuity
-//      (same 4-connected, |neighbour disparity - own disparity| <= 1px rule as
-//      removePeaks) and fit a plane D = a*x + b*y + c through each piece bigger than
-//      12px (Hirschmuller's threshold for trusting a plane fit). These are the
-//      candidate hypotheses for the whole segment. If no piece is big enough to fit
-//      a plane, the segment is left untouched later.
-//   b. scoreHypothesis (below) -- score every hypothesis against the WHOLE segment
-//      using the SGM energy (Eq. 11), skipping occluded pixels.
-//   c. selectIntensityConsistentDisparity (below) -- the lowest-cost hypothesis wins
-//      and overwrites every pixel of the segment (Eq. 17b).
-std::vector<Disparity::PlaneHypothesis> Disparity::findPlaneHypotheses(const std::vector<cv::Point> &Si, int segLabel, const SegmentEvalContext &ctx)
-{
-    std::vector<PlaneHypothesis> hypotheses;
-    cv::Mat subVisited(ctx.rows, ctx.cols, CV_8U, cv::Scalar(0));
-    std::vector<cv::Point> stack, subSegment;
-    static const int dxs[4] = {1, -1, 0, 0};
-    static const int dys[4] = {0, 0, 1, -1};
-
-    for (const auto &seed : Si)
-    {
-        if (subVisited.at<uchar>(seed.y, seed.x))
-            continue;
-
-        float d0 = ctx.disparity.at<float>(seed.y, seed.x);
-        if (!(d0 > ctx.minDispF))
-        {
-            subVisited.at<uchar>(seed.y, seed.x) = 255;
-            continue;
-        }
-
-        subSegment.clear();
-        stack.clear();
-        stack.push_back(seed);
-        subVisited.at<uchar>(seed.y, seed.x) = 255;
-
-        while (!stack.empty())
-        {
-            cv::Point p = stack.back();
-            stack.pop_back();
-            subSegment.push_back(p);
-            float dp = ctx.disparity.at<float>(p.y, p.x);
-
-            for (int k = 0; k < 4; ++k)
-            {
-                int nx = p.x + dxs[k], ny = p.y + dys[k];
-                if (nx < 0 || nx >= ctx.cols || ny < 0 || ny >= ctx.rows)
-                    continue;
-                if (subVisited.at<uchar>(ny, nx))
-                    continue;
-                if (ctx.labels.at<int32_t>(ny, nx) != segLabel)
-                    continue; // stay within this intensity segment
-
-                float dn = ctx.disparity.at<float>(ny, nx);
-                if (!(dn > ctx.minDispF) || std::abs(dn - dp) > 1.0f)
-                    continue;
-
-                subVisited.at<uchar>(ny, nx) = 255;
-                stack.push_back({nx, ny});
-            }
-        }
-
-        // Ignore sub-segments <= 12px (Hirschmuller 2008 Sec 2.5.2, Assumption 3
-        // discussion): too small to trust a plane fit from.
-        if (subSegment.size() <= 12)
-            continue;
-
-        PlaneHypothesis hyp;
-        if (fitPlane(subSegment, ctx.disparity, hyp))
-            hypotheses.push_back(hyp);
-    }
-
-    return hypotheses;
-}
-
-// Part b (see findPlaneHypotheses above): called once per candidate hypothesis. For
-// every pixel of the WHOLE segment (not just the sub-segment that produced this
-// hypothesis), sums two things: (1) the data term: btCost checks whether that
-// pixel's actual color really matches the pixel it would land on in the other image
-// under this hypothesis's predicted disparity, grounding the plane in what the two
-// cameras actually photographed, not just in its own math; (2) the usual P1/P2
-// smoothness cost against its neighbours. Occluded pixels are skipped entirely (the
-// paper's occlusion test: if some other, closer pixel already claims the same
-// match-image column, this pixel is occluded): neither the data nor the smoothness
-// term gets added for them. selectIntensityConsistentDisparity picks whichever
-// hypothesis's total across the whole segment is lowest.
-double Disparity::scoreHypothesis(const PlaneHypothesis &hyp, const std::vector<cv::Point> &Si, int segLabel, const SegmentEvalContext &ctx)
-{
-    // Effective disparity at (x,y) if this segment were replaced by hyp: the
-    // hypothesis value inside the segment, the pixel's own (unaffected) disparity
-    // outside.
-    auto effectiveDisp = [&](int x, int y) -> float
-    {
-        if (ctx.labels.at<int32_t>(y, x) == segLabel)
-            return hyp.at(x, y);
-        return ctx.disparity.at<float>(y, x);
-    };
-
-    static const int dxs[4] = {1, -1, 0, 0};
-    static const int dys[4] = {0, 0, 1, -1};
-
-    double cost = 0.0;
-    for (const auto &p : Si) // for each pixel in the segment
-    {
-        float dHyp = hyp.at(p.x, p.y); // continuous disparity the plane predicts at p
-        int dRound = cvRound(dHyp);    // rounded to the nearest integer disparity level, for cost lookups below
-        if (dRound < ctx.minDisp || dRound > ctx.maxDisp)
-            continue; // hypothesis extrapolates outside the search range here 
-
-        // Occlusion test: qx is the match-image column p would land on under this
-        // hypothesis. Walk every disparity dPrime CLOSER than p's own (dPrime > dRound,
-        // i.e. nearer to the camera) and find which base-image pixel bx would ALSO
-        // land on qx if it had that disparity. If bx's own disparity
-        // is at least dPrime, it really is that close: so bx sits in front of qx and
-        // visually blocks it, meaning p can't actually be seen matching there.
-        int qx = p.x - dRound;
-        bool occluded = false;
-        for (int dPrime = dRound + 1; dPrime <= ctx.maxDisp; ++dPrime)
-        {
-            int bx = qx + dPrime; // base-image pixel that would also project onto qx at disparity dPrime
-            if (bx < 0 || bx >= ctx.cols)
-                continue;
-            float dThere = effectiveDisp(bx, p.y); // bx's actual disparity (this hypothesis inside Si, unchanged outside)
-            if (dThere >= static_cast<float>(dPrime))
-            {
-                occluded = true; // bx really is that close: it hides p from view at qx
-                break;
-            }
-        }
-        if (occluded)
-            continue; // can't verify a hidden match: this pixel contributes no cost either way
-
-        // p's actual match-image column (same value as qx above); pixels whose
-        // hypothesis disparity would look outside the image can't be scored at all.
-        int matchCol = p.x - dRound;
-        if (matchCol < 0 || matchCol >= ctx.cols)
-            continue;
-
-        // Data term: how well p's actual pixel value matches the pixel at matchCol
-        // under this hypothesis's disparity. Low cost = the hypothesis's disparity is
-        // photometrically plausible here; high cost = the colors don't really agree.
-        cost += btCost(ctx.baseF.at<float>(p.y, p.x), ctx.Imin_base.at<float>(p.y, p.x), ctx.Imax_base.at<float>(p.y, p.x),
-                       ctx.matchF.at<float>(p.y, matchCol), ctx.Imin_match.at<float>(p.y, matchCol), ctx.Imax_match.at<float>(p.y, matchCol));
-
-        // Smoothness term: compare p's rounded hypothesis disparity against each of
-        // its 4 neighbours' disparity (their own unaffected value if they're outside
-        // Si, or this same hypothesis if they're inside it: effectiveDisp handles
-        // both). No penalty if they already agree; P1 for a 1px difference; the
-        // larger P2Base ceiling for anything bigger. Neighbours with no valid
-        // disparity of their own don't contribute (nothing to compare against).
-        for (int k = 0; k < 4; ++k)
-        {
-            int nx = p.x + dxs[k], ny = p.y + dys[k];
-            if (nx < 0 || nx >= ctx.cols || ny < 0 || ny >= ctx.rows)
-                continue;
-            float dq = effectiveDisp(nx, ny);
-            if (!(dq > ctx.minDispF && dq <= static_cast<float>(ctx.maxDisp)))
-                continue; // invalid sentinel, or (inside Si) a hypothesis value extrapolated: out of range
-            int diff = std::abs(dRound - cvRound(dq));
-            if (diff == 1)
-                cost += ctx.P1;
-            else if (diff > 1)
-                cost += ctx.P2Base; // flat P2' here -> the local-gradient adaptive P2 is a per-path aggregation concept
-        }
-    }
-
-    return cost;
-}
-
-// Part c (see findPlaneHypotheses above): orchestrates the segment-level decision --
-// builds the intensity segments, then per segment calls findPlaneHypotheses (a) and
-// scoreHypothesis (b) and applies the winning (lowest-cost) hypothesis to every pixel.
-cv::Mat Disparity::selectIntensityConsistentDisparity(const cv::Mat &disparity,
-                                                       const cv::Mat &baseF, const cv::Mat &matchF,
-                                                       const cv::Mat &Imin_base, const cv::Mat &Imax_base,
-                                                       const cv::Mat &Imin_match, const cv::Mat &Imax_match,
-                                                       int minDisp, int numDisp, int P1, int P2Base)
-{
-    const int rows = disparity.rows;
-    const int cols = disparity.cols;
-    const float minDispF = static_cast<float>(minDisp);
-    const int maxDisp = minDisp + numDisp - 1;
-
-    // sigmaS=5, sigmaR=P1 (Hirschmuller 2008 Sec 2.5.2 exact values -- see meanShiftModes).
-    // mergeTolerance=2.0 is deliberately tight, not sigmaR again (see segmentByIntensity).
-    // minSegmentSize=100, same threshold the paper uses and removePeaks/speckleWindowSize use here.
-    cv::Mat modes = meanShiftModes(baseF, 5, static_cast<float>(P1)); // step 1
-    cv::Mat labels = segmentByIntensity(modes, 2.0f, 100); // step 2
-
-    // step 3
-    int segCount = 0;
-    for (int y = 0; y < rows; ++y)
-        for (int x = 0; x < cols; ++x)
-            segCount = std::max(segCount, labels.at<int32_t>(y, x) + 1);
-    if (segCount == 0)
-        return disparity.clone();
-
-    std::vector<std::vector<cv::Point>> segments(segCount);
-    for (int y = 0; y < rows; ++y)
-        for (int x = 0; x < cols; ++x)
-        {
-            int l = labels.at<int32_t>(y, x);
-            if (l >= 0)
-                segments[l].push_back({x, y});
-        }
-
-    const SegmentEvalContext ctx{labels, disparity, baseF, matchF,
-                                  Imin_base, Imax_base, Imin_match, Imax_match,
-                                  minDisp, maxDisp, minDispF, P1, P2Base, rows, cols};
-
-    cv::Mat result = disparity.clone();
-
-    for (int segLabel = 0; segLabel < segCount; ++segLabel)
-    {
-        const std::vector<cv::Point> &Si = segments[segLabel];
-
-        std::vector<PlaneHypothesis> hypotheses = findPlaneHypotheses(Si, segLabel, ctx);
-        if (hypotheses.empty())
-            continue; // no evidence for this segment; leave its disparities untouched
-
-        // Evaluate each hypothesis over the WHOLE segment (Eq. 11's data + smoothness
-        // terms, restricted to unoccluded pixels), pick the minimum-cost one.
-        double bestCost = std::numeric_limits<double>::infinity();
-        int bestIdx = -1;
-        for (size_t h = 0; h < hypotheses.size(); ++h)
-        {
-            double cost = scoreHypothesis(hypotheses[h], Si, segLabel, ctx);
-            if (cost < bestCost)
-            {
-                bestCost = cost;
-                bestIdx = static_cast<int>(h);
-            }
-        }
-        if (bestIdx < 0)
-            continue;
-
-        // D'_p = Fi(p) for every pixel of Si (Eq. 17b): replaces incorrect disparities
-        // *and* fills previously-invalid ones within the segment.
-        const PlaneHypothesis &winner = hypotheses[bestIdx];
-        for (const auto &p : Si)
-            result.at<float>(p.y, p.x) = winner.at(p.x, p.y);
-    }
-
-    return result;
-}
-
-cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale,
-                                 bool useIntensityConsistentSelection, bool useGapFill)
+cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale)
 {
     // blockSize is not used as BT cost volume is computer per-pixel and not within a window
-    const int P1 = 8;   // fixed smoothness penalty for a disparity change of 1
-    const int P2 = 32;  // P2' ceiling for larger changes; aggregateDirection divides this
-                        // by the local base-image intensity gradient (Hirschmuller 2008,
-                        // Eq. after (13)). Matches cv::StereoSGBM's fixed P1:P2 ratio
-                        // of 1:4 (8*bs^2 : 32*bs^2).
-
+    const int P1 = 8;  // smoothness penalty for disparity change of 1
+    const int P2 = 32; // smoothness penalty for disparity change greater than
     const int rows = left.rows;
     const int cols = left.cols;
 
@@ -1245,26 +792,10 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     // dense-vs-sparse accuracy.
     disparity = removePeaks(disparity, minDisp, minPeakSegment, maxSegmentDispDiff);
 
-    // Intensity consistent disparity selection (Hirschmuller 2008, Sec 2.5.2)
-    // the adaptive P2 in aggregateDirection places discontinuities correctly
-    // at intensity edges, but along untextured interiors it can still leave
-    // fuzzy/noisy disparity, since SGM only sees 1D paths and not the 2D
-    // segment as a whole. This recovers coverage/accuracy there by fitting
-    // competing plane hypotheses per intensity segment and picking whichever
-    // the (unoccluded) pixel evidence best supports.
-    if (useIntensityConsistentSelection)
-    {
-        cv::Mat Imin_left, Imax_left, Imin_right, Imax_right;
-        computeBTIntervals(leftF, Imin_left, Imax_left);
-        computeBTIntervals(rightF, Imin_right, Imax_right);
-        disparity = selectIntensityConsistentDisparity(disparity, leftF, rightF,
-                                                        Imin_left, Imax_left, Imin_right, Imax_right,
-                                                        minDisp, numDisp, P1, P2);
-    }
-
     // Gap interpolation (Hirschmuller 2008, Sec 2.5.3): pushes coverage to 100% but currently
     // worsens accuracy (mean error 31->34px, photometric MAE 3.9->34.2) as >80% of
     // pixels start invalid. This should be used to fill small gaps not going to help with such
-    // low coverage. Kept available, off by default (see PipelineConfig).
-    return useGapFill ? interpolateGaps(disparity, dispRight, leftF, minDisp, numDisp) : disparity;
+    // low coverage. Kept available but disabled by default.
+    const bool useGapFill = false;
+    return useGapFill ? interpolateGaps(disparity, dispRight, minDisp, numDisp) : disparity;
 }
