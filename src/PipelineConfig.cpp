@@ -73,6 +73,16 @@ PipelineConfig PipelineConfig::load(const std::string &path)
         cfg.ratioThreshold = 0.75f;
     }
 
+    node = fs["processing_scale"];
+    cfg.processingScale = node.empty() ? 0.5f : static_cast<float>(node);
+
+    // 1.0 = full resolution, no upper limit beyond that makes sense here
+    if (cfg.processingScale <= 0.0f || cfg.processingScale > 1.0f)
+    {
+        std::cout << "[Config] WARNING: processing_scale out of range (0, 1.0]. Defaulting to 0.5\n";
+        cfg.processingScale = 0.5f;
+    }
+
     std::string v = readKey(fs, "feature_detector", "sift");
     if (v == "sift")
         cfg.featureDetector = FeatureDetector::SIFT;
@@ -150,27 +160,29 @@ PipelineConfig PipelineConfig::load(const std::string &path)
 void PipelineConfig::print() const
 {
     auto name = [](bool isOpenCV)
-    { return isOpenCV ? "opencv" : "custom"; };
+    { 
+        return isOpenCV ? "opencv" : "custom";
+    };
 
     std::cout << "\n Image pair config: \n"
               << " selected dataset:     scan" << datasetId << "\n"
               << "  image_pair:         (" << imageLeftId << ", " << imageRightId << ")\n"
               << "  illumination:       " << illuminationId << "\n";
 
-    std::cout << "\n FLANNs ratio_threshold:    " << ratioThreshold << "\n";
-
-    std::cout << "[Config] Pipeline step backends:\n"
+    std::cout << "\n[Config] Pipeline step backends:\n"
               << "  feature_detector:   " << (featureDetector == FeatureDetector::SIFT ? "sift" : "orb") << "\n"
               << "  fundamental_matrix: "
               << (fundamental == FundamentalMethod::OpenCVRANSAC   ? "opencv"
                   : fundamental == FundamentalMethod::CustomRANSAC ? "custom"
                   : fundamental == FundamentalMethod::CustomMAGSAC ? "custom_magsac"
-                                                                   : "custom_prosac")
-              << "\n"
+                                                                   : "custom_prosac") << "\n"
               << "  rectification:      " << name(rectification == RectificationMethod::CalibratedOpenCV) << "\n"
               << "  disparity:          " << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
               << "  triangulation:      " << name(triangulation == TriangulationMethod::OpenCV) << "\n"
-              << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane")
-              << "\n"
-              << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n";
+              << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane") << "\n";
+
+    std::cout << "\n[Config] Tunable parameters:\n"
+              << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n"
+              << "  processing_scale:   " << processingScale << "\n"
+              << "  ratio_threshold:    " << ratioThreshold << "\n";
 }

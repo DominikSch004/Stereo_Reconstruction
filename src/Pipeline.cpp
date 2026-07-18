@@ -31,28 +31,40 @@ void Pipeline::rescaleToTrueBaseline(const Eigen::Vector3d &C1, const Eigen::Vec
     }
 }
 
-bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, const PipelineConfig &config, const Eigen::Vector3d &C1, const Eigen::Vector3d &C2)
+void Pipeline::preprocessScale(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, double scale,
+                               cv::Mat &gray1, cv::Mat &gray2, cv::Mat &bgrLeft, cv::Mat &K, cv::Size &sz)
 {
-    // --- 0. Preprocessing: grayscale conversion + half-resolution processing scale ---
-    cv::Mat bgr1 = imgLeft.clone();
-    cv::Mat gray1, gray2;
+    bgrLeft = imgLeft.clone();
     cv::cvtColor(imgLeft, gray1, cv::COLOR_BGR2GRAY);
     cv::cvtColor(imgRight, gray2, cv::COLOR_BGR2GRAY);
 
-    const double scale = 0.5;
-    cv::Size sz(cvRound(gray1.cols * scale), cvRound(gray1.rows * scale));
+    sz = cv::Size(cvRound(gray1.cols * scale), cvRound(gray1.rows * scale));
     cv::resize(gray1, gray1, sz);
     cv::resize(gray2, gray2, sz);
-    cv::resize(bgr1, bgr1, sz);
-    res.imgSize = sz;
+    cv::resize(bgrLeft, bgrLeft, sz);
 
-    res.rectColor = bgr1;
-
-    cv::Mat K = K_in.clone();
+    K = K_in.clone();
     K.at<double>(0, 0) *= scale;
     K.at<double>(1, 1) *= scale;
     K.at<double>(0, 2) *= scale;
     K.at<double>(1, 2) *= scale;
+}
+
+int Pipeline::scaledBlockSize(int baseBlockSize, double scale)
+{
+    // SGBM requires an odd block size >= 3
+    // | 1 to get nearest odd value
+    return std::max(3, static_cast<int>(std::round(baseBlockSize * scale))) | 1;
+}
+
+bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, PipelineResult &res, const PipelineConfig &config, const Eigen::Vector3d &C1, const Eigen::Vector3d &C2)
+{
+    // --- 0. Preprocessing: grayscale conversion + config.processingScale downscale ---
+    cv::Mat bgr1, gray1, gray2, K;
+    cv::Size sz;
+    preprocessScale(imgLeft, imgRight, K_in, config.processingScale, gray1, gray2, bgr1, K, sz);
+    res.imgSize = sz;
+    res.rectColor = bgr1;
     res.K = K.clone();
 
     // --- 1. Sparse Feature Matching ---
@@ -134,7 +146,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     // Optional: non-linear refinement of (R, t) directly on the
     // essential-matrix space
     // See comments in FundamentalMatrix.cpp for details on why we do this
-    if (config.refinePose) // flag here is just for comparison, remove it later
+    if (config.refinePose)
     {
         GeometryUtils::refinePose(K, res.inPtsL, res.inPtsR, R, t);
         // Recompute E = [t]x * R from the new pose as its used for evaluation
@@ -215,8 +227,8 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     res.numDisp = (res.numDisp / 16) * 16;
 
     // --- 6. Dense Stereo Matching ---
-    const int blockSize = 7;
-    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity);
+    const int blockSize = scaledBlockSize(7, config.processingScale);
+    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity, config.processingScale);
     if (res.denseDisparity.empty())
     {
         std::cerr << "ERROR: Dense stereo matching returned an empty disparity map.\n";
