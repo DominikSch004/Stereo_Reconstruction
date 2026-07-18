@@ -19,16 +19,19 @@ int main(int argc, char **argv)
     }
     config.print();
 
-    // 1. Load data
+    int leftImage = config.imageLeftId;
+    int rightImage = config.imageRightId;
+    int dataset = config.datasetId;
+
     DTULoader loader("../data/dtu/");
 
-    // select by image id, default is dataset 1 (scan1) & illumination 3
-    StereoPair pair = loader.loadPair(1, 2);
+    // select by image id, default is illumination 3
+    StereoPair pair = loader.loadPair(leftImage, rightImage, dataset);
 
     cv::Mat grayLeft = toGray(pair.imageLeft);
     cv::Mat grayRight = toGray(pair.imageRight);
 
-    SparseKeyPointMatcher matcher(0.75f, config.featureDetector);
+    SparseKeyPointMatcher matcher(config.ratioThreshold, config.featureDetector);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
     VisualizationUtils::visualizeSparseKeypoint(result, grayLeft, grayRight);

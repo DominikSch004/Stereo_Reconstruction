@@ -90,8 +90,12 @@ int main()
     StereoPair pair = loader.loadPair(1, 2);
     cv::Mat Kfull = loader.loadIntrinsicCV(1);
 
+    // Rescale t from recoverPose's unit-norm convention to the true DTU metric baseline
+    CameraPose poseLeft = loader.loadCameraPose(1);
+    CameraPose poseRight = loader.loadCameraPose(2);
+
     PipelineResult res;
-    if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, Kfull, res))
+    if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, Kfull, res, PipelineConfig(), poseLeft.t, poseRight.t))
     {
         std::cerr << "ERROR: pipeline failed\n";
         return -1;

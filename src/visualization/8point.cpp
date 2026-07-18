@@ -88,7 +88,7 @@ int main(int argc, char **argv)
             cv::Mat R_est, t_est;
             double rot_err, trans_err;
 
-                if (GeometryUtils::extractPoseFromFundamental(F_opencv, ptsL, ptsR, OpenCVInliers, K, R_est, t_est))
+            if (GeometryUtils::extractPoseFromFundamental(F_opencv, ptsL, ptsR, OpenCVInliers, K, R_est, t_est))
             {
                 Evaluator::evaluatePose(toEigenMat(R_est), toEigenVec(t_est), R_gt, t_gt, rot_err, trans_err);
                 openCVStats.rot_err_sum += rot_err;
@@ -131,7 +131,6 @@ int main(int argc, char **argv)
         std::cout << "  Finished " << NUM_TRIALS << " random trials for pair " << i << ".\n";
     }
 
-    // 2. Print Summary Results
     std::cout << "\n***OVERALL AVERAGES***\n";
 
     auto printAverage = [](const std::string &name, const MethodStats &stats)

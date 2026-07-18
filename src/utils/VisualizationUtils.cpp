@@ -113,7 +113,7 @@ namespace VisualizationUtils
             cv::imshow("Sparse Key Point Matching correspondences", vis);
             cv::waitKey(0);
             cv::destroyAllWindows();
-            cv::waitKey(1); 
+            cv::waitKey(1);
         }
     }
 
@@ -265,7 +265,6 @@ namespace VisualizationUtils
         if (visualize.history_L.empty())
             return;
 
-        // 1. Convert base images to color
         cv::Mat baseL, baseR;
         if (imgL.channels() == 1)
             cv::cvtColor(imgL, baseL, cv::COLOR_GRAY2BGR);
@@ -277,16 +276,15 @@ namespace VisualizationUtils
         else
             imgR.copyTo(baseR);
 
-        // 2. Setup the window (skipped headless)
         const bool hasDisplay = (std::getenv("DISPLAY") != nullptr);
         if (hasDisplay)
             cv::namedWindow(windowName, cv::WINDOW_NORMAL);
 
-        // 3. Keep a "trail" image that accumulates past points
+        // keep a "trail" image that accumulates past points
         cv::Mat accumL = baseL.clone();
         cv::Mat accumR = baseR.clone();
 
-        // 4. Setup the Video Exporter
+        // setup the Video Exporter
         cv::VideoWriter video;
         bool isSavingVideo = !savePath.empty();
 
@@ -299,7 +297,6 @@ namespace VisualizationUtils
             }
         }
 
-        // Playback loop
         for (size_t it = 0; it < visualize.history_L.size(); ++it)
         {
             cv::Mat frameL = accumL.clone();
@@ -307,40 +304,34 @@ namespace VisualizationUtils
 
             for (size_t i = 0; i < visualize.history_L[it].size(); ++i)
             {
-                // Draw the CURRENT 8 points in bright RED (active)
+                // Draw the CURRENT 8 points in bright green (active)
                 cv::circle(frameL, visualize.history_L[it][i], 4, cv::Scalar(0, 255, 0), -1, cv::LINE_AA);
                 cv::circle(frameR, visualize.history_R[it][i], 4, cv::Scalar(0, 255, 0), -1, cv::LINE_AA);
 
-                // Add them to the permanent accumulation trail as tiny GREEN dots
+                // Add permanent accumulation trail as tiny cyan dots
                 cv::circle(accumL, visualize.history_L[it][i], 3, cv::Scalar(255, 0, 255), -1, cv::LINE_AA);
                 cv::circle(accumR, visualize.history_R[it][i], 3, cv::Scalar(255, 0, 255), -1, cv::LINE_AA);
             }
 
-            // Stitch images together
             cv::Mat displayImg;
             cv::hconcat(frameL, frameR, displayImg);
 
-            // --- FORMAT TEXT STRINGS ---
             std::string iterText = "Step: " + std::to_string(it + 1) + " / " + std::to_string(visualize.history_L.size());
             std::string inlierCountText = std::to_string(visualize.inLierCount[it]) + " inliers.";
             std::string bestInlierText = "Best Inlier Count: " + std::to_string(visualize.currBestInlier[it]);
 
             // --- DRAW TEXT OVERLAY ---
-            // Make the background rectangle taller to fit two lines of text
             cv::rectangle(displayImg, cv::Point(10, 10), cv::Point(400, 130), cv::Scalar(0, 0, 0), cv::FILLED);
 
-            // Draw Iteration Text (Line 1)
             cv::putText(displayImg, iterText, cv::Point(20, 40), cv::FONT_HERSHEY_SIMPLEX,
                         1.0, cv::Scalar(255, 255, 255), 2, cv::LINE_AA);
 
             cv::putText(displayImg, inlierCountText, cv::Point(20, 75), cv::FONT_HERSHEY_SIMPLEX,
                         0.8, cv::Scalar(255, 255, 0), 2, cv::LINE_AA);
 
-            // Draw Sampson Error Text (Line 2) in cyan or yellow so it stands out
             cv::putText(displayImg, bestInlierText, cv::Point(20, 110), cv::FONT_HERSHEY_SIMPLEX,
                         0.8, cv::Scalar(255, 255, 0), 2, cv::LINE_AA);
 
-            // --- WRITE TO VIDEO FILE ---
             if (isSavingVideo && it == 0)
             {
                 // Open the writer on the first frame once displayImg size is known
@@ -371,11 +362,11 @@ namespace VisualizationUtils
                 // If a pause interval is set and we've reached it
                 if (pauseInterval > 0 && (it + 1) % pauseInterval == 0)
                 {
-                    c = (char)cv::waitKey(0); // Wait infinitely for user input
+                    c = (char)cv::waitKey(0);
                 }
                 else
                 {
-                    c = (char)cv::waitKey(750); // Standard playback delay
+                    c = (char)cv::waitKey(750);
                 }
 
                 if (c == 27)
@@ -410,8 +401,6 @@ namespace VisualizationUtils
         const Eigen::Vector3d t_gt,
         const cv::Mat K_cv)
     {
-        // 1. Convert OpenCV Intrinsic Matrix (K) to Eigen::Matrix3d
-        // Note: Assuming K_cv is of type CV_64F (double).
         Eigen::Matrix3d K;
         for (int i = 0; i < 3; ++i)
         {
@@ -420,9 +409,6 @@ namespace VisualizationUtils
                 K(i, j) = K_cv.at<double>(i, j);
             }
         }
-
-        // 2. Compute Ground Truth Essential Matrix (E_gt)
-        // Create skew-symmetric matrix for t_gt
         Eigen::Matrix3d t_x;
         t_x << 0, -t_gt(2), t_gt(1),
             t_gt(2), 0, -t_gt(0),
@@ -430,16 +416,13 @@ namespace VisualizationUtils
 
         Eigen::Matrix3d E_gt = t_x * R_gt;
 
-        // 3. Compute Ground Truth Fundamental Matrix (F_gt)
         Eigen::Matrix3d K_inv = K.inverse();
         Eigen::Matrix3d F_gt = K_inv.transpose() * E_gt * K_inv;
 
-        // 4. Normalize both matrices by F(2,2)
         Eigen::Matrix3d F_norm = F / F(2, 2);
         Eigen::Matrix3d F_gt_norm = F_gt / F_gt(2, 2);
 
-        // 5. Handle Sign Ambiguity
-        // If subtracting them yields a larger error than adding them, the sign is flipped.
+        // handle sign ambiguity
         if ((F_norm - F_gt_norm).norm() > (F_norm + F_gt_norm).norm())
         {
             F_gt_norm = -F_gt_norm;
@@ -466,43 +449,38 @@ namespace VisualizationUtils
     void visualizeRectification(const RectifyResult &rect, const std::vector<cv::Point2f> &inL, const std::vector<cv::Point2f> &inR, const cv::Mat &K,
                                 const RectificationRes &metrics, const std::string &windowName, const std::string &savePath)
     {
-        // 1. Map points to rectified space
+        // map points to rectified space
         cv::Mat dist = cv::Mat::zeros(5, 1, CV_64F);
         std::vector<cv::Point2f> rL, rR;
         cv::undistortPoints(inL, rL, K, dist, rect.R1, rect.P1);
         cv::undistortPoints(inR, rR, K, dist, rect.R2, rect.P2);
 
-        // 2. Prepare images
         cv::Mat vizL, vizR;
         cv::cvtColor(rect.rectLeft, vizL, cv::COLOR_GRAY2BGR);
         cv::cvtColor(rect.rectRight, vizR, cv::COLOR_GRAY2BGR);
 
-        // 3. Draw horizontal alignment grid
+        // draw horizontal alignment grid
         for (int y = 0; y < vizL.rows; y += 50)
         {
             cv::line(vizL, {0, y}, {vizL.cols, y}, {80, 80, 80}, 1);
             cv::line(vizR, {0, y}, {vizR.cols, y}, {80, 80, 80}, 1);
         }
 
-        // 4. Combine images to prepare for connectors and metrics
         cv::Mat combined;
         cv::hconcat(vizL, vizR, combined);
         int xOff = vizL.cols;
 
-        // 5. Draw matches, colored by their own per-point error
         for (size_t i = 0; i < rL.size(); ++i)
         {
             double dy = std::abs(rL[i].y - rR[i].y);
 
-            // Determine color based on strict error thresholds
+            // determine color based on strict error thresholds
             cv::Scalar color = (dy <= 1.0) ? cv::Scalar(0, 255, 0) : (dy <= 3.0) ? cv::Scalar(0, 255, 255)
                                                                                  : cv::Scalar(0, 0, 255);
 
-            // Cleanly round the floats to integers to prevent narrowing warnings
             cv::Point pt1(cvRound(rL[i].x), cvRound(rL[i].y));
             cv::Point pt2(cvRound(rR[i].x + xOff), cvRound(rR[i].y));
 
-            // Draw points and connector lines
             cv::circle(combined, pt1, 3, color, -1);
             cv::circle(combined, pt2, 3, color, -1);
             cv::line(combined, pt1, pt2, color, 1, cv::LINE_AA);
@@ -510,16 +488,13 @@ namespace VisualizationUtils
 
         double pctWithin1px = metrics.correspondences ? (100.0 * metrics.within1px) / metrics.correspondences : 0.0;
 
-        // 6. Construct HUD Text
         std::ostringstream hud;
         hud << "mean dy=" << std::fixed << std::setprecision(2) << metrics.meanErr << "px  "
             << "max=" << std::fixed << std::setprecision(2) << metrics.maxErr << "px  "
             << "within 1px=" << std::fixed << std::setprecision(2) << pctWithin1px << "%";
 
-        // Draw text with a thick black outline for visibility over bright images
         cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8, {0, 0, 0}, 4, cv::LINE_AA);
 
-        // Draw the actual text color based on the mean alignment quality
         cv::Scalar textColor = metrics.pass ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
         cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8, textColor, 1, cv::LINE_AA);
 
@@ -550,8 +525,6 @@ namespace VisualizationUtils
         const float lo = float(minDisp);
         const float hi = float(minDisp + numDisp);
 
-        // Aggregate numbers (coverage, sparse-vs-dense error, photometric MAE, textureless %)
-        // come from `metrics`.
         cv::Mat nonBlackMask = rectL > 0;
 
         cv::Mat distC = cv::Mat::zeros(5, 1, CV_64F);
@@ -582,10 +555,9 @@ namespace VisualizationUtils
         cv::Sobel(rectL, gradX, CV_32F, 1, 0, 3);
         cv::Sobel(rectL, gradY, CV_32F, 0, 1, 3);
         cv::magnitude(gradX, gradY, gradMag);
-        const float textureThresh = 5.0f; // > threshold -> textureless
+        const float textureThresh = 5.0f;
         cv::Mat texturelessMask = (gradMag < textureThresh) & nonBlackMask;
 
-        // --- Visualizations Assembly ---
         cv::Mat vizL;
         cv::cvtColor(rectL, vizL, cv::COLOR_GRAY2BGR);
         cv::Mat vizDisp = colorizeDisparity(disp, minDisp, numDisp);
@@ -611,7 +583,7 @@ namespace VisualizationUtils
         cv::applyColorMap(absErr, vizErr, cv::COLORMAP_HOT);
         vizErr.setTo(cv::Scalar(0, 0, 0), photoMask == 0);
 
-        // Draw Inliers on Disparity map
+        // draw inliers back on disparity map
         for (size_t i = 0; i < rL.size(); ++i)
         {
             int x = cvRound(rL[i].x), y = cvRound(rL[i].y);
@@ -665,7 +637,6 @@ namespace VisualizationUtils
             std::cerr << "WARNING: Failed to write image to " << savePath << "\n";
         }
 
-        // Skip interactive display on headless runs
         if (std::getenv("DISPLAY") != nullptr)
         {
             cv::namedWindow(windowName, cv::WINDOW_NORMAL);

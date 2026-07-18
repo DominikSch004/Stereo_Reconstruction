@@ -11,6 +11,7 @@
 #include "PlyUtils.hpp"
 #include "ICP.hpp"
 #include "IcpUtils.hpp"
+#include "Evaluator.hpp"
 #include "PoissonReconstruction.hpp"
 #include "MeshUtils.hpp"
 
