@@ -114,7 +114,7 @@ int main(int argc, char** argv)
     if (!mesh.faces.empty())
         MeshUtils::saveMeshPLY("poisson_mesh.ply", mesh);
     else
-        std::cout << "No mesh written (marching cubes not implemented yet). "
+        std::cout << "No mesh written (indicator field produced no triangles). "
                      "Inspect poisson_indicator.ply to verify the indicator solve.\n";
 
     return 0;
