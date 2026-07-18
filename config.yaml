@@ -39,7 +39,7 @@ triangulation: custom
 # point_to_point is the default: the per-point normals available here come from
 # +/-1px central differences on raw stereo disparity and are too noisy to
 # support point-to-plane residuals (they caused tangential drift in fusion).
-icp_mode: point_to_plane
+icp_mode: point_to_point
 
 # true | false non-linear refinement of (R, t) directly on the essential-matrix
 # space after recoverPose
@@ -59,8 +59,4 @@ disparity_gap_fill: false
 
 # (0, 1.0]  image downscale factor applied before every pipeline step, via
 # Pipeline::preprocessScale. 1.0 = full resolution, no downscale.
-processing_scale: 1
-
-
-
-
+processing_scale: 0.5
