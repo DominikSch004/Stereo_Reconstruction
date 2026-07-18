@@ -6,6 +6,7 @@
 #include "Disparity.hpp"
 #include "Triangulation.hpp"
 #include "ICP.hpp"
+#include "PlyUtils.hpp"
 
 enum class FeatureDetector
 {
@@ -29,7 +30,14 @@ struct PipelineConfig
     RectificationMethod rectification = RectificationMethod::CalibratedOpenCV;
     DisparityMethod disparity = DisparityMethod::OpenCVSGBM;
     TriangulationMethod triangulation = TriangulationMethod::OpenCV;
-    ICPMode icpMode = ICPMode::PointToPlane; // used by the ICP fusion pipeline only
+    ICPMode icpMode = ICPMode::PointToPoint; // used by the ICP fusion pipeline only
+    bool stereoConfidenceFilter = true;
+    float stereoLRMaxDiff = 1.5f;
+    float stereoPhotometricScale = 25.0f;
+    bool confidenceUseGlobal = true;
+    bool confidenceUseDepth = true;
+    bool confidenceUseEdge = true;
+    bool confidenceUseStereo = true;
     int rngSeed = 42;
     mutable std::mt19937 rng;
 
@@ -61,4 +69,10 @@ struct PipelineConfig
 
     /** @brief Prints the selected backend of every step. */
     void print() const;
+
+    ConfidenceWeightConfig confidenceWeights() const
+    {
+        return {confidenceUseGlobal, confidenceUseDepth,
+                confidenceUseEdge, confidenceUseStereo};
+    }
 };

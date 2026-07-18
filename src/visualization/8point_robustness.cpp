@@ -7,6 +7,8 @@
 #include "ImgUtils.hpp"
 #include <filesystem>
 
+#include <filesystem>
+
 int main()
 {
     // 0. Setup & CSV Initialization

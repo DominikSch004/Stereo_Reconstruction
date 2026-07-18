@@ -28,6 +28,17 @@ namespace
         return static_cast<int>(node);
     }
 
+    template <typename T>
+    T readScalar(const cv::FileStorage &fs, const std::string &key, T def)
+    {
+        cv::FileNode node = fs[key];
+        if (node.empty())
+            return def;
+        T value{};
+        node >> value;
+        return value;
+    }
+
     [[noreturn]] void invalidValue(const std::string &key, const std::string &value, const std::string &allowed)
     {
         throw std::runtime_error("[Config] Invalid value '" + value + "' for key '" + key + "'. Allowed: " + allowed);
@@ -127,13 +138,31 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     else
         invalidValue("triangulation", v, "opencv | custom");
 
-    v = readKey(fs, "icp_mode", "point_to_plane");
+    v = readKey(fs, "icp_mode", "point_to_point");
     if (v == "point_to_point")
         cfg.icpMode = ICPMode::PointToPoint;
     else if (v == "point_to_plane")
         cfg.icpMode = ICPMode::PointToPlane;
     else
         invalidValue("icp_mode", v, "point_to_point | point_to_plane");
+
+    cfg.stereoConfidenceFilter =
+        readScalar<int>(fs, "stereo_confidence_filter", 1) != 0;
+    cfg.stereoLRMaxDiff =
+        readScalar<float>(fs, "stereo_lr_max_diff", 1.5f);
+    cfg.stereoPhotometricScale =
+        readScalar<float>(fs, "stereo_photometric_scale", 25.0f);
+    cfg.confidenceUseGlobal =
+        readScalar<int>(fs, "conf_use_global", 1) != 0;
+    cfg.confidenceUseDepth =
+        readScalar<int>(fs, "conf_use_depth", 1) != 0;
+    cfg.confidenceUseEdge =
+        readScalar<int>(fs, "conf_use_edge", 1) != 0;
+    cfg.confidenceUseStereo =
+        readScalar<int>(fs, "conf_use_stereo", 1) != 0;
+
+    if (cfg.stereoLRMaxDiff <= 0.0f || cfg.stereoPhotometricScale <= 0.0f)
+        throw std::runtime_error("[Config] Stereo confidence scales must be positive.");
 
     cfg.rngSeed = readIntKey(fs, "rng_seed", 42);
     if (cfg.rngSeed == -1)
@@ -179,10 +208,14 @@ void PipelineConfig::print() const
               << "  rectification:      " << name(rectification == RectificationMethod::CalibratedOpenCV) << "\n"
               << "  disparity:          " << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
               << "  triangulation:      " << name(triangulation == TriangulationMethod::OpenCV) << "\n"
-              << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane") << "\n";
-
-    std::cout << "\n[Config] Tunable parameters:\n"
-              << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n"
-              << "  processing_scale:   " << processingScale << "\n"
-              << "  ratio_threshold:    " << ratioThreshold << "\n";
+              << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane")
+              << "\n  stereo_confidence: " << (stereoConfidenceFilter ? "on" : "off")
+              << " (LR=" << stereoLRMaxDiff << " px, photo_scale="
+              << stereoPhotometricScale << ")"
+              << "\n  confidence_weight: global=" << (confidenceUseGlobal ? "on" : "off")
+              << " depth=" << (confidenceUseDepth ? "on" : "off")
+              << " edge=" << (confidenceUseEdge ? "on" : "off")
+              << " stereo=" << (confidenceUseStereo ? "on" : "off")
+              << "\n"
+              << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n";
 }

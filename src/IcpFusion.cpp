@@ -86,7 +86,11 @@ int main(int argc, char **argv)
             continue;
         }
 
-        PointCloud cloud = PlyUtils::buildPointCloud(res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, config.triangulation);
+        PointCloud cloud = PlyUtils::buildPointCloud(
+            res.denseDisparity, res.Q, res.P1r, res.P2r, res.camToWorld,
+            res.rectColor, res.minDisp, res.globalConfidence,
+            config.triangulation, res.disparityConfidence,
+            config.confidenceWeights());
 
         const size_t beforeCull = cloud.pts.size();
         // Remove the lowest 'confidenceKeepFrac'% of points by weight (Mostly noise)

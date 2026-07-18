@@ -53,6 +53,25 @@ public:
         int &minDisp,
         int &numDisp);
 
+    /**
+     * @brief Builds a soft stereo confidence map and invalidates pixels that fail
+     *        a left/right consistency check.
+     *
+     * The returned CV_32F map combines cycle consistency and photometric
+     * agreement in [0,1].  It is the c_stereo term used by confidence-weighted
+     * ICP and is kept separate for the factor ablation.
+     */
+    static cv::Mat filterAndComputeConfidence(
+        const cv::Mat &left,
+        const cv::Mat &right,
+        cv::Mat &disparityLeft,
+        int minDisp,
+        int numDisp,
+        int blockSize,
+        DisparityMethod method,
+        float lrMaxDiff = 1.5f,
+        float photometricScale = 25.0f);
+
 private:
     // OpenCV and custom SGM backend implementations
     static cv::Mat computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale);
@@ -67,3 +86,4 @@ private:
     static cv::Mat nearestValidInDirection(const cv::Mat &disp, int minDisp, int rows, int cols, int dx, int dy);
     static cv::Mat removePeaks(const cv::Mat &disparity, int minDisp, int minSegmentSize, float maxSegmentDispDiff = 1.0f);
 };
+

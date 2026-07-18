@@ -34,6 +34,14 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
+## Confidence-weighted ICP ablation
+
+The reproducible DTU factor ablation and its paper-ready plotting script are
+documented in [docs/confidence_icp_ablation.md](docs/confidence_icp_ablation.md).
+It evaluates every term of
+`w = c_global * c_depth * c_edge * c_stereo` with paired transform-recovery
+trials and an independent structured-light reference.
+
 ## Repository Structure
 - `src/` — implementation
 - `include/` — headers

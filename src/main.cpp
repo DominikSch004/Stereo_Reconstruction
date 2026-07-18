@@ -70,7 +70,9 @@ int main(int argc, char **argv)
     PlyUtils::buildAndSavePLY(
         plyFilename,
         res.denseDisparity, res.Q, res.P1r, res.P2r,
-        res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, config.triangulation);
+        res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence,
+        config.triangulation, res.disparityConfidence,
+        config.confidenceWeights());
 
     return 0;
 }
