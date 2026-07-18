@@ -74,6 +74,76 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     node = fs["illumination_id"];
     cfg.illuminationId = node.empty() ? 3 : static_cast<int>(node);
 
+    // ICP fusion image pairs: an explicit pair list or a view range expanded
+    // to consecutive pairs. Setting both is ambiguous and rejected.
+    {
+        const cv::FileNode pairsNode = fs["icp_image_pairs"];
+        const cv::FileNode rangeNode = fs["icp_view_range"];
+        if (!pairsNode.empty() && !rangeNode.empty())
+            throw std::runtime_error(
+                "[Config] Set either 'icp_image_pairs' or 'icp_view_range', not both.");
+
+        if (!pairsNode.empty())
+        {
+            if (!pairsNode.isSeq())
+                throw std::runtime_error(
+                    "[Config] 'icp_image_pairs' must be a list, e.g. [6,7, 12,13].");
+            // Accept nested pairs [[6,7],[12,13]] or a flat even-length list [6,7, 12,13]
+            std::vector<int> flat;
+            for (const cv::FileNode &element : pairsNode)
+            {
+                if (element.isSeq())
+                {
+                    if (element.size() != 2)
+                        throw std::runtime_error(
+                            "[Config] Each entry of 'icp_image_pairs' must hold exactly 2 view ids.");
+                    cfg.icpImagePairs.emplace_back(static_cast<int>(element[0]),
+                                                   static_cast<int>(element[1]));
+                }
+                else
+                {
+                    flat.push_back(static_cast<int>(element));
+                }
+            }
+            if (!flat.empty())
+            {
+                if (!cfg.icpImagePairs.empty() || flat.size() % 2 != 0)
+                    throw std::runtime_error(
+                        "[Config] 'icp_image_pairs' must be an even-length flat list "
+                        "[l1,r1, l2,r2, ...] or a list of 2-element pairs [[l1,r1], ...].");
+                for (size_t i = 0; i + 1 < flat.size(); i += 2)
+                    cfg.icpImagePairs.emplace_back(flat[i], flat[i + 1]);
+            }
+        }
+        else
+        {
+            int viewFirst = 6, viewLast = 19;
+            if (!rangeNode.empty())
+            {
+                if (!rangeNode.isSeq() || rangeNode.size() != 2)
+                    throw std::runtime_error(
+                        "[Config] 'icp_view_range' must be a 2-element list [first, last].");
+                viewFirst = static_cast<int>(rangeNode[0]);
+                viewLast = static_cast<int>(rangeNode[1]);
+                if (viewLast <= viewFirst)
+                    throw std::runtime_error(
+                        "[Config] 'icp_view_range' needs first < last.");
+            }
+            else
+            {
+                std::cout << "[Config] Keys 'icp_image_pairs'/'icp_view_range' not set, "
+                             "using default view range [6, 19]\n";
+            }
+            for (int view = viewFirst; view < viewLast; ++view)
+                cfg.icpImagePairs.emplace_back(view, view + 1);
+        }
+
+        for (const auto &[left, right] : cfg.icpImagePairs)
+            if (left < 1 || right < 1 || left == right)
+                throw std::runtime_error(
+                    "[Config] ICP image pairs need distinct positive view ids.");
+    }
+
     node = fs["ratio_threshold"];
     cfg.ratioThreshold = node.empty() ? 0.75f : static_cast<float>(node);
 
@@ -196,7 +266,11 @@ void PipelineConfig::print() const
     std::cout << "\n Image pair config: \n"
               << " selected dataset:     scan" << datasetId << "\n"
               << "  image_pair:         (" << imageLeftId << ", " << imageRightId << ")\n"
-              << "  illumination:       " << illuminationId << "\n";
+              << "  illumination:       " << illuminationId << "\n"
+              << "  icp_image_pairs:    ";
+    for (const auto &[left, right] : icpImagePairs)
+        std::cout << "(" << left << "," << right << ") ";
+    std::cout << "[" << icpImagePairs.size() << " pairs]\n";
 
     std::cout << "\n[Config] Pipeline step backends:\n"
               << "  feature_detector:   " << (featureDetector == FeatureDetector::SIFT ? "sift" : "orb") << "\n"
