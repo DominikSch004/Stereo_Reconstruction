@@ -16,12 +16,12 @@ bool PlyUtils::buildAndSavePLY(
     const cv::Mat &camToWorld,
     const cv::Mat &rectColor,
     int minDisp,
-    const PointCloudConfidence &confidence,
+    float globalConfidence,
     TriangulationMethod method)
 {
     std::cout << "Orchestrating point cloud export to: " << path << "\n";
 
-    PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld, rectColor, minDisp, confidence, method);
+    PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld, rectColor, minDisp, globalConfidence, method);
 
     if (cloud.pts.empty()) {
         std::cerr << "WARNING: Point cloud generated no points. Aborting file write sequence.\n";
@@ -34,11 +34,9 @@ bool PlyUtils::buildAndSavePLY(
 
 float PlyUtils::computePointWeight(
     float z, double fB, float edgeGradient,
-    const PointCloudConfidence &confidence)
+    float globalConfidence)
 {
-    // Falls back to a conservative value when the caller had too few sparse
-    // correspondences to measure sigmaD directly (sigmaD <= 0).
-    const float sigma_d = (confidence.sigmaD > 0.0f) ? confidence.sigmaD : 0.5f;
+    const float sigma_d = 0.5f; // assumed disparity matching accuracy in pixels
 
     // depth variance = Z^4 / (f * B)^2 * sigma_d^2
     const float zSq = z * z;
@@ -50,7 +48,7 @@ float PlyUtils::computePointWeight(
     // The denominator (5.0f) controls the sensitivity to edges.
     const float edgeWeight = std::exp(-edgeGradient / 5.0f);
 
-    return confidence.globalConfidence * depthConfidence * edgeWeight;
+    return globalConfidence * depthConfidence * edgeWeight;
 }
 
 PointCloud PlyUtils::buildPointCloud(
@@ -61,7 +59,7 @@ PointCloud PlyUtils::buildPointCloud(
     const cv::Mat &camToWorld,
     const cv::Mat &rectColor,
     int minDisp,
-    const PointCloudConfidence &confidence,
+    float globalConfidence,
     TriangulationMethod method)
 {
     cv::Mat disp32f;
@@ -108,7 +106,7 @@ PointCloud PlyUtils::buildPointCloud(
             if (p[2] <= 0.0f || p[2] > zMax)
                 continue;
 
-            float finalWeight = computePointWeight(p[2], fB, gradMag.at<float>(y, x), confidence);
+            float finalWeight = computePointWeight(p[2], fB, gradMag.at<float>(y, x), globalConfidence);
 
             Eigen::Vector3f normalCam = Eigen::Vector3f::Zero();
             bool normalOk = false;

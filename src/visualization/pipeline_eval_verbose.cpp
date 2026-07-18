@@ -243,7 +243,6 @@ int main(int argc, char **argv)
 
     cv::Mat camToWorld = cv::Mat::eye(3, 4, CV_64F);
 
-    PointCloudConfidence confidence{globalConfidence, static_cast<float>(dispRes.agreementMean)};
     if (!PlyUtils::buildAndSavePLY(
             plyFilename,
             denseDisparity,
@@ -253,7 +252,7 @@ int main(int argc, char **argv)
             camToWorld,
             colorizedCloud,
             minDisp,
-            confidence,
+            globalConfidence,
             config.triangulation))
     {
         std::cerr << "ERROR: Point cloud export failed.\n";
