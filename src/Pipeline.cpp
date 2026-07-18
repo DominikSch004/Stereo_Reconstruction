@@ -124,6 +124,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     // without constraining it unnecessarily. Confirmed via Evaluator.cpp with
     // pose_refinement=false as refinePose overwrites E.
 
+    // TODO: clean up these comments later before final delivery
     cv::recoverPose(E, inL, inR, K, R, t, poseMask);
 
     // Rescale t from recoverPose's unit-norm convention to the true DTU metric baseline
@@ -196,6 +197,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
     res.rectColor = rect.rectColor;
 
     // --- 5. Disparity Bound Dynamic Calculation ---
+    // TODO: MAYBE  HAVE SOME METHOD FOR THIS IN DISPARITY/RECTIFICATION CLASSES
     cv::Mat dist = cv::Mat::zeros(5, 1, CV_64F);
     std::vector<float> disps;
     std::vector<cv::Point2f> rL, rR;
@@ -228,8 +230,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = scaledBlockSize(7, config.processingScale);
-    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity, config.processingScale,
-                                                      config.useIntensityConsistentSelection, config.useGapFill);
+    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity, config.processingScale);
     if (res.denseDisparity.empty())
     {
         std::cerr << "ERROR: Dense stereo matching returned an empty disparity map.\n";

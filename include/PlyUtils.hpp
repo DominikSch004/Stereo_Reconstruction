@@ -54,8 +54,6 @@ public:
      * @param camToWorld 3x4 or 4x4 rigid transformation tracking extrinsic placement.
      * @param rectColor The rectified left image used to sample color data.
      * @param minDisp The threshold used to skip uncalculated/background disparities.
-     * @param globalConfidence Pair-level inlier ratio input to the per-point weighting model --
-     *  see computePointWeight.
      * @param method Strategy selected for triangulation calculation.
      */
     static PointCloud buildPointCloud(
@@ -96,27 +94,8 @@ public:
      * @brief Reverts normalization scaling.
      */
     static void denormalise(
-        PointCloud& cloud,
-        const Eigen::Vector3f& mean,
+        PointCloud& cloud, 
+        const Eigen::Vector3f& mean, 
         float scale
-    );
-
-private:
-    /**
-     * @brief Combines three independent confidence signals into one per-point weight:
-     *  - depth uncertainty propagated from disparity noise: variance = Z^4/(f*B)^2 * sigmaD^2,
-     *    confidence = 1/(1+variance) -- farther/noisier points trusted less.
-     *  - a discontinuity penalty from the local disparity-gradient magnitude (exponential
-     *    decay, ~1.0 on smooth surfaces, drops toward 0 at depth edges/occlusion boundaries).
-     *  - the pair's global robust-estimator inlier ratio (RANSAC/MAGSAC/PROSAC, whichever
-     *    config.fundamental selected; constant across the cloud).
-     * @param z Triangulated depth (mm) of the point.
-     * @param fB Focal length * baseline (from P2r(0,3) = -f*B), used by the depth-uncertainty term.
-     * @param edgeGradient Disparity-map gradient magnitude at this pixel (Sobel).
-     * @param globalConfidence Pair-level robust-estimator inlier ratio.
-     */
-    static float computePointWeight(
-        float z, double fB, float edgeGradient,
-        float globalConfidence
     );
 };

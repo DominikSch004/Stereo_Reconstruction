@@ -31,6 +31,14 @@ cv::Vec3d Triangulation::triangulate(const cv::Mat &p1, const cv::Mat &p2, const
     return X;
 }
 
+void Triangulation::triangulatePoints(const cv::Mat &p1, const cv::Mat &p2, const std::vector<cv::Vec2d> &pts1, const std::vector<cv::Vec2d> &pts2, std::vector<cv::Vec3d> &pts3D)
+{
+    pts3D.reserve(pts3D.size() + pts1.size());
+    for (size_t i = 0; i < pts1.size(); i++) {
+        pts3D.push_back(triangulate(p1, p2, pts1[i], pts2[i]));
+    }
+}
+
 cv::Mat Triangulation::reprojectOpenCV(const cv::Mat &disp32f, const cv::Mat &Q)
 {
     if (Q.empty() || Q.rows != 4 || Q.cols != 4) {

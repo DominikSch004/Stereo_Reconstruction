@@ -35,7 +35,8 @@ struct PipelineConfig
 
     // Non-linear refinement of (R, t) directly on the essential-matrix space
     // (see GeometryUtils::refinePose). See FundamentalMatrix.cpp comments for details.
-    bool refinePose = true;
+    // This flag is just for initial comparision and should later be removed
+    bool refinePose = false;
 
     // dataset and image selection
     int datasetId = 1;
@@ -48,14 +49,8 @@ struct PipelineConfig
 
     // Image downscale factor applied before every pipeline step, via
     // Pipeline::preprocessScale. 1.0 = no downscale. Lower values trade
-    // accuracy/coverage for speed. Working at 0.5 for speed.
+    // accuracy/coverage for speed. Working at 0.5 for speed.    
     float processingScale = 0.5f;
-
-    // Hirschmuller 2008 Sec 2.5.2
-    bool useIntensityConsistentSelection = false;
-
-    // Hirschmuller 2008 Sec 2.5.3
-    bool useGapFill = false;
 
     /**
      * @brief Loads a config from a YAML file (parsed with cv::FileStorage).

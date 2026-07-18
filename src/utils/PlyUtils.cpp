@@ -20,9 +20,9 @@ bool PlyUtils::buildAndSavePLY(
     TriangulationMethod method)
 {
     std::cout << "Orchestrating point cloud export to: " << path << "\n";
-
+    
     PointCloud cloud = buildPointCloud(disparity, Q, P1r, P2r, camToWorld, rectColor, minDisp, globalConfidence, method);
-
+    
     if (cloud.pts.empty()) {
         std::cerr << "WARNING: Point cloud generated no points. Aborting file write sequence.\n";
         return false;
@@ -30,25 +30,6 @@ bool PlyUtils::buildAndSavePLY(
 
     savePLY(path, cloud);
     return true;
-}
-
-float PlyUtils::computePointWeight(
-    float z, double fB, float edgeGradient,
-    float globalConfidence)
-{
-    const float sigma_d = 0.5f; // assumed disparity matching accuracy in pixels
-
-    // depth variance = Z^4 / (f * B)^2 * sigma_d^2
-    const float zSq = z * z;
-    const float variance = (zSq * zSq) / static_cast<float>(fB * fB) * (sigma_d * sigma_d);
-    const float depthConfidence = 1.0f / (1.0f + variance);
-
-    // Exponential decay: if the disparity gradient is low, edgeWeight is ~1.0.
-    // If the disparity jumps sharply (e.g., > 3 pixels edge gradient), edgeWeight drops toward 0.
-    // The denominator (5.0f) controls the sensitivity to edges.
-    const float edgeWeight = std::exp(-edgeGradient / 5.0f);
-
-    return globalConfidence * depthConfidence * edgeWeight;
 }
 
 PointCloud PlyUtils::buildPointCloud(
@@ -75,6 +56,7 @@ PointCloud PlyUtils::buildPointCloud(
     cv::Mat gradX, gradY;
     cv::Sobel(disp32f, gradX, CV_32F, 1, 0, 3);
     cv::Sobel(disp32f, gradY, CV_32F, 0, 1, 3);
+
     cv::Mat gradMag;
     cv::magnitude(gradX, gradY, gradMag);
 
@@ -93,6 +75,10 @@ PointCloud PlyUtils::buildPointCloud(
         // Fallback safety
         fB = 1000.0; 
     
+    // TODO: Currently assuming a baseline sub-pixel matching accuracy of 0.5 pixels. 
+    // This value should be propagated from the stereo matching cost layer 
+    // or the geometric sparse RANSAC re-projection error.
+    const float sigma_d = 0.5f;
     for (int y = 0; y < pts3D.rows; ++y)
     {
         for (int x = 0; x < pts3D.cols; ++x)
@@ -106,7 +92,20 @@ PointCloud PlyUtils::buildPointCloud(
             if (p[2] <= 0.0f || p[2] > zMax)
                 continue;
 
-            float finalWeight = computePointWeight(p[2], fB, gradMag.at<float>(y, x), globalConfidence);
+            // depth variance = Z^4 / (f * B)^2 * sigma
+            float zSq = p[2] * p[2];
+            float variance = (zSq * zSq) / static_cast<float>(fB * fB) * (sigma_d * sigma_d);
+            
+            float depthConfidence = 1.0f / (1.0f + variance);
+
+            float edgeGradient = gradMag.at<float>(y, x);
+
+            // Exponential decay: if the disparity gradient is low, edgeWeight is ~1.0.
+            // If the disparity jumps sharply (e.g., > 3 pixels edge gradient), edgeWeight drops toward 0.
+            // The denominator (5.0f) controls the sensitivity to edges.
+            float edgeWeight = std::exp(-edgeGradient / 5.0f);
+
+            float finalWeight = globalConfidence * depthConfidence * edgeWeight;
 
             Eigen::Vector3f normalCam = Eigen::Vector3f::Zero();
             bool normalOk = false;

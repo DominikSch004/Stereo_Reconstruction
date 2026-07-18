@@ -172,8 +172,7 @@ int main(int argc, char **argv)
     cv::Mat denseDisparity = Disparity::computeDisparity(
         rect.rectLeft, rect.rectRight,
         minDisp, numDisp,
-        blockSize, config.disparity, config.processingScale,
-        config.useIntensityConsistentSelection, config.useGapFill);
+        blockSize, config.disparity, config.processingScale);
 
     if (denseDisparity.empty())
     {
