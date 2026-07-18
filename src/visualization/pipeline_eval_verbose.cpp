@@ -38,14 +38,11 @@ int main(int argc, char **argv)
     }
     config.print();
 
-    // Load dataset path
     std::cout << "\nLoading DTU dataset...\n";
     DTULoader loader("../data/dtu/");
 
-    // Load image pair
     StereoPair pair = loader.loadPair(config.imageLeftId, config.imageRightId, config.datasetId, config.illuminationId);
 
-    // Load full absolute poses for both cameras
     CameraPose poseLeft = loader.loadCameraPose(config.imageLeftId);
     CameraPose poseRight = loader.loadCameraPose(config.imageRightId);
     cv::Mat K_in = toCvMat(poseLeft.K);
@@ -59,20 +56,17 @@ int main(int argc, char **argv)
     Pipeline::preprocessScale(pair.imageLeft, pair.imageRight, K_in, config.processingScale,
                               grayLeft, grayRight, bgrLeft, bgrRight, K, sz);
 
-    // Calculate Ground Truth relative pose
     Eigen::Matrix3d R_gt;
     Eigen::Vector3d t_gt;
     DTULoader::getRelativePose(poseLeft, poseRight, R_gt, t_gt);
 
     std::cout << "\nInitializing Sparse Feature Matching...\n";
 
-    // Sparse key point matching
     SparseKeyPointMatcher matcher(config.ratioThreshold);
     MatchResult result = matcher.match(grayLeft, grayRight);
 
     VisualizationUtils::visualizeSparseKeypoint(result, grayLeft, grayRight, out_dir + "/sparseKeypointVisualization.png");
 
-    // 8-point algorithm
     std::vector<cv::Point2f> ptsL, ptsR;
     SparseKeyPointMatcher::extractPoints(result, ptsL, ptsR);
     if (ptsL.size() < 8)
@@ -140,7 +134,7 @@ int main(int argc, char **argv)
         E = tx * R;
     }
 
-    // refinePose can change t's scale/direction; rescale again, same as Pipeline::runPipeline.
+    // refinePose can change t's scale/direction; rescale again
     Pipeline::rescaleToTrueBaseline(poseLeft.t, poseRight.t, t);
 
     std::cout << "\n--- Stereo Rectification ---\n";
@@ -193,7 +187,6 @@ int main(int argc, char **argv)
 
     VisualizationUtils::visualizeDisparity(denseDisparity, rect, inL, inR, K, minDisp, numDisp, dispRes, "Disparity Verification", out_dir + "/disparityVisualization.png");
 
-    // Triangulation
     cv::Mat dense3DPoints = Triangulation::reprojectDisparityTo3D(denseDisparity, rect.Q, rect.P1, rect.P2, minDisp, config.triangulation);
     if (dense3DPoints.empty())
     {
@@ -237,7 +230,6 @@ int main(int argc, char **argv)
                   << "%), resulting point cloud may be noisy.\n";
     }
 
-    // 1. Bulletproof the Color Image (Force 3-Channel BGR)
     cv::Mat colorizedCloud;
     if (rect.rectLeft.channels() == 1)
     {
@@ -250,8 +242,6 @@ int main(int argc, char **argv)
 
     cv::Mat camToWorld = cv::Mat::eye(3, 4, CV_64F);
 
-    // Disparity::computeDisparity always returns CV_32F (both OpenCV SGBM and the
-    // custom backend convert internally), so no CV_16S -> float rescale is needed here.
     if (!PlyUtils::buildAndSavePLY(
             plyFilename,
             denseDisparity,

@@ -7,21 +7,30 @@
 #   - essential matrix / pose recovery (always cv::findEssentialMat + cv::recoverPose;
 #     see the comment in Pipeline.cpp step 3 for why E-from-F was abandoned)
 
+# select dataset and image pairs
+dataset_id: 6
+image_left_id: 35
+image_right_id: 36
+illumination_id: 3
+
 # sift | orb
 feature_detector: sift
+
+# select ratio threshold for FLANN after SIFT.
+ratio_threshold: 0.75
+
+# 42 | -1 for true randomness
+rng_seed: -1
 
 # opencv | custom | custom_magsac | custom_prosac
 fundamental_matrix: custom_magsac
 
-# 42 | -1 for true randomness
-rng_seed: 42
-
 # opencv | custom  (custom = Loop & Zhang projective rectification)
-rectification: opencv
+rectification: custom
 
 # opencv | custom  (custom = simplified semi-global matching (Hirschmüller 2008),
 # Birchfield-Tomasi cost + 16-direction path aggregation)
-disparity: opencv
+disparity: custom
 
 # Confidence cue used by confidence-weighted ICP. The hard left/right check is
 # common to every ablation variant; the surviving soft confidence is c_stereo.
@@ -39,7 +48,7 @@ conf_use_edge: 1
 conf_use_stereo: 1
 
 # opencv | custom  (custom = per-pixel DLT triangulation)
-triangulation: opencv
+triangulation: custom
 
 # point_to_point | point_to_plane  (only used by the IcpFusion executable)
 # point_to_point is the default: the per-point normals available here come from
@@ -49,17 +58,12 @@ icp_mode: point_to_point
 
 # true | false non-linear refinement of (R, t) directly on the essential-matrix 
 # space after recoverPose
-pose_refinement: false
+pose_refinement: true
 
 # (0, 1.0]  image downscale factor applied before every pipeline step, via
 # Pipeline::preprocessScale. 1.0 = full resolution, no downscale.
-processing_scale: 0.5
+processing_scale: 1
 
-# select ratio threshold for FLANN after SIFT.
-ratio_threshold: 0.75
 
-# select dataset and image pairs
-dataset_id: 1
-image_left_id: 1
-image_right_id: 2
-illumination_id: 3
+
+

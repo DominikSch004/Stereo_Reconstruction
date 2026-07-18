@@ -135,11 +135,9 @@ namespace GeometryUtils
         if (inL.size() < 5)
             return false;
 
-        // Convert Eigen F to OpenCV F
         cv::Mat F_cv;
         cv::eigen2cv(F_eigen, F_cv);
 
-        // E = K^T * F * K
         cv::Mat E = K.t() * F_cv * K;
 
         cv::recoverPose(E, inL, inR, K, R_est, t_est);
@@ -178,8 +176,8 @@ namespace GeometryUtils
             return false;
         tvec /= originalScale;
         double tDir[2];
-        tDir[1] = std::asin(std::clamp(tvec[2], -1.0, 1.0)); // phi (elevation)
-        tDir[0] = std::atan2(tvec[1], tvec[0]);               // theta (azimuth)
+        tDir[1] = std::asin(std::clamp(tvec[2], -1.0, 1.0));
+        tDir[0] = std::atan2(tvec[1], tvec[0]);
 
         ceres::Problem problem;
         for (size_t i = 0; i < ptsL.size(); ++i)

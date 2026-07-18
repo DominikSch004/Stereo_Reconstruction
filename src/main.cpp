@@ -9,7 +9,6 @@
 
 int main(int argc, char **argv)
 {
-    // 0. Load pipeline configuration (per-step backend selection)
     const std::string configPath = (argc > 1) ? argv[1] : "../config.yaml";
     PipelineConfig config;
     try
@@ -23,16 +22,16 @@ int main(int argc, char **argv)
     }
     config.print();
 
-    // 1. Load data
     DTULoader loader("../data/dtu/");
 
-    int viewLeft = 1;
-    int viewRight = 2;
+    int viewLeft = config.imageLeftId;
+    int viewRight = config.imageRightId;
+    int datasetId = config.datasetId;
 
-    // select by image id, default is dataset 1 (scan1) & illumination 3
-    StereoPair pair = loader.loadPair(viewLeft, viewRight);
+    // select by image id, default illumination = 3
+    StereoPair pair = loader.loadPair(viewLeft, viewRight, datasetId);
 
-    // Load full absolute poses for both cameras
+    // load ground truth poses for both cameras
     CameraPose poseLeft = loader.loadCameraPose(viewLeft);
     CameraPose poseRight = loader.loadCameraPose(viewRight);
 
@@ -43,8 +42,8 @@ int main(int argc, char **argv)
     Eigen::Vector3d t_gt;
     DTULoader::getRelativePose(poseLeft, poseRight, R_gt, t_gt);
 
-    // load point cloud from dataset 1
-    std::vector<cv::Point3f> global_gt_cloud = loader.loadPointCloud();
+    // load point cloud from dataset
+    std::vector<cv::Point3f> global_gt_cloud = loader.loadPointCloud(datasetId);
     std::vector<cv::Point3f> local_gt_cloud;
     local_gt_cloud.reserve(global_gt_cloud.size());
 
@@ -55,7 +54,6 @@ int main(int argc, char **argv)
         local_gt_cloud.push_back(cv::Point3f(pt_local(0), pt_local(1), pt_local(2)));
     }
 
-    // 2. Run the pipeline with the configured backends
     PipelineResult res;
     if (!Pipeline::runPipeline(pair.imageLeft, pair.imageRight, K, res, config, poseLeft.t, poseRight.t))
     {
@@ -67,7 +65,6 @@ int main(int argc, char **argv)
     EvaluatorRes metrics = Evaluator::evaluateMetrics(params);
     Evaluator::printMetrics(metrics);
 
-    // 3. Export dense local frame 3D point grids to PLY meshes for cloud inspection
     const std::string plyFilename = "pointcloud.ply";
     std::cout << "Saving cloud to: " << plyFilename << "\n";
     PlyUtils::buildAndSavePLY(
