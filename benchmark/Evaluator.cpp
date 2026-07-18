@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <opencv2/core.hpp>
 #include <opencv2/calib3d.hpp>
+#include <opencv2/imgproc.hpp>
 #include <opencv2/flann.hpp>
 
 EvaluatorRes Evaluator::evaluateMetrics(const EvaluatorParams &params)
@@ -413,4 +414,273 @@ void Evaluator::computePointCloudMetrics(const cv::Mat &est_dense_pts,
         comp_sum += std::sqrt(dists_comp.at<float>(i, 0));
     }
     completeness = comp_sum / dists_comp.rows;
+}
+
+DisparityRes Evaluator::evaluateDisparity(const cv::Mat &disp,
+                                          const cv::Mat &rectL, const cv::Mat &rectR,
+                                          const std::vector<cv::Point2f> &inPtsL,
+                                          const std::vector<cv::Point2f> &inPtsR,
+                                          const cv::Mat &K,
+                                          const cv::Mat &R1, const cv::Mat &P1,
+                                          const cv::Mat &R2, const cv::Mat &P2,
+                                          int minDisp, int numDisp)
+{
+    DisparityRes res;
+    res.minDisp = minDisp;
+    res.numDisp = numDisp;
+
+    const float lo = float(minDisp);
+    const float hi = float(minDisp + numDisp);
+
+    // Coverage + range stats over valid pixels.
+    long valid = 0;
+    double dSum = 0.0, dMin = 1e9, dMax = -1e9;
+    for (int y = 0; y < disp.rows; ++y)
+        for (int x = 0; x < disp.cols; ++x)
+        {
+            float d = disp.at<float>(y, x);
+            if (d >= lo && d < hi)
+            {
+                ++valid;
+                dSum += d;
+                dMin = std::min(dMin, static_cast<double>(d));
+                dMax = std::max(dMax, static_cast<double>(d));
+            }
+        }
+
+    // Measure coverage only over the valid rectified image region. Rectification
+    // fills pixels outside the source image with zero, where no disparity can exist.
+    cv::Mat nonBlackMask = rectL > 0;
+    long nonBlackPixels = cv::countNonZero(nonBlackMask);
+    res.nonBlackPixels = nonBlackPixels;
+    res.validPixels = valid;
+    res.coverage = nonBlackPixels > 0 ? 100.0 * valid / nonBlackPixels : 0.0;
+    if (valid > 0)
+    {
+        res.dispMin = dMin;
+        res.dispMax = dMax;
+        res.dispMean = dSum / valid;
+    }
+
+    // Ground-truth check: at each sparse inlier correspondence we know the true
+    // rectified disparity (xL_rect - xR_rect). The dense disparity sampled at that
+    // pixel should match it.
+    cv::Mat distC = cv::Mat::zeros(5, 1, CV_64F);
+    std::vector<cv::Point2f> rL, rR;
+    cv::undistortPoints(inPtsL, rL, K, distC, R1, P1);
+    cv::undistortPoints(inPtsR, rR, K, distC, R2, P2);
+
+    std::vector<double> rawDisp;
+    rawDisp.reserve(rL.size());
+    for (size_t i = 0; i < rL.size(); ++i)
+        rawDisp.push_back(rL[i].x - rR[i].x);
+
+    std::vector<double> sorted = rawDisp;
+    std::sort(sorted.begin(), sorted.end());
+    res.sparseCount = sorted.size();
+    for (double d : rawDisp)
+        if (d < 0.0)
+            ++res.negativeCount;
+
+    if (!sorted.empty())
+    {
+        double sum = 0.0;
+        for (double d : rawDisp)
+            sum += d;
+        res.sparseMin = sorted.front();
+        res.sparseP2 = sorted[(size_t)(0.02 * sorted.size())];
+        res.sparseMean = sum / sorted.size();
+        res.sparseMedian = sorted[sorted.size() / 2];
+        res.sparseP98 = sorted[(size_t)(0.98 * (sorted.size() - 1))];
+        res.sparseMax = sorted.back();
+    }
+
+    std::vector<double> sparseErr;
+    for (size_t i = 0; i < rL.size(); ++i)
+    {
+        int x = cvRound(rL[i].x), y = cvRound(rL[i].y);
+        if (x < 0 || y < 0 || x >= disp.cols || y >= disp.rows)
+            continue;
+        float dDense = disp.at<float>(y, x);
+        if (!(std::isfinite(dDense) && dDense >= lo && dDense < hi))
+            continue; // dense matcher produced no valid value here
+        double dTrue = rL[i].x - rR[i].x;
+        sparseErr.push_back(std::abs(dDense - dTrue));
+    }
+
+    res.checkedCount = sparseErr.size();
+    double sMean = 0, sMax = 0;
+    for (double e : sparseErr)
+    {
+        sMean += e;
+        sMax = std::max(sMax, e);
+    }
+    res.agreementMean = sparseErr.empty() ? 0 : sMean / sparseErr.size();
+    res.agreementMax = sMax;
+    std::vector<double> ss = sparseErr;
+    std::sort(ss.begin(), ss.end());
+    res.agreementMedian = ss.empty() ? 0 : ss[ss.size() / 2];
+    for (double e : sparseErr)
+        if (e <= 2.0)
+            ++res.within2px;
+
+    // Photometric consistency check: warp the right image into the left frame using
+    // the dense disparity (a left pixel (x,y) matches right pixel (x-d, y)). Correct
+    // disparities should reconstruct the left image with low intensity error.
+    double photoSum = 0;
+    long photoN = 0;
+    for (int y = 0; y < disp.rows; ++y)
+        for (int x = 0; x < disp.cols; ++x)
+        {
+            float d = disp.at<float>(y, x);
+            if (!(d >= lo && d < hi))
+                continue;
+            int xr = cvRound(x - d);
+            if (xr < 0 || xr >= rectR.cols)
+                continue;
+            photoSum += std::abs((int)rectL.at<uchar>(y, x) - (int)rectR.at<uchar>(y, xr));
+            ++photoN;
+        }
+    res.photometricSamples = photoN;
+    res.photometricMAE = photoN ? photoSum / photoN : 0;
+
+    // Textureless region analysis: quantify how much of the non-black rectified image
+    // has near-zero gradient, and whether invalid disparity pixels correlate with it.
+    cv::Mat gradX, gradY, gradMag;
+    cv::Sobel(rectL, gradX, CV_32F, 1, 0, 3);
+    cv::Sobel(rectL, gradY, CV_32F, 0, 1, 3);
+    cv::magnitude(gradX, gradY, gradMag);
+    const float textureThresh = 5.0f; // gradient magnitude < 5 -> textureless
+    cv::Mat texturelessMask = (gradMag < textureThresh) & nonBlackMask;
+
+    res.texturelessCount = cv::countNonZero(texturelessMask);
+    for (int y = 0; y < disp.rows; ++y)
+        for (int x = 0; x < disp.cols; ++x)
+        {
+            if (!nonBlackMask.at<uchar>(y, x))
+                continue;
+            float d = disp.at<float>(y, x);
+            bool isInvalid = !(d >= lo && d < hi);
+            bool isTextureless = texturelessMask.at<uchar>(y, x) != 0;
+            if (isInvalid)
+                ++res.invalidNonBlack;
+            if (isInvalid && isTextureless)
+                ++res.invalidAndTextureless;
+        }
+
+    res.pass = (res.checkedCount > 0 && res.agreementMean <= 2.5 && res.coverage > 40.0 &&
+                (100.0 * res.within2px / res.checkedCount) >= 80.0);
+    return res;
+}
+
+void Evaluator::printDisparity(const DisparityRes &res, double scale)
+{
+    std::cout << "\n--- Disparity map summary ---\n";
+    std::cout << "  search range    : [" << res.minDisp << ", " << res.minDisp + res.numDisp << ")\n";
+    std::cout << std::fixed << std::setprecision(1);
+    std::cout << "  coverage        : " << res.coverage << "% (of " << res.nonBlackPixels
+              << " non black rectified pixels)\n";
+    if (res.validPixels > 0)
+        std::cout << "  disparity range : [" << res.dispMin << ", " << res.dispMax << "], mean "
+                  << res.dispMean << "\n";
+
+    std::cout << "\n--- Sparse inlier disparity distribution (xL_rect - xR_rect, " << res.sparseCount << " pts) ---\n";
+    if (res.sparseCount > 0)
+    {
+        std::cout << "  min=" << res.sparseMin << "  p2=" << res.sparseP2 << "  mean=" << res.sparseMean
+                  << "  median=" << res.sparseMedian << "  p98=" << res.sparseP98 << "  max=" << res.sparseMax << "\n";
+        std::cout << "  negative disparities : " << res.negativeCount << " / " << res.sparseCount
+                  << " (sign-convention check; should be 0 for a standard left-right pair)\n";
+        std::cout << "  pipeline chose search range [" << res.minDisp << ", " << (res.minDisp + res.numDisp)
+                  << ")  vs  sparse [p2, p98] = [" << res.sparseP2 << ", " << res.sparseP98 << "]\n";
+    }
+
+    std::cout << "\n--- Dense-vs-sparse disparity agreement (pixels) ---\n";
+    std::cout << "  checked points  : " << res.checkedCount << " / " << res.sparseCount
+              << " (rest invalid/out-of-bounds)\n";
+    std::cout << "  mean |d_dense - d_true| : " << res.agreementMean << "\n";
+    std::cout << "  median                  : " << res.agreementMedian << "\n";
+    std::cout << "  max                     : " << res.agreementMax << "\n";
+    std::cout << "  within 2px              : " << res.within2px << " / " << res.checkedCount << " ("
+              << (res.checkedCount ? 100.0 * res.within2px / res.checkedCount : 0.0) << "%)\n";
+    // 1px of error means a different real-world distance at different scales.
+    // Project back to full-resolution-equivalent pixels for runs that used a downscale
+    if (scale > 0.0 && scale != 1.0)
+        std::cout << "  full-res equivalent (/ processing_scale=" << scale << "):"
+                  << "  mean="   << (res.agreementMean / scale)   << "px"
+                  << "  median=" << (res.agreementMedian / scale) << "px"
+                  << "  max="    << (res.agreementMax / scale)    << "px\n";
+
+    std::cout << "\n--- Photometric reconstruction error (right -> left warp; intensity 0-255) ---\n";
+    std::cout << "  mean abs error  : " << res.photometricMAE << " over " << res.photometricSamples << " px\n";
+
+    std::cout << "\n--- Textureless region analysis (grad magnitude < 5.0) ---\n";
+    std::cout << "  textureless    : " << res.texturelessCount << " / " << res.nonBlackPixels << " non-black px ("
+              << (res.nonBlackPixels ? 100.0 * res.texturelessCount / res.nonBlackPixels : 0.0) << "%)\n";
+    std::cout << "  invalid disparity pixels that are textureless : "
+              << (res.invalidNonBlack ? 100.0 * res.invalidAndTextureless / res.invalidNonBlack : 0.0) << "% of "
+              << res.invalidNonBlack << " invalid non-black px\n";
+    std::cout << "  textureless pixels that are invalid           : "
+              << (res.texturelessCount ? 100.0 * res.invalidAndTextureless / res.texturelessCount : 0.0) << "%\n";
+
+    std::cout << "\n  verdict         : "
+              << (res.pass ? "PASS (dense disparity agrees with geometry)"
+                            : "CHECK (disparity disagrees with sparse matches / low coverage)")
+              << "\n";
+    std::cout << std::defaultfloat;
+}
+
+RectificationRes Evaluator::evaluateRectification(const std::vector<cv::Point2f> &inL,
+                                                   const std::vector<cv::Point2f> &inR,
+                                                   const cv::Mat &K,
+                                                   const cv::Mat &R1, const cv::Mat &P1,
+                                                   const cv::Mat &R2, const cv::Mat &P2)
+{
+    RectificationRes res;
+
+    cv::Mat dist = cv::Mat::zeros(5, 1, CV_64F);
+    std::vector<cv::Point2f> rL, rR;
+    cv::undistortPoints(inL, rL, K, dist, R1, P1);
+    cv::undistortPoints(inR, rR, K, dist, R2, P2);
+
+    std::vector<double> errs;
+    errs.reserve(rL.size());
+    double sumErr = 0.0, maxErr = 0.0;
+    for (size_t i = 0; i < rL.size(); ++i)
+    {
+        double e = std::abs(rL[i].y - rR[i].y);
+        errs.push_back(e);
+        sumErr += e;
+        maxErr = std::max(maxErr, e);
+    }
+
+    res.correspondences = errs.size();
+    res.meanErr = errs.empty() ? 0.0 : sumErr / errs.size();
+    res.maxErr = maxErr;
+
+    std::vector<double> sorted = errs;
+    std::sort(sorted.begin(), sorted.end());
+    res.medianErr = sorted.empty() ? 0.0 : sorted[sorted.size() / 2];
+
+    for (double e : errs)
+        if (e <= 1.0)
+            ++res.within1px;
+
+    // Sub-pixel / single-pixel mean residual indicates a correct calibrated rectification.
+    res.pass = res.meanErr < 1.0;
+    return res;
+}
+
+void Evaluator::printRectification(const RectificationRes &res)
+{
+    std::cout << "\n--- Rectification Vertical-Alignment Error (pixels) ---\n";
+    std::cout << "  correspondences : " << res.correspondences << "\n";
+    std::cout << "  mean   |yL-yR|  : " << res.meanErr << "\n";
+    std::cout << "  median |yL-yR|  : " << res.medianErr << "\n";
+    std::cout << "  max    |yL-yR|  : " << res.maxErr << "\n";
+    std::cout << "  within 1px      : " << res.within1px << " / " << res.correspondences
+              << " (" << (res.correspondences ? 100.0 * res.within1px / res.correspondences : 0.0) << "%)\n";
+    std::cout << "  verdict         : "
+              << (res.pass ? "PASS (rectification row-aligned)" : "CHECK (residual too large)")
+              << "\n";
 }

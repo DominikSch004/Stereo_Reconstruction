@@ -60,7 +60,19 @@ public:
         const Eigen::Vector3d &C1 = Eigen::Vector3d::Zero(),
         const Eigen::Vector3d &C2 = Eigen::Vector3d::Zero());
 
-private:
+    /**
+     * @brief Grayscale conversion + config.processingScale downscale.
+     */
+    static void preprocessScale(
+        const cv::Mat &imgLeft, const cv::Mat &imgRight, const cv::Mat &K_in, double scale,
+        cv::Mat &gray1, cv::Mat &gray2, cv::Mat &bgrLeft, cv::Mat &bgrRight, cv::Mat &K, cv::Size &sz);
+
+    /**
+     * @brief Scales a disparity block size (in pixels) by `scale` so the matching window
+     * covers roughly the same extent of the scene regardless of config.processingScale.
+     */
+    static int scaledBlockSize(int baseBlockSize, double scale);
+
     /**
      * @brief Computes true metric baseline ||C1 - C2|| and rescales t in-place (t = t_unit * trueBaseline)
      */

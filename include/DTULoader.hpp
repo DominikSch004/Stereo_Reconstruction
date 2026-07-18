@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <filesystem>
 #include "PlyUtils.hpp"
 #include <Eigen/Dense>
 #include <opencv2/calib3d.hpp>
@@ -20,6 +21,8 @@ struct CameraPose
     Eigen::Vector3d t;
     Eigen::Matrix3d K;
 };
+
+namespace fs = std::filesystem;
 
 class DTULoader
 {
@@ -140,11 +143,42 @@ public:
 private:
     std::string m_baseDir;
 
+    std::string findRectified()
+    {
+        std::string rectifiedPath = "";
+
+        for (const auto &entry : fs::recursive_directory_iterator(m_baseDir))
+        {
+            if (entry.is_directory() && entry.path().filename() == "Rectified")
+            {
+                rectifiedPath = entry.path().string();
+                break;
+            }
+        }
+        if (rectifiedPath.empty())
+        {
+            std::cerr << "ERROR: Could not find 'Rectified' folder inside " << m_baseDir << "\n";
+            return "";
+        }
+
+        return rectifiedPath;
+    }
+
     std::string buildImagePath(int datasetID, int viewId, int illumination)
     {
+        std::string rectifiedFolder = findRectified();
+
+        if (rectifiedFolder.empty())
+        {
+            return "";
+        }
+
         char buf[256];
-        snprintf(buf, sizeof(buf), "SampleSet/MVS Data/Rectified/scan%d/rect_%03d_%d_r5000.png", datasetID, viewId, illumination);
-        return m_baseDir + std::string(buf);
+        snprintf(buf, sizeof(buf), "scan%d/rect_%03d_%d_r5000.png", datasetID, viewId, illumination);
+
+        fs::path finalPath = fs::path(rectifiedFolder) / buf;
+
+        return finalPath.string();
     }
 
     CameraPose loadPoseFromTxt(const std::string &calPath)

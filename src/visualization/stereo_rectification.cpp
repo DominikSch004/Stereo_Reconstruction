@@ -13,6 +13,7 @@
 #include "Rectification.hpp"
 #include "ImgUtils.hpp"
 #include "GeometryUtils.hpp"
+#include "Evaluator.hpp"
 
 int main()
 {
@@ -39,11 +40,12 @@ int main()
         return -1;
     }
 
+    VisualizationData visualize;
     // Compute Robust Fundamental Matrix via Custom MAGSAC
     std::vector<bool> mask;
 
     std::mt19937 rng(42);
-    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, visualize, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
 
     std::vector<cv::Point2f> inL, inR;
     for (size_t i = 0; i < ptsL.size(); ++i)
@@ -55,7 +57,7 @@ int main()
         }
     }
     if (inL.size() < 8)
-        return false;
+        return 0;
 
     int nInliers = std::count(mask.begin(), mask.end(), true);
     std::cout << "MAGSAC Inliers: " << nInliers << " / " << ptsL.size() << "\n";
@@ -85,6 +87,10 @@ int main()
     // through the rectifying transforms (R1/P1, R2/P2) and measure the residual
     // vertical disparity |y_L - y_R|. This is the actual verification; the drawn
     // lines below are only a rendering of these numbers.
+    RectificationRes rectRes = Evaluator::evaluateRectification(inL, inR, K, rect.R1, rect.P1, rect.R2, rect.P2);
+    Evaluator::printRectification(rectRes);
+
+    // Per-point errors, needed only for coloring the panels below
     cv::Mat dist = cv::Mat::zeros(5, 1, CV_64F);
     std::vector<cv::Point2f> rInL, rInR;
     cv::undistortPoints(inL, rInL, K, dist, rect.R1, rect.P1);
@@ -92,37 +98,8 @@ int main()
 
     std::vector<double> errs;
     errs.reserve(rInL.size());
-    double sumErr = 0.0, maxErr = 0.0;
     for (size_t i = 0; i < rInL.size(); ++i)
-    {
-        double e = std::abs(rInL[i].y - rInR[i].y);
-        errs.push_back(e);
-        sumErr += e;
-        maxErr = std::max(maxErr, e);
-    }
-
-    double meanErr = errs.empty() ? 0.0 : sumErr / errs.size();
-    std::vector<double> sorted = errs;
-    std::sort(sorted.begin(), sorted.end());
-    double medianErr = sorted.empty() ? 0.0 : sorted[sorted.size() / 2];
-
-    // Sub-pixel / single-pixel mean residual indicates a correct calibrated rectification.
-    int goodCount = 0;
-    for (double e : errs)
-        if (e <= 1.0)
-            ++goodCount;
-
-    std::cout << "\n--- Rectification Vertical-Alignment Error (pixels) ---\n";
-    std::cout << "  correspondences : " << errs.size() << "\n";
-    std::cout << "  mean   |yL-yR|  : " << meanErr << "\n";
-    std::cout << "  median |yL-yR|  : " << medianErr << "\n";
-    std::cout << "  max    |yL-yR|  : " << maxErr << "\n";
-    std::cout << "  within 1px      : " << goodCount << " / " << errs.size()
-              << " (" << (errs.empty() ? 0.0 : 100.0 * goodCount / errs.size()) << "%)\n";
-    std::cout << "  verdict         : "
-              << (meanErr < 1.0 ? "PASS (rectification row-aligned)"
-                                : "CHECK (residual too large)")
-              << "\n";
+        errs.push_back(std::abs(rInL[i].y - rInR[i].y));
 
     // --- 6. Visualization ---
     cv::Mat vizL, vizR;
@@ -169,13 +146,13 @@ int main()
     // Overlay the summary verdict on the combined image.
     {
         std::ostringstream hud;
-        hud << "mean dy=" << std::fixed << std::setprecision(2) << meanErr
-            << "px  max=" << maxErr << "px  within1px="
-            << (errs.empty() ? 0.0 : 100.0 * goodCount / errs.size()) << "%";
+        hud << "mean dy=" << std::fixed << std::setprecision(2) << rectRes.meanErr
+            << "px  max=" << rectRes.maxErr << "px  within1px="
+            << (rectRes.correspondences ? 100.0 * rectRes.within1px / rectRes.correspondences : 0.0) << "%";
         cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     {0, 0, 0}, 4, cv::LINE_AA);
         cv::putText(combined, hud.str(), {15, 30}, cv::FONT_HERSHEY_SIMPLEX, 0.8,
-                    meanErr < 1.0 ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255),
+                    rectRes.pass ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255),
                     1, cv::LINE_AA);
     }
 

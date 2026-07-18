@@ -1,9 +1,10 @@
 #include "FundamentalMatrix.hpp"
 #include "Magsac.hpp"
-#include <opencv2/calib3d.hpp>
+#include <opencv2/opencv.hpp>
 #include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 #include <iostream>
 
 // Sampson distance: first-order approximation to geometric epipolar error
@@ -136,6 +137,7 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
+    VisualizationData &visualize,
     FundamentalMethod method,
     double threshold,
     double confidence,
@@ -144,13 +146,13 @@ Eigen::Matrix3d FundamentalMatrix::computeFundamental(
     switch (method)
     {
     case FundamentalMethod::CustomRANSAC:
-        return computeCustomRANSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
+        return computeCustomRANSAC(ptsL, ptsR, inlierMask, rng, visualize, threshold, confidence, maxIter);
     case FundamentalMethod::OpenCVRANSAC:
         return computeOpenCVRANSAC(ptsL, ptsR, inlierMask, threshold, confidence);
     case FundamentalMethod::CustomMAGSAC:
-        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
+        return computeCustomMAGSAC(ptsL, ptsR, inlierMask, rng, visualize, threshold, confidence, maxIter);
     case FundamentalMethod::CustomPROSAC:
-        return computeCustomPROSAC(ptsL, ptsR, inlierMask, rng, threshold, confidence, maxIter);
+        return computeCustomPROSAC(ptsL, ptsR, inlierMask, rng, visualize, confidence, threshold, maxIter);
     }
 
     inlierMask.assign(ptsL.size(), false);
@@ -162,6 +164,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
+    VisualizationData &visualize,
     double threshold,
     double confidence,
     int maxIter)
@@ -219,6 +222,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
             continue;
         }
 
+        visualize.history_L.push_back(sL);
+        visualize.history_R.push_back(sR);
+
         // matrix hypothesis
         Eigen::Matrix3d F = compute8Point(sL, sR);
         std::vector<bool> mask(N);
@@ -243,6 +249,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
             dynamicMaxIter = std::min(dynamicMaxIter, iter_needed);
         }
 
+        visualize.inLierCount.push_back(inliers);
+        visualize.currBestInlier.push_back(bestInliers);
+
         if (it >= dynamicMaxIter)
         {
             std::cout << "[RANSAC] Early termination triggered at iteration " << it
@@ -263,15 +272,38 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomRANSAC(
         }
     }
 
-    // Recompute if the global inlier pool satisfies basic system dimensions
+    double acc_error = 0.0;
+    int final_inlier_count = 0;
+
     if (inL.size() >= 8)
     {
         bestF = compute8Point(inL, inR);
-        // Refresh final outlier rejection tracking arrays
         for (int i = 0; i < N; ++i)
         {
-            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < thresholdSq;
+            double e = sampsonError(bestF, ptsL[i], ptsR[i]);
+
+            if (e < thresholdSq)
+            {
+                inlierMask[i] = true;
+                acc_error += e;
+                final_inlier_count++;
+            }
+            else
+            {
+                inlierMask[i] = false;
+            }
         }
+    }
+
+    if (final_inlier_count > 0)
+    {
+        visualize.final_sampson_err = acc_error / final_inlier_count;
+        visualize.final_inlier_count = final_inlier_count;
+    }
+    else
+    {
+        visualize.final_sampson_err = -1.0;
+        visualize.final_inlier_count = -1;
     }
     return bestF;
 }
@@ -373,6 +405,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
+    VisualizationData &visualize,
     double sigmaMax,
     double confidence,
     int maxIter)
@@ -447,7 +480,7 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             currentTotalLoss += magsacCore.calculateLoss(e2);
 
             // Count inliers using the strict threshold
-            if (std::sqrt(e2) < strictStoppingThreshold)
+            if (e2 < strictStoppingThreshold)
             {
                 approxInliers++;
             }
@@ -462,6 +495,24 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             bestF = F;
             int requiredIters = calculateRequiredIterations(approxInliers, N, sampleSize, confidence);
             dynamicMaxIter = std::min(maxIter, requiredIters);
+
+            std::vector<cv::Point2f> currentBestL, currentBestR;
+            currentBestL.reserve(approxInliers);
+            currentBestR.reserve(approxInliers);
+
+            // Extract the actual points that fit this new best model
+            for (int i = 0; i < N; ++i)
+            {
+                if (sampsonError(F, ptsL[i], ptsR[i]) < sigmaMaxSquared)
+                {
+                    currentBestL.push_back(ptsL[i]);
+                    currentBestR.push_back(ptsR[i]);
+                }
+            }
+            visualize.history_L.push_back(currentBestL);
+            visualize.history_R.push_back(currentBestR);
+            visualize.inLierCount.push_back(currentBestL.size());
+            visualize.currBestInlier.push_back(approxInliers);
         }
     }
 
@@ -507,6 +558,11 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
             {
                 bestTotalLoss = newLoss;
                 polishedF = newF;
+
+                visualize.history_L.push_back(inL);
+                visualize.history_R.push_back(inR);
+                visualize.inLierCount.push_back(inL.size());
+                visualize.currBestInlier.push_back(inL.size());
             }
             else
             {
@@ -522,6 +578,8 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
     // 3. Final Inlier Mask Generation
     inlierMask.assign(N, false);
     int bestInliers = 0;
+    double final_total_sampson = 0.0;
+
     for (int i = 0; i < N; ++i)
     {
         double e2 = sampsonError(polishedF, ptsL[i], ptsR[i]);
@@ -529,8 +587,12 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomMAGSAC(
         {
             inlierMask[i] = true;
             bestInliers++;
+            final_total_sampson += std::sqrt(e2);
         }
     }
+
+    visualize.final_inlier_count = bestInliers;
+    visualize.final_sampson_err = (bestInliers > 0) ? (final_total_sampson / bestInliers) : 0.0;
 
     std::cout << "[MAGSAC] Terminated after " << it
               << ". Number of degenerate samplings rejected: " << degenerateFails
@@ -544,8 +606,9 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     const std::vector<cv::Point2f> &ptsR,
     std::vector<bool> &inlierMask,
     std::mt19937 &rng,
-    double threshold,
+    VisualizationData &visualize,
     double confidence,
+    double threshold,
     int maxIter)
 {
     const int N = (int)ptsL.size();
@@ -554,11 +617,11 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
     Eigen::Matrix3d bestF = Eigen::Matrix3d::Identity();
     int bestInliers = 0;
 
+    const double thresholdSq = threshold * threshold;
+
     inlierMask.assign(N, false);
 
     int degenerateCount = 0;
-
-    const double thresholdSq = threshold * threshold;
 
     // dynamic iterator T_N (stopping criterion)
     int dynamicIter = maxIter;
@@ -657,12 +720,18 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
             }
         }
 
+        visualize.history_L.push_back(sL);
+        visualize.history_R.push_back(sR);
+
         if (inliers_total > bestInliers)
         {
             bestInliers = inliers_total;
             bestF = F;
             inlierMask = mask;
         }
+
+        visualize.inLierCount.push_back(inliers_total);
+        visualize.currBestInlier.push_back(bestInliers);
 
         // non-randomness check
 
@@ -713,14 +782,38 @@ Eigen::Matrix3d FundamentalMatrix::computeCustomPROSAC(
         }
     }
 
+    double acc_error = 0.0;
+    int final_inlier_count = 0;
+
     if (inL.size() >= 8)
     {
         bestF = compute8Point(inL, inR);
-
         for (int i = 0; i < N; ++i)
         {
-            inlierMask[i] = sampsonError(bestF, ptsL[i], ptsR[i]) < thresholdSq;
+            double e = sampsonError(bestF, ptsL[i], ptsR[i]);
+
+            if (e < thresholdSq)
+            {
+                inlierMask[i] = true;
+                acc_error += e;
+                final_inlier_count++;
+            }
+            else
+            {
+                inlierMask[i] = false;
+            }
         }
+    }
+
+    if (final_inlier_count > 0)
+    {
+        visualize.final_sampson_err = acc_error / final_inlier_count;
+        visualize.final_inlier_count = final_inlier_count;
+    }
+    else
+    {
+        visualize.final_sampson_err = -1.0;
+        visualize.final_inlier_count = -1;
     }
 
     return bestF;

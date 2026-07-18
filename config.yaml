@@ -35,3 +35,16 @@ icp_mode: point_to_plane
 # true | false non-linear refinement of (R, t) directly on the essential-matrix 
 # space after recoverPose
 pose_refinement: false
+
+# (0, 1.0]  image downscale factor applied before every pipeline step, via
+# Pipeline::preprocessScale. 1.0 = full resolution, no downscale.
+processing_scale: 0.5
+
+# select ratio threshold for FLANN after SIFT.
+ratio_threshold: 0.75
+
+# select dataset and image pairs
+dataset_id: 1
+image_left_id: 1
+image_right_id: 2
+illumination_id: 3
