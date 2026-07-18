@@ -49,8 +49,8 @@ pose_refinement: true
 # competing plane hypotheses per intensity segment to recover coverage/accuracy in
 # untextured interiors. Helps on genuinely planar scenes like scan6 but hurts on
 # curved objects like scan1, as it violate the paper's Assumption 3
-# ("surface approximable by a plane"). Off by  default since scan1 is our primary scene.
-intensity_consistent_disparity: false
+# ("surface approximable by a plane").
+intensity_consistent_disparity: true
 
 # true | false  Custom disparity backend only (Hirschmuller 2008 Sec 2.5.3): pushes
 # coverage to 100% by interpolating remaining gaps. Off by default as we have a low

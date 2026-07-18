@@ -21,6 +21,18 @@ struct PointCloud
 };
 
 /**
+ * @struct PointCloudConfidence
+ * @brief Per-cloud inputs to the point weighting model (see PlyUtils::computePointWeight).
+ */
+struct PointCloudConfidence
+{
+    float globalConfidence = 1.0f;  // inlier ratio from the pair's robust fundamental-matrix
+                                    // estimator (RANSAC/MAGSAC/PROSAC, whichever config.fundamental
+                                    // selected), constant across the cloud
+    float sigmaD = 0.5f;            // measured disparity matching accuracy in pixels
+};
+
+/**
  * @class PlyUtils
  * @brief Coordinates dense point cloud generation, coordinate transformations, and PLY streaming.
  */
@@ -41,7 +53,7 @@ public:
         const cv::Mat &camToWorld,
         const cv::Mat &rectColor,
         int minDisp,
-        float globalConfidence,
+        const PointCloudConfidence &confidence,
         TriangulationMethod method = TriangulationMethod::OpenCV
     );
 
@@ -54,6 +66,8 @@ public:
      * @param camToWorld 3x4 or 4x4 rigid transformation tracking extrinsic placement.
      * @param rectColor The rectified left image used to sample color data.
      * @param minDisp The threshold used to skip uncalculated/background disparities.
+     * @param confidence Pair-level inputs to the per-point weighting model -- see
+     *  PointCloudConfidence and computePointWeight.
      * @param method Strategy selected for triangulation calculation.
      */
     static PointCloud buildPointCloud(
@@ -64,7 +78,7 @@ public:
         const cv::Mat &camToWorld,
         const cv::Mat &rectColor,
         int minDisp,
-        float globalConfidence,
+        const PointCloudConfidence &confidence,
         TriangulationMethod method = TriangulationMethod::OpenCV
     );
 
@@ -94,8 +108,27 @@ public:
      * @brief Reverts normalization scaling.
      */
     static void denormalise(
-        PointCloud& cloud, 
-        const Eigen::Vector3f& mean, 
+        PointCloud& cloud,
+        const Eigen::Vector3f& mean,
         float scale
+    );
+
+private:
+    /**
+     * @brief Combines three independent confidence signals into one per-point weight:
+     *  - depth uncertainty propagated from disparity noise: variance = Z^4/(f*B)^2 * sigmaD^2,
+     *    confidence = 1/(1+variance) -- farther/noisier points trusted less.
+     *  - a discontinuity penalty from the local disparity-gradient magnitude (exponential
+     *    decay, ~1.0 on smooth surfaces, drops toward 0 at depth edges/occlusion boundaries).
+     *  - the pair's global robust-estimator inlier ratio (RANSAC/MAGSAC/PROSAC, whichever
+     *    config.fundamental selected; constant across the cloud, confidence.globalConfidence).
+     * @param z Triangulated depth (mm) of the point.
+     * @param fB Focal length * baseline (from P2r(0,3) = -f*B), used by the depth-uncertainty term.
+     * @param edgeGradient Disparity-map gradient magnitude at this pixel (Sobel).
+     * @param confidence Pair-level inputs (RANSAC ratio, measured disparity accuracy).
+     */
+    static float computePointWeight(
+        float z, double fB, float edgeGradient,
+        const PointCloudConfidence &confidence
     );
 };

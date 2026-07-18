@@ -65,12 +65,23 @@ int main(int argc, char **argv)
     EvaluatorRes metrics = Evaluator::evaluateMetrics(params);
     Evaluator::printMetrics(metrics);
 
+    // Measured dense-vs-sparse disparity accuracy (pixels), used below as the point
+    // cloud's depth-confidence sigma_d = agreementMean.
+    DisparityRes dispRes = Evaluator::evaluateDisparity(
+        res.denseDisparity, res.rectLeft, res.rectRight,
+        res.inPtsL, res.inPtsR, res.K,
+        res.R1, res.P1r, res.R2, res.P2r,
+        res.minDisp, res.numDisp);
+
     const std::string plyFilename = "pointcloud.ply";
     std::cout << "Saving cloud to: " << plyFilename << "\n";
+    PointCloudConfidence confidence{res.globalConfidence, static_cast<float>(dispRes.agreementMean)};
     PlyUtils::buildAndSavePLY(
         plyFilename,
         res.denseDisparity, res.Q, res.P1r, res.P2r,
-        res.camToWorld, res.rectColor, res.minDisp, res.globalConfidence, config.triangulation);
+        res.camToWorld, res.rectColor, res.minDisp,
+        confidence,
+        config.triangulation);
 
     return 0;
 }
