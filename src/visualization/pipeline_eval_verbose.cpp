@@ -231,16 +231,6 @@ int main(int argc, char **argv)
                   << "%), resulting point cloud may be noisy.\n";
     }
 
-    cv::Mat colorizedCloud;
-    if (rect.rectLeft.channels() == 1)
-    {
-        cv::cvtColor(rect.rectLeft, colorizedCloud, cv::COLOR_GRAY2BGR);
-    }
-    else
-    {
-        colorizedCloud = rect.rectLeft;
-    }
-
     cv::Mat camToWorld = cv::Mat::eye(3, 4, CV_64F);
 
     if (!PlyUtils::buildAndSavePLY(
@@ -250,7 +240,7 @@ int main(int argc, char **argv)
             rect.P1,
             rect.P2,
             camToWorld,
-            colorizedCloud,
+            rect.rectColor,
             minDisp,
             globalConfidence,
             config.triangulation))
