@@ -165,20 +165,27 @@ cv::Mat Disparity::nearestValidInDirection(const cv::Mat &disp, int minDisp, int
     return result;
 }
 
-cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method, double scale, bool useGapFill)
+cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method, double scale, const DisparityRefinementConfig &refinement)
 {
     switch (method)
     {
     case DisparityMethod::OpenCVSGBM:
         return computeSGBMOpenCV(left, right, minDisp, numDisp, blockSize, scale);
     case DisparityMethod::Custom:
-        return computeCustom(left, right, minDisp, numDisp, blockSize, scale, useGapFill);
+        return computeCustom(left, right, minDisp, numDisp, blockSize, scale, refinement);
     default:
         std::cout << "Failed! Select a valid disparity method";
         return cv::Mat();
     }
 }
 
+// Not itself from Hirschmuller 2008: a project-specific soft confidence for
+// confidence-weighted ICP. The hard cutoff it starts from is still the paper's
+// L/R consistency check (Sec 2.3, Eq. 15, "the disparity is set to invalid...
+// if [it and its right-image counterpart] differ" by more than lrMaxDiff), but
+// here the pass/fail is turned into a continuous [0,1] weight: the product of
+// two exponential falloffs, one over the L/R disagreement and one over the
+// left/right photometric error.
 cv::Mat Disparity::filterAndComputeConfidence(
     const cv::Mat &left, const cv::Mat &right, cv::Mat &disparityLeft,
     int minDisp, int numDisp, int blockSize, DisparityMethod method,
@@ -302,12 +309,6 @@ void Disparity::computeDynamicSearchRangeCalibrated(
 cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale)
 {
     int numChannels = left.channels(); // images are grayscale (1) & (3) BGR
-
-    // disp12MaxDiff/speckleRange are disparity-unit tolerances -- scale linearly with
-    // disparity magnitude (scale=1.0 keeps the original values: 1, 32). speckleWindowSize
-    // is a minimum blob *area* -- scale quadratically (scale=1.0 keeps 100). In practice
-    // disp12MaxDiff stays clamped to 1 for any scale in the valid (0, 1] range, since it's
-    // already at its floor -- see the scaleLinear minVal comment above.
     
     // scale wtih given scale to make everything comparable as much as possible
     // between scales/resolutions.
@@ -323,7 +324,7 @@ cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, 
         32 * numChannels * blockSize * blockSize, // P2 smoothness penalty
         disp12MaxDiff,
         0,                                        // preFilterCap    (intensity  - scale invariant)
-        10,                                       // uniquenessRatio (percentage - invariant)
+        10,                                       // uniquenessRatio (percentage - scale invariant)
         speckleWindowSize,
         speckleRange,
         cv::StereoSGBM::MODE_SGBM);
@@ -337,6 +338,8 @@ cv::Mat Disparity::computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, 
     return dispFloat;
 }
 
+// Birchfield & Tomasi 1998, cited in Hirschmuller 2008 Sec 2.1.2: the per-pixel
+// intensity interval [Imin,Imax]
 void Disparity::computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &Imax)
 {
     Imin.create(src.size(), CV_32F);
@@ -363,16 +366,17 @@ void Disparity::computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &I
     }
 }
 
-std::vector<uint16_t> Disparity::computeCostVolume(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, bool rightBase)
+std::vector<uint16_t> Disparity::computePixelwiseCost(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, bool rightBase)
 {
     // Birchfield & Tomasi (BT) 98 - Pixel Dissimilarity d(xi, yi) Section 2.1.2
+    // Hirschmuller 2008 Sec 2.1: pixelwise matching cost C(p,d).
 
     // L-R consistency check
-    // The returned cost volume is always indexed over "base"'s pixel positions; "match" is
+    // The returned cost C(p,d) is always indexed over "base"'s pixel positions; "match" is
     // the other image being searched. d = xL - xR always, so the search direction flips
     // between the two passes
 
-    // rightBase param selects which image the returned cost volume is indexed over
+    // rightBase param selects which image the returned cost is indexed over
     // so a left-base pixel xL looks up the right image at xL - d (rightBase=false),
     // while a right-base pixel xR looks up the left image at xR + d (rightBase=true)
 
@@ -386,7 +390,7 @@ std::vector<uint16_t> Disparity::computeCostVolume(const cv::Mat &left, const cv
 
     // The SGM paper: scaling costs to roughly 11 bits keeps the 16-directions
     // sum within the 16-bit range used the aggregated costs.
-    std::vector<uint16_t> costVolume(static_cast<size_t>(numDisp) * base.rows * base.cols, 2047); // max 11-bit cost for out-of-bounds
+    std::vector<uint16_t> pixelwiseCost(static_cast<size_t>(numDisp) * base.rows * base.cols, 2047); // max 11-bit cost for out-of-bounds
 
     for (int r = 0; r < base.rows; ++r)
     {
@@ -413,15 +417,21 @@ std::vector<uint16_t> Disparity::computeCostVolume(const cv::Mat &left, const cv
                     float cost_value = std::min(cost_base_match, cost_match_base);
 
                     int idx = (r * base.cols + c) * numDisp + d;
-                    costVolume[idx] = static_cast<uint16_t>(std::min(cost_value, 2047.0f));
+                    pixelwiseCost[idx] = static_cast<uint16_t>(std::min(cost_value, 2047.0f));
                 }
             }
         }
     }
-    return costVolume;
+    return pixelwiseCost;
 }
 
-void Disparity::aggregateDirection(const std::vector<uint16_t> &C, std::vector<uint16_t> &S,
+// Hirschmuller 2008 Sec 2.2, "Cost Aggregation," Eq. 13: accumulates one 1D
+// path's cost L_r(p,d) in direction r=(dx,dy) into the aggregated cost
+// S(p,d) = sum_r L_r(p,d), implementing "the new idea of aggregating matching
+// costs in 1D from all directions equally" that approximates minimizing the
+// 2D global energy of Eq. 11 (NP-complete for many discontinuity-preserving
+// energies) without solving it directly.
+void Disparity::aggregatePathCost(const std::vector<uint16_t> &C, std::vector<uint16_t> &S,
                                    int rows, int cols, int numDisp, int dx, int dy, int P1, int P2)
 {
     std::vector<int> Lr(static_cast<size_t>(rows) * cols * numDisp);
@@ -480,10 +490,38 @@ void Disparity::aggregateDirection(const std::vector<uint16_t> &C, std::vector<u
     }
 }
 
-// Full cost volume -> 16-direction aggregation -> WTA pipeline for one base image.
+// Subpixel estimation (Hirschmuller 2008 Sec 2.3: fit a parabola through the
+// aggregated cost at the winning disparity index and its two neighbors
+// (bestDispIdx-1, bestDispIdx+1), and return the position of its minimum as a
+// sub-integer correction. Returns 0 at the search range's edges, where one of
+// the neighbors doesn't exist.
+float Disparity::estimateSubpixel(const uint16_t *costsAtPixel, int numDisp, int bestDispIdx)
+{
+    if (bestDispIdx <= 0 || bestDispIdx >= numDisp - 1)
+        return 0.0f;
+
+    const float cMinus = static_cast<float>(costsAtPixel[bestDispIdx - 1]);
+    const float cZero = static_cast<float>(costsAtPixel[bestDispIdx]);
+    const float cPlus = static_cast<float>(costsAtPixel[bestDispIdx + 1]);
+    
+    // y(x) = ax^2 + bx + c = 0
+    // cMinus = y(-1) = a - b + c; cZero = y(0) = c; cPlus = y(1) = a + b + c
+    // so c = cZero; b = (cPlus - cMinus)/2; a = (cMinus + cPlus - 2*cZero)/2
+    // x = -b/(2a) = (cMinus - cPlus) / (2 * (cMinus + cPlus - 2*cZero))
+    const float denom = cMinus + cPlus - 2.0f * cZero; // 2a; >= 0 since cZero is the min of the three costs
+    if (denom <= 0.0f)
+        return 0.0f;
+    return 0.5f * (cMinus - cPlus) / denom; // vertex of the parabola
+}
+
+// Hirschmuller 2008 Sec 2.3, "Disparity Computation": pixelwise cost -> 16-path
+// aggregation -> "selecting for each pixel p the disparity d that corresponds
+// to the minimum cost, that is, min_d S[p,d]". What the paper's
+// introduction calls, for local methods generally, "winner takes all."
 cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right, int rows, int cols, int minDisp, int numDisp, int P1, int P2, bool rightBase)
 {
-    static const int dirs[16][2] = {// All 16 directions for aggregation
+    // All 16 directions for aggregation
+    static const int dirs[16][2] = {
                                     {1, 0},
                                     {-1, 0},
                                     {0, 1},
@@ -501,11 +539,11 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
                                     {1, -2},
                                     {-1, 2}};
 
-    std::vector<uint16_t> costVolume = computeCostVolume(left, right, minDisp, numDisp, rightBase);
+    std::vector<uint16_t> pixelwiseCost = computePixelwiseCost(left, right, minDisp, numDisp, rightBase);
 
     std::vector<uint16_t> S(static_cast<size_t>(rows) * cols * numDisp, 0);
     for (auto &d : dirs)
-        aggregateDirection(costVolume, S, rows, cols, numDisp, d[0], d[1], P1, P2);
+        aggregatePathCost(pixelwiseCost, S, rows, cols, numDisp, d[0], d[1], P1, P2);
 
     cv::Mat disparity(rows, cols, CV_32F);
     for (int r = 0; r < rows; ++r)
@@ -516,36 +554,30 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
             auto minCost = std::min_element(&S[idx], &S[idx + numDisp]);         // minimum aggregated cost
             int bestDispIdx = static_cast<int>(std::distance(&S[idx], minCost)); // index of best disparity
 
-            // Subpixel refinement:
-            // fit a parabola through  the neighboring costs, that is, at the next
-            // higher and lower disparity (bestDispIdx-1, bestDispIdx+1),
-            // and the position of the minimum is calculated (take its vertex as a sub-integer correction)
-            // Skipped at the search range's edges
-            float subpixelOffset = 0.0f;
-            if (bestDispIdx > 0 && bestDispIdx < numDisp - 1)
-            {
-                float cMinus = static_cast<float>(S[idx + bestDispIdx - 1]);
-                float cZero = static_cast<float>(S[idx + bestDispIdx]);
-                float cPlus = static_cast<float>(S[idx + bestDispIdx + 1]);
-                // y(x) = ax^2 + bx + c = 0
-                // cMinus = y(-1) = a - b + c; cZero = y(0) = c cPlus = y(1) = a + b + c
-                // so c = cZero, b = (cPlus - cMinus)/2, a = (cMinus + cPlus - 2*cZero)/2
-                // x = -b/(2a) = (cMinus - cPlus) / (2 * (cMinus + cPlus - 2*cZero))
-                float denom = cMinus + cPlus - 2.0f * cZero; // 2a; >= 0 since cZero is the min of the three costs
-                if (denom > 0.0f)
-                    subpixelOffset = 0.5f * (cMinus - cPlus) / denom; // vertex of the parabola
-            }
-
-            disparity.at<float>(r, c) = static_cast<float>(minDisp + bestDispIdx) + subpixelOffset;
+            const float offset = estimateSubpixel(&S[idx], numDisp, bestDispIdx);
+            disparity.at<float>(r, c) = static_cast<float>(minDisp + bestDispIdx) + offset;
         }
     }
 
     return disparity;
 }
 
+// Gap interpolation (Hirschmuller 2008 Sec 2.5.3, "Discontinuity Preserving Interpolation")
+// fills whatever pixels the earlier stages left invalid. Not every gap is the same kind of hole,
+// so they aren't filled the same way:
+//   - Occlusion: no match exists anywhere, because the pixel is visible from
+//     this camera but hidden from the other one. Since disparity falls with
+//     depth, the occluder is the largest disparity neighbor, filling from it
+//     would smear that object's edge outward, so these take the second-lowest
+//     disparity among the 8 direction-neighbors instead: the background surface
+//     behind the occluder.
+//   - Mismatch: a real match does exist, it just wasn't found (or got rejected
+//     by the L/R check). With no foreground/background bias to correct for,
+//     these take the median of all surrounding valid disparities instead.
+// Which case applies is decided per pixel below, by checking whether the
+// right-image disparity map has any candidate match along the epipolar line.
 cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, const cv::Mat &baseF, int minDisp, int numDisp)
 {
-    // Hirschmuller 2008, Sec 2.5.3
     static const int dirs[8][2] = {
         {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {-1, -1}, {1, -1}, {-1, 1}};
 
@@ -657,12 +689,19 @@ cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &disp
     return result;
 }
 
-// Peak filtering (Hirschmuller 2008, Sec 2.5.1): segments the valid disparity
-// map into 4-connected regions where adjacent pixels' disparities agree within
-// 1px, then invalidates (minDisp - 1) every segment smaller than
-// minSegmentSize. This removes small isolated patches of incorrect disparity
-// ("peaks", e.g. from noise/low texture) while preserving real scene
-// strucutre, which forms much larger connected segments.
+// Peak filtering (Hirschmuller 2008, Sec 2.5.1): removes small isolated segment of
+// wrong disparity ("peaks") that slipped past the L-R check: typically noise or
+// a bad match in a low-texture region
+//
+// The idea: a real surface (a wall, an object) is a large patch of pixels whose
+// disparity varies smoothly, with no sharp jumps. A peak is the opposite: one
+// or a few pixels whose disparity disagrees sharply with everything around them.
+// So: starting from each valid pixel, grow outward to its 4 (up/down/left/right)
+// neighbors, but only step into a neighbor if its disparity is within
+// maxSegmentDispDiff of the current pixel's. Each resulting connected segment is
+// either a big chunk of real structure, or a tiny isolated peak. Segments
+// smaller than minSegmentSize pixels are assumed to be peaks and invalidated
+// (set to minDisp - 1).
 cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSegmentSize, float maxSegmentDispDiff)
 {
     const int rows = disparity.rows;
@@ -723,9 +762,10 @@ cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSeg
 
                     // neighbour disparity
                     float dn = disparity.at<float>(ny, nx);
-
-                    // accept the neighbour only if it has a valid disparity
-                    // and differs by at most maxSegmentDispDiff px from the current pixel.
+                    
+                    // Grow into this neighbor only if it's valid and smoothly
+                    // continues the current disparity (differs by at most
+                    // maxSegmentDispDiff px from current pixel).
                     if (!(dn > minDispF) || std::abs(dn - dp) > maxSegmentDispDiff)
                         continue;
 
@@ -734,8 +774,8 @@ cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSeg
                 }
             }
 
-            // remove tiny regions which are unlikely to
-            // represent valid scene structure.
+            // remove tiny regions which are too smal to
+            // be real structure -> peak
             if (static_cast<int>(segment.size()) < minSegmentSize)
                 for (const auto &p : segment)
                     result.at<float>(p.y, p.x) = minDispF - 1.0f;
@@ -745,7 +785,12 @@ cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSeg
     return result;
 }
 
-cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale, bool useGapFill)
+// Hirschmuller 2008 end-to-end: computePixelwiseCost (Sec 2.1) -> aggregatePathCost
+// (Sec 2.2) -> computeWTADisparity with estimateSubpixel (Sec 2.3) -> the L/R
+// consistency check. Sec 2.5, "Disparity Refinement": removePeaks (Sec 2.5.1) and
+// interpolateGaps (Sec 2.5.3), are postprocessing techniques, each individually
+// optional via DisparityRefinementConfig. 
+cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale, const DisparityRefinementConfig &refinement)
 {
     // blockSize is not used as BT cost volume is computer per-pixel and not within a window
     const int P1 = 8;  // smoothness penalty for disparity change of 1
@@ -753,24 +798,26 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     const int rows = left.rows;
     const int cols = left.cols;
 
-    // Mirrors computeSGBMOpenCV's disp12MaxDiff/speckleWindowSize scaling
+    // Mirrors computeSGBMOpenCV's disp12MaxDiff/speckleWindowSize scaling. The "1"
+    // base values are fixed by the paper's own definitions (Eq. 15's tolerance, and
+    // Sec 2.5.1's "vary by one pixel" peak-segment criterion).
     const float LRConsistencyTol = static_cast<float>(scaleLinear(1, scale, 1));   // cv::StereoSGBM's disp12MaxDiff
-    const int minPeakSegment = scaleArea(100, scale, 1);                           // cv::StereoSGBM's speckleWindowSize
+    const int minPeakSegment = scaleArea(refinement.minPeakSegmentPx, scale, 1);   // cv::StereoSGBM's speckleWindowSize
     const float maxSegmentDispDiff = static_cast<float>(scaleLinear(1, scale, 1)); // cv::StereoSGBM's speckleRange
 
     cv::Mat leftF, rightF;
     left.convertTo(leftF, CV_32F);
     right.convertTo(rightF, CV_32F);
 
-    // Run the full winner takes all (WTA) disparity calculaation twice:
-    // once treating the left image as the base (D_left), once the right image (D_right)
+    // Run the full winner takes all (WTA) disparity calculation twice: once treating
+    // the left image as the base (D_left), once the right image (D_right)
     cv::Mat dispLeft = computeWTADisparity(leftF, rightF, rows, cols, minDisp, numDisp, P1, P2, false);
     cv::Mat dispRight = computeWTADisparity(leftF, rightF, rows, cols, minDisp, numDisp, P1, P2, true);
 
-    // L-R consistency check (Hirschmuller 2008, Eq. 15): a left pixel's
-    // disparity is only trusted if walking to its claimed match in the right
-    // image and reading D_right there gives the same disparity back,
-    // within 1px.
+    // L-R consistency check (Hirschmuller 2008, Sec 2.3, Eq. 15):
+    // a left pixel's disparity is only trusted if walking to its claimed
+    // match in the right image and reading D_right there gives the same disparity back,
+    // within LRConsistencyTol (1px).
     // Disagreement -> occlusion or a bad match -> invalidate
     cv::Mat disparity(rows, cols, CV_32F);
     for (int r = 0; r < rows; ++r)
@@ -794,10 +841,11 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     // NOTE: coverage vs. dense-vs-sparse accuracy is a continuous tradeoff here
     // As we increase minPeakSegment, it decreases coverage and increases
     // dense-vs-sparse accuracy.
-    disparity = removePeaks(disparity, minDisp, minPeakSegment, maxSegmentDispDiff);
+    if (refinement.peakFiltering)
+        disparity = removePeaks(disparity, minDisp, minPeakSegment, maxSegmentDispDiff);
 
     // Gap interpolation (Hirschmuller 2008, Sec 2.5.3): pushes coverage to 100% by
     // interpolating remaining gaps. Trades some dense-vs-sparse accuracy for coverage;
     // helpful on scenes like scan6, see config.yaml.
-    return useGapFill ? interpolateGaps(disparity, dispRight, leftF, minDisp, numDisp) : disparity;
+    return refinement.gapFill ? interpolateGaps(disparity, dispRight, leftF, minDisp, numDisp) : disparity;
 }

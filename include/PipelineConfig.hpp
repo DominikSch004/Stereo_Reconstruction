@@ -67,8 +67,10 @@ struct PipelineConfig
     // accuracy/coverage for speed. Working at 0.5 for speed.
     float processingScale = 0.5f;
 
-    // Hirschmuller 2008 Sec 2.5.3
-    bool useGapFill = false;
+    // Custom disparity backend only: toggles/thresholds for the optional
+    // post-processing stages on top of the core disparity algorithm
+    // (Hirschmuller 2008 Sec 2.5.1, 2.5.3).
+    DisparityRefinementConfig disparityRefinement;
 
     /**
      * @brief Loads a config from a YAML file (parsed with cv::FileStorage).
