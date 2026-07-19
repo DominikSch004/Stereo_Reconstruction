@@ -230,7 +230,8 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
 
     // --- 6. Dense Stereo Matching ---
     const int blockSize = scaledBlockSize(7, config.processingScale);
-    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity, config.processingScale);
+    res.denseDisparity = Disparity::computeDisparity(res.rectLeft, res.rectRight, res.minDisp, res.numDisp, blockSize, config.disparity, config.processingScale,
+                                                      config.useGapFill);
     if (res.denseDisparity.empty())
     {
         std::cerr << "ERROR: Dense stereo matching returned an empty disparity map.\n";

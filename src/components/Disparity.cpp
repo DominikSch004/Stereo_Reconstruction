@@ -165,14 +165,14 @@ cv::Mat Disparity::nearestValidInDirection(const cv::Mat &disp, int minDisp, int
     return result;
 }
 
-cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method, double scale)
+cv::Mat Disparity::computeDisparity(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, DisparityMethod method, double scale, bool useGapFill)
 {
     switch (method)
     {
     case DisparityMethod::OpenCVSGBM:
         return computeSGBMOpenCV(left, right, minDisp, numDisp, blockSize, scale);
     case DisparityMethod::Custom:
-        return computeCustom(left, right, minDisp, numDisp, blockSize, scale);
+        return computeCustom(left, right, minDisp, numDisp, blockSize, scale, useGapFill);
     default:
         std::cout << "Failed! Select a valid disparity method";
         return cv::Mat();
@@ -543,7 +543,7 @@ cv::Mat Disparity::computeWTADisparity(const cv::Mat &left, const cv::Mat &right
     return disparity;
 }
 
-cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, int minDisp, int numDisp)
+cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, const cv::Mat &baseF, int minDisp, int numDisp)
 {
     // Hirschmuller 2008, Sec 2.5.3
     static const int dirs[8][2] = {
@@ -567,6 +567,10 @@ cv::Mat Disparity::interpolateGaps(const cv::Mat &disparity, const cv::Mat &disp
             float d = disparity.at<float>(y, x);
             if (d >= static_cast<float>(minDisp))
                 continue; // already valid, nothing to fill
+
+            // Black rectification border
+            if (baseF.at<float>(y, x) <= 0.0f)
+                continue;
 
             wasInvalid.at<uchar>(y, x) = 255;
 
@@ -741,7 +745,7 @@ cv::Mat Disparity::removePeaks(const cv::Mat &disparity, int minDisp, int minSeg
     return result;
 }
 
-cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale)
+cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale, bool useGapFill)
 {
     // blockSize is not used as BT cost volume is computer per-pixel and not within a window
     const int P1 = 8;  // smoothness penalty for disparity change of 1
@@ -792,10 +796,8 @@ cv::Mat Disparity::computeCustom(const cv::Mat &left, const cv::Mat &right, int 
     // dense-vs-sparse accuracy.
     disparity = removePeaks(disparity, minDisp, minPeakSegment, maxSegmentDispDiff);
 
-    // Gap interpolation (Hirschmuller 2008, Sec 2.5.3): pushes coverage to 100% but currently
-    // worsens accuracy (mean error 31->34px, photometric MAE 3.9->34.2) as >80% of
-    // pixels start invalid. This should be used to fill small gaps not going to help with such
-    // low coverage. Kept available but disabled by default.
-    const bool useGapFill = false;
-    return useGapFill ? interpolateGaps(disparity, dispRight, minDisp, numDisp) : disparity;
+    // Gap interpolation (Hirschmuller 2008, Sec 2.5.3): pushes coverage to 100% by
+    // interpolating remaining gaps. Trades some dense-vs-sparse accuracy for coverage;
+    // helpful on scenes like scan6, see config.yaml.
+    return useGapFill ? interpolateGaps(disparity, dispRight, leftF, minDisp, numDisp) : disparity;
 }

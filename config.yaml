@@ -67,6 +67,7 @@ pose_refinement: false
 # Pipeline::preprocessScale. 1.0 = full resolution, no downscale.
 processing_scale: 0.5
 
-
-
-
+# true | false  Custom disparity backend only (Hirschmuller 2008 Sec 2.5.3): pushes
+# coverage to 100% by interpolating remaining gaps. Trades some dense-vs-sparse
+# accuracy for coverage -- should be on for scan6, where the denser result looks better.
+disparity_gap_fill: true

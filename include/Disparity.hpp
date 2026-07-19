@@ -32,6 +32,7 @@ public:
      * scale their own pixel/disparity-unit thresholds (L-R consistency tolerance, speckle/peak
      * region area and disparity-agreement range) by this factor so they stay comparable
      * across different scales.
+     * @param useGapFill Custom backend only (Hirschmuller 2008 Sec 2.5.3)
      * @return CV_32F disparity map matrix containing actual pixel disparities.
      */
     static cv::Mat computeDisparity(
@@ -41,7 +42,8 @@ public:
         int numDisp,
         int blockSize,
         DisparityMethod method,
-        double scale = 0.5);
+        double scale = 0.5,
+        bool useGapFill = false);
 
     static void computeDynamicSearchRangeCalibrated(
         const std::vector<cv::Point2f> &inPtsL,
@@ -75,14 +77,14 @@ public:
 private:
     // OpenCV and custom SGM backend implementations
     static cv::Mat computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale);
-    static cv::Mat computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale);
+    static cv::Mat computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale, bool useGapFill);
 
     // Custom SGM helpers (Birchfield-Tomasi cost + 16-direction SGM)
     static std::vector<uint16_t> computeCostVolume(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, bool rightBase = false);
     static void computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &Imax);
     static void aggregateDirection(const std::vector<uint16_t> &C, std::vector<uint16_t> &S, int rows, int cols, int numDisp, int dx, int dy, int P1, int P2);
     static cv::Mat computeWTADisparity(const cv::Mat &left, const cv::Mat &right, int rows, int cols, int minDisp, int numDisp, int P1, int P2, bool rightBase);
-    static cv::Mat interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, int minDisp, int numDisp);
+    static cv::Mat interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, const cv::Mat &baseF, int minDisp, int numDisp);
     static cv::Mat nearestValidInDirection(const cv::Mat &disp, int minDisp, int rows, int cols, int dx, int dy);
     static cv::Mat removePeaks(const cv::Mat &disparity, int minDisp, int minSegmentSize, float maxSegmentDispDiff = 1.0f);
 };

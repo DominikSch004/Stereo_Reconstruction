@@ -253,6 +253,14 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     else
         invalidValue("pose_refinement", v, "true | false");
 
+    v = readKey(fs, "disparity_gap_fill", "false");
+    if (v == "true")
+        cfg.useGapFill = true;
+    else if (v == "false")
+        cfg.useGapFill = false;
+    else
+        invalidValue("disparity_gap_fill", v, "true | false");
+
     return cfg;
 }
 
@@ -273,23 +281,36 @@ void PipelineConfig::print() const
     std::cout << "[" << icpImagePairs.size() << " pairs]\n";
 
     std::cout << "\n[Config] Pipeline step backends:\n"
-              << "  feature_detector:   " << (featureDetector == FeatureDetector::SIFT ? "sift" : "orb") << "\n"
-              << "  fundamental_matrix: "
-              << (fundamental == FundamentalMethod::OpenCVRANSAC   ? "opencv"
-                  : fundamental == FundamentalMethod::CustomRANSAC ? "custom"
-                  : fundamental == FundamentalMethod::CustomMAGSAC ? "custom_magsac"
-                                                                   : "custom_prosac") << "\n"
-              << "  rectification:      " << name(rectification == RectificationMethod::CalibratedOpenCV) << "\n"
-              << "  disparity:          " << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
-              << "  triangulation:      " << name(triangulation == TriangulationMethod::OpenCV) << "\n"
-              << "  icp_mode:           " << (icpMode == ICPMode::PointToPoint ? "point_to_point" : "point_to_plane")
-              << "\n  stereo_confidence: " << (stereoConfidenceFilter ? "on" : "off")
-              << " (LR=" << stereoLRMaxDiff << " px, photo_scale="
-              << stereoPhotometricScale << ")"
-              << "\n  confidence_weight: global=" << (confidenceUseGlobal ? "on" : "off")
-              << " depth=" << (confidenceUseDepth ? "on" : "off")
-              << " edge=" << (confidenceUseEdge ? "on" : "off")
-              << " stereo=" << (confidenceUseStereo ? "on" : "off")
-              << "\n"
-              << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n";
+          << "  feature_detector:   "
+          << (featureDetector == FeatureDetector::SIFT ? "sift" : "orb") << "\n"
+          << "  fundamental_matrix: "
+          << (fundamental == FundamentalMethod::OpenCVRANSAC   ? "opencv"
+              : fundamental == FundamentalMethod::CustomRANSAC ? "custom"
+              : fundamental == FundamentalMethod::CustomMAGSAC ? "custom_magsac"
+                                                               : "custom_prosac") << "\n"
+          << "  rectification:      "
+          << name(rectification == RectificationMethod::CalibratedOpenCV) << "\n"
+          << "  disparity:          "
+          << name(disparity == DisparityMethod::OpenCVSGBM) << "\n"
+          << "  triangulation:      "
+          << name(triangulation == TriangulationMethod::OpenCV) << "\n"
+          << "  icp_mode:           "
+          << (icpMode == ICPMode::PointToPoint ? "point_to_point"
+                                               : "point_to_plane")
+          << "\n";
+
+    std::cout << "\n[Config] Tunable parameters:\n"
+          << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n"
+          << "  processing_scale:   " << processingScale << "\n"
+          << "  ratio_threshold:    " << ratioThreshold << "\n"
+          << "  disparity_gap_fill: " << (useGapFill ? "true" : "false") << "\n"
+          << "  stereo_confidence:  " << (stereoConfidenceFilter ? "on" : "off")
+          << " (LR=" << stereoLRMaxDiff
+          << " px, photo_scale=" << stereoPhotometricScale << ")\n"
+          << "  confidence_weight:  "
+          << "global=" << (confidenceUseGlobal ? "on" : "off")
+          << " depth=" << (confidenceUseDepth ? "on" : "off")
+          << " edge=" << (confidenceUseEdge ? "on" : "off")
+          << " stereo=" << (confidenceUseStereo ? "on" : "off")
+          << "\n";
 }
