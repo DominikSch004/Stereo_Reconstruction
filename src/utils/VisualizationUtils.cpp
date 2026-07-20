@@ -628,6 +628,19 @@ namespace VisualizationUtils
         cv::Mat combined;
         cv::hconcat(std::vector<cv::Mat>{vizL, vizDisp, vizErr, vizTex}, combined);
 
+        // Save each panel individually too, alongside the combined mosaic below.
+        auto withSuffix = [&savePath](const std::string &suffix)
+        {
+            size_t dot = savePath.find_last_of('.');
+            return dot == std::string::npos ? savePath + suffix
+                                            : savePath.substr(0, dot) + suffix + savePath.substr(dot);
+        };
+        const std::vector<std::pair<std::string, const cv::Mat *>> panels = {
+            {"_left", &vizL}, {"_disparity", &vizDisp}, {"_photo_error", &vizErr}, {"_textureless", &vizTex}};
+        for (const auto &[suffix, img] : panels)
+            if (!cv::imwrite(withSuffix(suffix), *img))
+                std::cerr << "WARNING: Failed to write image to " << withSuffix(suffix) << "\n";
+
         if (cv::imwrite(savePath, combined))
         {
             std::cout << "Saved disparity image to: " << savePath << "\n";
