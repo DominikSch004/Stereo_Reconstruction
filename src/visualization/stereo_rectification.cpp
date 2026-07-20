@@ -45,7 +45,7 @@ int main()
     std::vector<bool> mask;
 
     std::mt19937 rng(42);
-    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, visualize, FundamentalMethod::CustomMAGSAC, 1.0, 0.99, 1000);
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, visualize, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000);
 
     std::vector<cv::Point2f> inL, inR;
     for (size_t i = 0; i < ptsL.size(); ++i)

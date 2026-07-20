@@ -86,7 +86,13 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
 
     // --- 2. Epipolar Geometry & Fundamental Matrix Estimation ---
     std::vector<bool> inlierMask;
-    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, visualize, config.fundamental, 1.0, 0.99, 1000);
+    double threshold = 1.0;
+    if (config.fundamental == FundamentalMethod::CustomMAGSAC)
+    {
+        // sigmaMax value not actually threshold
+        threshold = 10.0;
+    };
+    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, visualize, config.fundamental, threshold, 0.99, 1000);
     cv::Mat F_cv = toCvMat(F_eigen);
     res.inlierMask = inlierMask;
 

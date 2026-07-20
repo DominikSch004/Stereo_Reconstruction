@@ -87,7 +87,7 @@ int main(int argc, char **argv)
         threshold = 10.0;
     };
 
-    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, inliers, config.rng, visualization, config.fundamental, threshold, 0.99, 100000);
+    Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, inliers, config.rng, visualization, config.fundamental, threshold, 0.99, 1000);
 
     VisualizationUtils::fundamentalExplorationVideo(grayLeft, grayRight, visualization, "Random Sampling Optimization Process", 0, out_dir + "/fundamental_iterations.mp4");
 
