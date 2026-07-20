@@ -80,10 +80,10 @@ int main(int argc, char **argv)
             VisualizationData visualize;
             std::vector<bool> CustomInliers, OpenCVInliers, Custommagsacinliers, Customprosacinliers;
 
-            Eigen::Matrix3d F_custom = FundamentalMatrix::computeFundamental(ptsL, ptsR, CustomInliers, rng, visualize, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 1000);
-            Eigen::Matrix3d F_opencv = FundamentalMatrix::computeFundamental(ptsL, ptsR, OpenCVInliers, rng, visualize, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 1000);
-            Eigen::Matrix3d F_magsac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Custommagsacinliers, rng, visualize, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000);
-            Eigen::Matrix3d F_prosac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Customprosacinliers, rng, visualize, FundamentalMethod::CustomPROSAC, 1.0, 0.99, 1000);
+            Eigen::Matrix3d F_custom = FundamentalMatrix::computeFundamental(ptsL, ptsR, CustomInliers, rng, visualize, FundamentalMethod::CustomRANSAC, 1.0, 0.99, 100000);
+            Eigen::Matrix3d F_opencv = FundamentalMatrix::computeFundamental(ptsL, ptsR, OpenCVInliers, rng, visualize, FundamentalMethod::OpenCVRANSAC, 1.0, 0.99, 100000);
+            Eigen::Matrix3d F_magsac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Custommagsacinliers, rng, visualize, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 100000);
+            Eigen::Matrix3d F_prosac = FundamentalMatrix::computeFundamental(ptsL, ptsR, Customprosacinliers, rng, visualize, FundamentalMethod::CustomPROSAC, 1.0, 0.99, 100000);
 
             cv::Mat R_est, t_est;
             double rot_err, trans_err;

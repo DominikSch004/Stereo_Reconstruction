@@ -92,7 +92,7 @@ bool Pipeline::runPipeline(const cv::Mat &imgLeft, const cv::Mat &imgRight, cons
         // sigmaMax value not actually threshold
         threshold = 10.0;
     };
-    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, visualize, config.fundamental, threshold, 0.99, 1000);
+    Eigen::Matrix3d F_eigen = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, config.rng, visualize, config.fundamental, threshold, 0.99, 100000);
     cv::Mat F_cv = toCvMat(F_eigen);
     res.inlierMask = inlierMask;
 
