@@ -5,7 +5,7 @@ Group 11: Ayush Datta, Dominik Schneider, Francisco Mónica, Andrés Forero
 
 ## Project Overview
 Classical stereo reconstruction pipeline with two contributions:
-- **Contribution A:** Improving sparse matching and essential matrix estimation via confidence-weighted correspondences
+- **Contribution A:** Improving Fundamental Matrix estimation through robust estimator
 - **Contribution B:** Multi-view fusion via confidence-guided ICP alignment
 
 ## Pipeline
@@ -54,7 +54,7 @@ pip install numpy scipy matplotlib   # ablation analysis only
 
 ## Dataset
 [DTU MVS 2014](https://roboimagedata.compute.dtu.dk/?page_id=36) — place scenes under `data/dtu/`.
-Run `./scripts/download_dtu.sh` to download automatically. The dataset, build
+Run `./scripts/download_dtu.sh` and select the Sample Set (Option 1) to download automatically. The dataset, build
 tree, and generated results are **not** included in this repository/archive
 (they contain multi-hundred-MB files); regenerate the dataset with the download
 script and the outputs by running the executables above.
@@ -93,7 +93,7 @@ read `config.yaml` (step backends + parameters) and the DTU scene under
 | `ConfidenceIcpAblation` | `benchmark/ConfidenceIcpAblation.cpp` | config + CLI flags (see below) | `icp_weight_ablation.csv`, `confidence_cues.csv` |
 | `FusedCloudEval` | `benchmark/FusedCloudEval.cpp` | one or more `.ply` clouds as CLI args | chamfer distance to DTU GT scan, to stdout |
 | `SparseKeyPointMatching` | `src/visualization/sparse_key_point_matching.cpp` | config + DTU pair | match visualization window |
-| `EightPoint` / `EightPointRobustness` | `src/visualization/8point*.cpp` | config + DTU pair | epipolar-geometry figures / robustness CSV |
+| `EightPoint` / `EightPointRobustness` | `src/visualization/8point*.cpp` | config + DTU pair | epipolar-geometry figures / robustness CSV, saved in /experiments |
 | `StereoRectification` | `src/visualization/stereo_rectification.cpp` | config + DTU pair | rectified-pair PNG |
 | `StereoMatching` | `src/visualization/stereo_matching.cpp` | config + DTU pair | disparity map PNG |
 | `TriangulationVerification` | `src/visualization/triangulation_verification.cpp` | config + DTU pair | reprojection-check PNG |
