@@ -62,7 +62,7 @@ def generate_benchmark_plots(csv_file, x_column, x_label, title_prefix, output_d
 
 # Path Setup
 script_dir = Path(__file__).resolve().parent
-parent_dir = script_dir.parent.parent
+parent_dir = script_dir.parent
 
 experiments_dir = parent_dir / "experiments"
 experiments_dir.mkdir(parents=True, exist_ok=True)
