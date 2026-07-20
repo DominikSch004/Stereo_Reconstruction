@@ -253,13 +253,28 @@ PipelineConfig PipelineConfig::load(const std::string &path)
     else
         invalidValue("pose_refinement", v, "true | false");
 
+    // Custom disparity backend post-processing (Hirschmuller 2008 Sec 2.5, "Disparity Refinement"
+    v = readKey(fs, "disparity_peak_filtering", "false");
+    if (v == "true")
+        cfg.disparityRefinement.peakFiltering = true;
+    else if (v == "false")
+        cfg.disparityRefinement.peakFiltering = false;
+    else
+        invalidValue("disparity_peak_filtering", v, "true | false");
+
     v = readKey(fs, "disparity_gap_fill", "false");
     if (v == "true")
-        cfg.useGapFill = true;
+        cfg.disparityRefinement.gapFill = true;
     else if (v == "false")
-        cfg.useGapFill = false;
+        cfg.disparityRefinement.gapFill = false;
     else
         invalidValue("disparity_gap_fill", v, "true | false");
+
+    cfg.disparityRefinement.minPeakSegmentPx =
+        readScalar<int>(fs, "disparity_min_peak_segment_px", 100);
+
+    if (cfg.disparityRefinement.minPeakSegmentPx < 1)
+        throw std::runtime_error("[Config] disparity_min_peak_segment_px must be >= 1.");
 
     return cfg;
 }
@@ -303,7 +318,10 @@ void PipelineConfig::print() const
           << "  pose_refinement:    " << (refinePose ? "true" : "false") << "\n"
           << "  processing_scale:   " << processingScale << "\n"
           << "  ratio_threshold:    " << ratioThreshold << "\n"
-          << "  disparity_gap_fill: " << (useGapFill ? "true" : "false") << "\n"
+          << "  disparity_peak_filtering: " << (disparityRefinement.peakFiltering ? "true" : "false")
+          << " (min_segment=" << disparityRefinement.minPeakSegmentPx
+          << scaleArea(disparityRefinement.minPeakSegmentPx, processingScale, 1) << " px^2)\n"
+          << "  disparity_gap_fill: " << (disparityRefinement.gapFill ? "true" : "false") << "\n"
           << "  stereo_confidence:  " << (stereoConfidenceFilter ? "on" : "off")
           << " (LR=" << stereoLRMaxDiff
           << " px, photo_scale=" << stereoPhotometricScale << ")\n"

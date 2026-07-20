@@ -4,6 +4,10 @@
 #include <cstdint>
 #include <vector>
 
+// Rescales a pixel-unit/area threshold given at full resolution (scale=1.0) to processingScale.
+int scaleLinear(double base, double scale, int minVal);
+int scaleArea(double base, double scale, int minVal);
+
 /**
  * @enum DisparityMethod
  * @brief Selects the dense stereo matching backend.
@@ -12,6 +16,28 @@ enum class DisparityMethod
 {
     OpenCVSGBM, // Native OpenCV semi-global block matching
     Custom      // Custom hand-rolled dense matcher (Birchfield-Tomasi cost + 16-direction SGM)
+};
+
+/**
+ * @struct DisparityRefinementConfig
+ * @brief Custom backend only. Toggles and base (scale=1.0) thresholds for
+ * Hirschmuller 2008 Sec 2.5, "Disparity Refinement": postprocessing stages
+ * layered on top of the core disparity pipeline (Sec 2.1-2.3, Fig. 3, which
+ * always runs in full -- subpixel estimation and the L/R consistency check
+ * are part of that core and are not configurable). Peak filtering (Sec
+ * 2.5.1) and gap interpolation (Sec 2.5.3) can each be disabled independently
+ * to inspect its individual effect. minPeakSegmentPx is given at full
+ * resolution and rescaled internally by config.processing_scale, mirroring
+ * cv::StereoSGBM's speckleWindowSize. The segment-membership tolerance itself
+ * (max 1px disparity step between neighbors) is fixed by the paper's own
+ * definition of a peak, not a free parameter -- see removePeaks.
+ */
+struct DisparityRefinementConfig
+{
+    bool peakFiltering = true;  // Sec 2.5.1: drop small isolated disparity segments ("peaks")
+    int minPeakSegmentPx = 100; // min connected-segment area (px^2) to survive peak filtering;
+                                 // not paper-specified ("a certain size"), mirrors cv::StereoSGBM's speckleWindowSize
+    bool gapFill = false;       // Sec 2.5.3: interpolate remaining invalid pixels to reach full coverage
 };
 
 /**
@@ -32,7 +58,7 @@ public:
      * scale their own pixel/disparity-unit thresholds (L-R consistency tolerance, speckle/peak
      * region area and disparity-agreement range) by this factor so they stay comparable
      * across different scales.
-     * @param useGapFill Custom backend only (Hirschmuller 2008 Sec 2.5.3)
+     * @param refinement Custom backend only: see DisparityRefinementConfig.
      * @return CV_32F disparity map matrix containing actual pixel disparities.
      */
     static cv::Mat computeDisparity(
@@ -43,7 +69,7 @@ public:
         int blockSize,
         DisparityMethod method,
         double scale = 0.5,
-        bool useGapFill = false);
+        const DisparityRefinementConfig &refinement = DisparityRefinementConfig());
 
     static void computeDynamicSearchRangeCalibrated(
         const std::vector<cv::Point2f> &inPtsL,
@@ -77,13 +103,14 @@ public:
 private:
     // OpenCV and custom SGM backend implementations
     static cv::Mat computeSGBMOpenCV(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale);
-    static cv::Mat computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale, bool useGapFill);
+    static cv::Mat computeCustom(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, int blockSize, double scale, const DisparityRefinementConfig &refinement);
 
     // Custom SGM helpers (Birchfield-Tomasi cost + 16-direction SGM)
-    static std::vector<uint16_t> computeCostVolume(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, bool rightBase = false);
+    static std::vector<uint16_t> computePixelwiseCost(const cv::Mat &left, const cv::Mat &right, int minDisp, int numDisp, bool rightBase = false);
     static void computeBTIntervals(const cv::Mat &src, cv::Mat &Imin, cv::Mat &Imax);
-    static void aggregateDirection(const std::vector<uint16_t> &C, std::vector<uint16_t> &S, int rows, int cols, int numDisp, int dx, int dy, int P1, int P2);
+    static void aggregatePathCost(const std::vector<uint16_t> &C, std::vector<uint16_t> &S, int rows, int cols, int numDisp, int dx, int dy, int P1, int P2);
     static cv::Mat computeWTADisparity(const cv::Mat &left, const cv::Mat &right, int rows, int cols, int minDisp, int numDisp, int P1, int P2, bool rightBase);
+    static float estimateSubpixel(const uint16_t *costsAtPixel, int numDisp, int bestDispIdx);
     static cv::Mat interpolateGaps(const cv::Mat &disparity, const cv::Mat &dispRight, const cv::Mat &baseF, int minDisp, int numDisp);
     static cv::Mat nearestValidInDirection(const cv::Mat &disp, int minDisp, int rows, int cols, int dx, int dy);
     static cv::Mat removePeaks(const cv::Mat &disparity, int minDisp, int minSegmentSize, float maxSegmentDispDiff = 1.0f);

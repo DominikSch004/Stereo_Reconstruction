@@ -29,11 +29,11 @@ rng_seed: -1
 fundamental_matrix: custom_magsac
 
 # opencv | custom  (custom = Loop & Zhang projective rectification)
-rectification: opencv
+rectification: custom
 
 # opencv | custom  (custom = simplified semi-global matching (Hirschmüller 2008),
 # Birchfield-Tomasi cost + 16-direction path aggregation)
-disparity: opencv
+disparity: custom
 
 # Confidence cue used by confidence-weighted ICP. The hard left/right check is
 # common to every ablation variant; the surviving soft confidence is c_stereo.
@@ -51,7 +51,7 @@ conf_use_edge: 1
 conf_use_stereo: 1
 
 # opencv | custom  (custom = per-pixel DLT triangulation)
-triangulation: opencv
+triangulation: custom
 
 # point_to_point | point_to_plane  (only used by the IcpFusion executable)
 # point_to_point is the default: the per-point normals available here come from
@@ -61,13 +61,27 @@ icp_mode: point_to_plane
 
 # true | false non-linear refinement of (R, t) directly on the essential-matrix 
 # space after recoverPose
-pose_refinement: false
+pose_refinement: true
 
 # (0, 1.0]  image downscale factor applied before every pipeline step, via
 # Pipeline::preprocessScale. 1.0 = full resolution, no downscale.
 processing_scale: 0.5
 
-# true | false  Custom disparity backend only (Hirschmuller 2008 Sec 2.5.3): pushes
-# coverage to 100% by interpolating remaining gaps. Trades some dense-vs-sparse
-# accuracy for coverage -- should be on for scan6, where the denser result looks better.
+# Custom disparity backend only: toggles/thresholds for Sec 2.5, "Disparity
+# Refinement" (Hirschmuller 2008): postprocessing layered on top of the core
+# disparity algorithm (Sec 2.1-2.3: pixelwise cost, path aggregation, WTA +
+# subpixel selection, and L/R consistency check). Each refinement stage below
+# can be turned off to inspect its individual effect. Threshold values are given
+# at full resolution (scale=1.0) and are rescaled internally by processing_scale.
+
+# true | false  Sec 2.5.1: removes small isolated patches of wrong disparity
+# ("peaks"). min_peak_segment_px isn't specified in the paper as it depends on
+# the scene structure. We use 100 here to match StereoSGBM's speckleWindowSize.
+# Raising it trades coverage for dense-vs-sparse accuracy.
+disparity_peak_filtering: true
+disparity_min_peak_segment_px: 100
+
+# true | false  Sec 2.5.3: pushes coverage to 100% by interpolating remaining gaps.
+# Trades some dense-vs-sparse accuracy for coverage -- should be on for scan6, where
+# the denser result looks better.
 disparity_gap_fill: true

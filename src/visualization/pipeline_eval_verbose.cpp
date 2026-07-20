@@ -173,7 +173,7 @@ int main(int argc, char **argv)
         rect.rectLeft, rect.rectRight,
         minDisp, numDisp,
         blockSize, config.disparity, config.processingScale,
-        config.useGapFill);
+        config.disparityRefinement);
 
     if (denseDisparity.empty())
     {
