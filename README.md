@@ -33,7 +33,6 @@ Classical stereo reconstruction pipeline with two contributions:
 │   ├── utils/                 # image/PLY/mesh/geometry/NN helpers + experiments
 │   └── visualization/         # standalone per-step verification/visualization executables
 ├── benchmark/                 # Evaluator + ICP/ablation/cloud-eval benchmark executables
-├── docs/                      # pipeline.md, papers/
 ├── scripts/                   # download_dtu.sh, analyze_icp_ablation.py
 ├── data/dtu/                  # DTU dataset (git-ignored, populated by download script)
 └── results/                   # generated point clouds / ablation output (git-ignored)
