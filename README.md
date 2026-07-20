@@ -39,16 +39,26 @@ Classical stereo reconstruction pipeline with two contributions:
 └── results/                   # generated point clouds / ablation output (git-ignored)
 ```
 
-## Dependencies
+## Dependencies & installation
 - OpenCV ≥ 4.5 (`core imgproc highgui calib3d features2d`)
 - Eigen3
 - Ceres Solver
 - glog
 - CMake ≥ 3.14, a C++17 compiler
+- Python 3 with `numpy`, `scipy`, `matplotlib` (only for the ablation analysis script)
+
+On Debian/Ubuntu the C++ dependencies install with:
+```bash
+sudo apt install build-essential cmake libopencv-dev libeigen3-dev libceres-dev libgoogle-glog-dev
+pip install numpy scipy matplotlib   # ablation analysis only
+```
 
 ## Dataset
 [DTU MVS 2014](https://roboimagedata.compute.dtu.dk/?page_id=36) — place scenes under `data/dtu/`.
-Run `./scripts/download_dtu.sh` to download automatically.
+Run `./scripts/download_dtu.sh` to download automatically. The dataset, build
+tree, and generated results are **not** included in this repository/archive
+(they contain multi-hundred-MB files); regenerate the dataset with the download
+script and the outputs by running the executables above.
 
 ## Build
 The project defaults to an optimized `Release` build (`-O3`, `NDEBUG`); pass the
@@ -70,16 +80,42 @@ Pass an alternative config path as the first argument, e.g. `./StereoReconstruct
 Which backend each pipeline step uses (SIFT/ORB, MAGSAC/PROSAC, custom/OpenCV
 disparity, ICP mode, confidence terms, …) is selected in [`config.yaml`](config.yaml).
 
-### Executables
-| Target | Purpose |
-| --- | --- |
-| `StereoReconstruction` | Full pipeline on one stereo pair, writes a point cloud |
-| `IcpFusion` | Runs the pipeline per view pair, then fuses via confidence-weighted ICP |
-| `IcpVerification` | Synthetic known-transform recovery (exit 0 = all checks pass) |
-| `IcpBenchmark` | DTU benchmark: unweighted vs. confidence-weighted, chamfer vs. GT scan |
-| `ConfidenceIcpAblation` | Paired factor ablation of `w = c_global·c_depth·c_edge·c_stereo` |
-| `FusedCloudEval` | Chamfer accuracy of saved clouds vs. the DTU GT scan |
-| `SparseKeyPointMatching`, `EightPoint`, `EightPointRobustness`, `StereoRectification`, `StereoMatching`, `TriangulationVerification`, `PipelineEvaluationVerbose`, `MeshReconstruction`, `PoissonReconstruction`, `PoseRecoveryComparison` | Per-step visualization / verification |
+### Entrypoint files
+Each executable is a single `main()` in the source file below. Unless noted, all
+read `config.yaml` (step backends + parameters) and the DTU scene under
+`data/dtu/`; a different config path can be passed as the first CLI argument.
+
+| Executable | Source file | Input | Output |
+| --- | --- | --- | --- |
+| `StereoReconstruction` | `src/main.cpp` | config + one DTU stereo pair | `pointcloud.ply`; pose/reconstruction metrics to stdout |
+| `IcpFusion` | `src/IcpFusion.cpp` | config + DTU view range (`icp_view_range`) | `pointcloud_fused_preicp.ply`, `pointcloud_fused.ply`, `mesh_fused.ply` |
+| `IcpVerification` | `benchmark/IcpVerification.cpp` | none (synthetic clouds) | pass/fail to stdout, exit 0 = all checks pass |
+| `IcpBenchmark` | `benchmark/IcpBenchmark.cpp` | config + DTU scene | benchmark CSV (unweighted vs. confidence-weighted, chamfer vs. GT) |
+| `ConfidenceIcpAblation` | `benchmark/ConfidenceIcpAblation.cpp` | config + CLI flags (see below) | `icp_weight_ablation.csv`, `confidence_cues.csv` |
+| `FusedCloudEval` | `benchmark/FusedCloudEval.cpp` | one or more `.ply` clouds as CLI args | chamfer distance to DTU GT scan, to stdout |
+| `SparseKeyPointMatching` | `src/visualization/sparse_key_point_matching.cpp` | config + DTU pair | match visualization window |
+| `EightPoint` / `EightPointRobustness` | `src/visualization/8point*.cpp` | config + DTU pair | epipolar-geometry figures / robustness CSV |
+| `StereoRectification` | `src/visualization/stereo_rectification.cpp` | config + DTU pair | rectified-pair PNG |
+| `StereoMatching` | `src/visualization/stereo_matching.cpp` | config + DTU pair | disparity map PNG |
+| `TriangulationVerification` | `src/visualization/triangulation_verification.cpp` | config + DTU pair | reprojection-check PNG |
+| `PipelineEvaluationVerbose` | `src/visualization/pipeline_eval_verbose.cpp` | config + DTU pair | per-step diagnostic PNGs |
+| `MeshReconstruction` / `PoissonReconstruction` | `src/visualization/*_reconstruction.cpp` | a `.ply` point cloud | reconstructed mesh `.ply` |
+| `PoseRecoveryComparison` | `src/visualization/pose_recovery_comparison.cpp` | config + DTU pair | pose-estimator comparison PNG |
+
+### Main functions
+- `Pipeline::runPipeline(imgL, imgR, K, res, config, C1, C2)` (`src/Pipeline.cpp`) —
+  runs the whole 7-step pipeline and fills a `PipelineResult` with the rectified
+  images, dense disparity, per-pixel confidence, back-projected 3D points, and
+  the estimated relative pose.
+- `PlyUtils::buildAndSavePLY(...)` (`src/utils/PlyUtils.cpp`) — back-projects the
+  dense disparity into a colored, confidence-weighted point cloud and writes it
+  as a `.ply`.
+- `Evaluator::evaluateMetrics(params)` (`benchmark/Evaluator.cpp`) — compares the
+  estimated pose and reconstruction against DTU ground truth (rotation/translation
+  error, epipolar error, inlier ratio, reconstruction distance).
+- `ICPOptimizer::estimatePose(source, target, initialPose)` (`src/components/ICP.cpp`) —
+  the iterative confidence-weighted ICP that aligns one cloud onto another;
+  used by `IcpFusion` to merge per-pair clouds into one fused model.
 
 ## Confidence-weighted ICP ablation
 Reproduces the paired DTU factor ablation of `w = c_global · c_depth · c_edge · c_stereo`.
