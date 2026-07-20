@@ -112,7 +112,7 @@ int main()
 
         // Load fundamental from custom MAGSAC
         VisualizationData vis;
-        Eigen::Matrix3d F_gt = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, rng, vis, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000000);
+        Eigen::Matrix3d F_gt = FundamentalMatrix::computeFundamental(ptsL, ptsR, inlierMask, rng, vis, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 100000);
 
         for (size_t j = 0; j < ptsL.size(); j++)
         {

@@ -139,7 +139,7 @@ int main(int argc, char **argv)
 
         std::mt19937 rng(42);
 
-        Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, visualize, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 1000);
+        Eigen::Matrix3d F = FundamentalMatrix::computeFundamental(ptsL, ptsR, mask, rng, visualize, FundamentalMethod::CustomMAGSAC, 10.0, 0.99, 100000);
         cv::Mat F_cv = toCvMat(F);
 
         std::vector<cv::Point2f> inL, inR;
