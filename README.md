@@ -2,6 +2,9 @@
 
 A modular C++ pipeline for 3D stereo reconstruction and multi-view ICP fusion. This repository provides a complete feature-to-mesh pipeline, transitioning from sparse keypoint matching and fundamental matrix estimation to dense disparity maps and confidence-weighted surface reconstruction.
 
+ <img width="939" height="309" alt="Screenshot 2026-09-16 at 15 38 01" src="https://github.com/user-attachments/assets/22a0a9cd-8b76-4734-a80f-05b4567b948b" />
+
+
 ## Pipeline Architecture
 1. **Sparse Keypoint Matching:** SIFT + FLANN
 2. **Pose Estimation:** Normalized 8-point algorithm with robust estimators (RANSAC / MAGSAC / PROSAC)
